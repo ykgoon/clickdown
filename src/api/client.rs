@@ -3,9 +3,11 @@
 use crate::models::{WorkspacesResponse, SpacesResponse, FoldersResponse, ListsResponse, Workspace, ClickUpSpace as Space, Folder, List, Task, DocumentsResponse, DocumentPagesResponse, PageResponse, TasksResponse, CreateTaskRequest, UpdateTaskRequest, DocumentFilters, Document, Page};
 use crate::models::TaskFilters;
 use crate::api::endpoints::ApiEndpoints;
+use crate::api::client_trait::ClickUpApi;
 use anyhow::{Context, Result};
 use reqwest::{Client, Response};
 use serde::de::DeserializeOwned;
+use async_trait::async_trait;
 
 /// ClickUp API client
 pub struct ClickUpClient {
@@ -195,5 +197,73 @@ impl ClickUpClient {
             self.request(reqwest::Method::GET, url)
         ).await?;
         Ok(response.page)
+    }
+}
+
+/// Implement the ClickUpApi trait for ClickUpClient
+#[async_trait]
+impl ClickUpApi for ClickUpClient {
+    async fn get_workspaces(&self) -> Result<Vec<Workspace>> {
+        self.get_workspaces().await
+    }
+
+    async fn get_spaces(&self, team_id: &str) -> Result<Vec<Space>> {
+        self.get_spaces(team_id).await
+    }
+
+    async fn get_space(&self, space_id: &str) -> Result<Space> {
+        self.get_space(space_id).await
+    }
+
+    async fn get_folders(&self, space_id: &str) -> Result<Vec<Folder>> {
+        self.get_folders(space_id).await
+    }
+
+    async fn get_lists_in_folder(
+        &self,
+        folder_id: &str,
+        archived: Option<bool>,
+    ) -> Result<Vec<List>> {
+        self.get_lists_in_folder(folder_id, archived).await
+    }
+
+    async fn get_lists_in_space(
+        &self,
+        space_id: &str,
+        archived: Option<bool>,
+    ) -> Result<Vec<List>> {
+        self.get_lists_in_space(space_id, archived).await
+    }
+
+    async fn get_tasks(&self, list_id: &str, filters: &TaskFilters) -> Result<Vec<Task>> {
+        self.get_tasks(list_id, filters).await
+    }
+
+    async fn get_task(&self, task_id: &str) -> Result<Task> {
+        self.get_task(task_id).await
+    }
+
+    async fn create_task(&self, list_id: &str, task: &CreateTaskRequest) -> Result<Task> {
+        self.create_task(list_id, task).await
+    }
+
+    async fn update_task(&self, task_id: &str, task: &UpdateTaskRequest) -> Result<Task> {
+        self.update_task(task_id, task).await
+    }
+
+    async fn delete_task(&self, task_id: &str) -> Result<()> {
+        self.delete_task(task_id).await
+    }
+
+    async fn search_docs(&self, filters: &DocumentFilters) -> Result<Vec<Document>> {
+        self.search_docs(filters).await
+    }
+
+    async fn get_doc_pages(&self, doc_id: &str) -> Result<Vec<Page>> {
+        self.get_doc_pages(doc_id).await
+    }
+
+    async fn get_page(&self, page_id: &str) -> Result<Page> {
+        self.get_page(page_id).await
     }
 }

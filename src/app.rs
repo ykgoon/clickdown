@@ -7,7 +7,7 @@ use iced::{
 use anyhow::Result;
 use std::sync::Arc;
 
-use crate::api::{ClickUpClient, AuthManager};
+use crate::api::{ClickUpClient, AuthManager, ClickUpApi};
 use crate::config::ConfigManager;
 use crate::models::{Workspace, ClickUpSpace, Folder, List, Task as ClickUpTask, TaskFilters, Document, Page};
 use crate::ui::{
@@ -18,22 +18,22 @@ use crate::ui::{
 pub struct ClickDown {
     /// Application state
     state: AppState,
-    
+
     /// API client (initialized after auth)
-    client: Option<Arc<ClickUpClient>>,
-    
+    client: Option<Arc<dyn ClickUpApi>>,
+
     /// Configuration manager
     config: ConfigManager,
-    
+
     /// Loading state
     loading: bool,
-    
+
     /// Error message
     error: Option<String>,
-    
+
     /// Sidebar state
     sidebar: sidebar::State,
-    
+
     /// Task list state
     task_list: task_list::State,
 
@@ -69,7 +69,10 @@ pub enum Message {
     AuthSuccess,
     AuthError(String),
     Logout,
-    
+
+    // Initialization
+    Initialize,
+
     // Workspace/Navigation
     WorkspacesLoaded(Vec<Workspace>),
     WorkspaceSelected(Workspace),
@@ -79,7 +82,7 @@ pub enum Message {
     FolderSelected(Folder),
     ListsLoaded(Vec<List>),
     ListSelected(List),
-    
+
     // Tasks
     TasksLoaded(Vec<ClickUpTask>),
     TaskSelected(ClickUpTask),
@@ -91,17 +94,18 @@ pub enum Message {
     TaskNameChanged(String),
     SaveTask,
     DeleteTask(String),
-    
+
     // UI
     ToggleSidebar,
     ToggleTheme,
     WindowResized(u32, u32),
+    WindowCloseRequested,
 
     // Documents
     DocumentsLoaded(Vec<Document>),
     DocumentSelected(Document),
     PageSelected(Page),
-    
+
     // Async operations
     Tick,
     None,
@@ -109,22 +113,22 @@ pub enum Message {
 
 impl Default for ClickDown {
     fn default() -> Self {
-        Self::new()
+        Self::new().0
     }
 }
 
 impl ClickDown {
-    pub fn new() -> Self {
+    pub fn new() -> (Self, iced::Task<Message>) {
         let config = ConfigManager::new().unwrap_or_default();
         let auth_manager = AuthManager::new().unwrap_or_default();
-        
+
         let state = if auth_manager.has_token() {
             AppState::Initializing
         } else {
             AppState::Unauthenticated
         };
-        
-        Self {
+
+        let app = Self {
             state,
             client: None,
             config,
@@ -135,7 +139,52 @@ impl ClickDown {
             task_detail: None,
             document_view: document_view::State::new(),
             auth: auth_view::State::new(),
-        }
+        };
+
+        // If we have a token, start initialization
+        let task = if auth_manager.has_token() {
+            iced::Task::perform(
+                async move {
+                    // Try to load the token
+                    AuthManager::new().ok().and_then(|auth| auth.load_token().ok()).flatten()
+                },
+                |token_opt| {
+                    if let Some(_token) = token_opt {
+                        Message::Initialize
+                    } else {
+                        Message::AuthError("Token not found".to_string())
+                    }
+                },
+            )
+        } else {
+            iced::Task::none()
+        };
+
+        (app, task)
+    }
+
+    /// Create a new ClickDown instance with a custom API client
+    /// This is primarily used for testing with mocked clients
+    pub fn with_client(client: Arc<dyn ClickUpApi>) -> (Self, iced::Task<Message>) {
+        let config = ConfigManager::new().unwrap_or_default();
+
+        let app = Self {
+            state: AppState::LoadingWorkspaces,
+            client: Some(client),
+            config,
+            loading: true,
+            error: None,
+            sidebar: sidebar::State::new(),
+            task_list: task_list::State::new(),
+            task_detail: None,
+            document_view: document_view::State::new(),
+            auth: auth_view::State::new(),
+        };
+
+        (app, iced::Task::perform(
+            async { Message::Initialize },
+            |msg| msg,
+        ))
     }
 
     pub fn update(&mut self, message: Message) -> iced::Task<Message> {
@@ -179,7 +228,31 @@ impl ClickDown {
                 self.loading = false;
                 self.state = AppState::Unauthenticated;
             }
-            
+
+            Message::Initialize => {
+                // Initialize client with stored token and load workspaces
+                if let Ok(auth) = AuthManager::new() {
+                    if let Ok(Some(token)) = auth.load_token() {
+                        let client = Arc::new(ClickUpClient::new(token.clone()));
+                        self.client = Some(client.clone());
+                        self.state = AppState::LoadingWorkspaces;
+                        self.loading = true;
+
+                        return iced::Task::perform(
+                            async move {
+                                client.get_workspaces().await
+                            },
+                            |result| match result {
+                                Ok(workspaces) => Message::WorkspacesLoaded(workspaces),
+                                Err(e) => Message::AuthError(e.to_string()),
+                            },
+                        );
+                    }
+                }
+                // If we get here, token loading failed
+                self.state = AppState::Unauthenticated;
+            }
+
             Message::Logout => {
                 self.client = None;
                 self.sidebar = sidebar::State::new();
@@ -195,7 +268,8 @@ impl ClickDown {
             Message::WorkspacesLoaded(workspaces) => {
                 self.sidebar.workspaces = workspaces;
                 self.loading = false;
-                
+                self.state = AppState::Main;
+
                 if let Some(ws) = self.sidebar.workspaces.first().cloned() {
                     self.sidebar.selected_workspace = Some(ws.clone());
                     return self.load_spaces(ws.id);
@@ -351,6 +425,10 @@ impl ClickDown {
                 let _ = self.config.save();
             }
 
+            Message::WindowCloseRequested => {
+                std::process::exit(0);
+            }
+
             Message::DocumentsLoaded(docs) => {
                 // Store documents in sidebar or show in a list
                 tracing::info!("Loaded {} documents", docs.len());
@@ -380,8 +458,18 @@ impl ClickDown {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        // Could add periodic refresh here
-        Subscription::none()
+        iced::event::listen_with(|event, _status, _window_id| {
+            match event {
+                iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                    key: iced::keyboard::Key::Character(c),
+                    modifiers,
+                    ..
+                }) if modifiers.control() && (c.as_str() == "q" || c.as_str() == "Q") => {
+                    Some(Message::WindowCloseRequested)
+                }
+                _ => None,
+            }
+        })
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -487,6 +575,64 @@ impl ClickDown {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
+    }
+
+    // ==================== Getter Methods ====================
+    // These methods provide access to application state
+
+    /// Get the current application state
+    pub fn state(&self) -> &AppState {
+        &self.state
+    }
+
+    /// Get workspaces from sidebar
+    pub fn workspaces(&self) -> &[Workspace] {
+        &self.sidebar.workspaces
+    }
+
+    /// Get selected workspace
+    pub fn selected_workspace(&self) -> &Option<Workspace> {
+        &self.sidebar.selected_workspace
+    }
+
+    /// Get selected space
+    pub fn selected_space(&self) -> &Option<ClickUpSpace> {
+        &self.sidebar.selected_space
+    }
+
+    /// Get selected folder
+    pub fn selected_folder(&self) -> &Option<Folder> {
+        &self.sidebar.selected_folder
+    }
+
+    /// Get selected list
+    pub fn selected_list(&self) -> &Option<List> {
+        &self.sidebar.selected_list
+    }
+
+    /// Get tasks
+    pub fn tasks(&self) -> &[ClickUpTask] {
+        &self.task_list.tasks
+    }
+
+    /// Check if task detail is open
+    pub fn is_task_detail_open(&self) -> bool {
+        self.task_detail.is_some()
+    }
+
+    /// Get error message
+    pub fn error(&self) -> &Option<String> {
+        &self.error
+    }
+
+    /// Check if sidebar is collapsed
+    pub fn is_sidebar_collapsed(&self) -> bool {
+        self.sidebar.collapsed
+    }
+
+    /// Check if client is initialized
+    pub fn has_client(&self) -> bool {
+        self.client.is_some()
     }
 }
 

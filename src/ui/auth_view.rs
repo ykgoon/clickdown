@@ -39,6 +39,7 @@ pub fn view<'a>(state: &'a State, error: Option<&'a str>) -> Element<'a, Message
         "pk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         &state.token_input,
     )
+    .on_input(Message::TokenEntered)
     .padding(12)
     .size(14)
     .width(Length::Fixed(400.0));
@@ -58,7 +59,8 @@ pub fn view<'a>(state: &'a State, error: Option<&'a str>) -> Element<'a, Message
         .push(widget::Space::with_height(Length::Fixed(8.0)))
         .push(token_input)
         .push(widget::Space::with_height(Length::Fixed(24.0)))
-        .push(connect_btn);
+        .push(connect_btn)
+        .align_x(iced::alignment::Horizontal::Center);
 
     // Show error if present
     if let Some(error_msg) = error {
@@ -88,5 +90,6 @@ pub fn view<'a>(state: &'a State, error: Option<&'a str>) -> Element<'a, Message
     )
     .width(Length::Fill)
     .height(Length::Fill)
+    .center_x(Length::Fill)
     .into()
 }

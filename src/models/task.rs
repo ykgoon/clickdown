@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A ClickUp Task
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
     pub name: String,
@@ -58,7 +58,7 @@ pub struct Task {
 }
 
 /// Task status
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskStatus {
     pub status: String,
     #[serde(default)]
@@ -70,7 +70,7 @@ pub struct TaskStatus {
 }
 
 /// User/Assignee reference
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct User {
     pub id: i64,
     pub username: String,
@@ -83,7 +83,7 @@ pub struct User {
 }
 
 /// Task checklist
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Checklist {
     pub id: String,
     pub name: String,
@@ -94,7 +94,7 @@ pub struct Checklist {
 }
 
 /// Task tag
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tag {
     pub id: String,
     pub name: String,
@@ -103,14 +103,14 @@ pub struct Tag {
 }
 
 /// Task reference (for parent tasks)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskReference {
     pub id: String,
     pub name: Option<String>,
 }
 
 /// Priority level
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Priority {
     pub priority: String,
     #[serde(default)]
@@ -118,7 +118,7 @@ pub struct Priority {
 }
 
 /// Custom field value
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CustomField {
     pub id: String,
     pub name: String,
@@ -129,7 +129,7 @@ pub struct CustomField {
 }
 
 /// Attachment
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Attachment {
     pub id: String,
     #[serde(default)]
@@ -143,21 +143,21 @@ pub struct Attachment {
 }
 
 /// Reference to a List
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListReference {
     pub id: String,
     pub name: Option<String>,
 }
 
 /// Reference to a Folder
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FolderReference {
     pub id: String,
     pub name: Option<String>,
 }
 
 /// Reference to a Space
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpaceReference {
     pub id: String,
     pub name: Option<String>,

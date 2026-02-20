@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::models::Priority;
 
 /// A ClickUp Workspace (also called Team in the API)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: String,
     pub name: String,
@@ -17,7 +17,7 @@ pub struct Workspace {
 }
 
 /// A Space within a Workspace
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Space {
     pub id: String,
     pub name: String,
@@ -34,7 +34,7 @@ pub struct Space {
 }
 
 /// Status of a Space
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpaceStatus {
     pub status: String,
     #[serde(default)]
@@ -44,7 +44,7 @@ pub struct SpaceStatus {
 }
 
 /// A Folder within a Space
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Folder {
     pub id: String,
     pub name: String,
@@ -59,14 +59,14 @@ pub struct Folder {
 }
 
 /// Reference to a Space
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpaceReference {
     pub id: String,
     pub name: String,
 }
 
 /// A List within a Folder or Space
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct List {
     pub id: String,
     pub name: String,
@@ -91,14 +91,14 @@ pub struct List {
 }
 
 /// Reference to a Folder
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FolderReference {
     pub id: String,
     pub name: Option<String>,
 }
 
 /// Status of a List
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListStatus {
     pub status: String,
     #[serde(default)]
@@ -108,7 +108,7 @@ pub struct ListStatus {
 }
 
 /// Avatar image reference
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Avatar {
     pub attachment_id: Option<String>,
     #[serde(default)]
