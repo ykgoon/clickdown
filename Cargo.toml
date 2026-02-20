@@ -1,0 +1,52 @@
+[package]
+name = "clickdown"
+version = "0.1.0"
+edition = "2021"
+description = "A fast and responsive ClickUp desktop client"
+authors = ["ClickDown Team"]
+
+[dependencies]
+# GUI Framework
+iced = { version = "0.13", features = ["tokio"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# SQLite for caching
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Configuration and directories
+dirs = "5"
+toml = "0.8"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# URL handling
+url = "2"
+
+# Markdown rendering for documents
+pulldown-cmark = "0.12"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# URL encoding
+urlencoding = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
