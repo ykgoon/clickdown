@@ -80,6 +80,17 @@ impl AuthManager {
 
 impl Default for AuthManager {
     fn default() -> Self {
-        Self::new().expect("Failed to create AuthManager")
+        // Return an AuthManager with default paths if initialization fails
+        // This allows the app to start even if config directory can't be created
+        use tracing::warn;
+        match Self::new() {
+            Ok(manager) => manager,
+            Err(e) => {
+                warn!("Failed to initialize AuthManager: {}", e);
+                AuthManager {
+                    config_dir: PathBuf::new(),
+                }
+            }
+        }
     }
 }

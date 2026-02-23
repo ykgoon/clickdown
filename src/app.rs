@@ -492,7 +492,10 @@ impl ClickDown {
     
     /// Load spaces for a workspace
     fn load_spaces(&self, team_id: String) -> iced::Task<Message> {
-        let client = self.client.clone().unwrap();
+        let client = match self.client.clone() {
+            Some(client) => client,
+            None => return iced::Task::done(Message::AuthError("Client not initialized".to_string())),
+        };
         iced::Task::perform(
             async move {
                 client.get_spaces(&team_id).await
@@ -506,7 +509,10 @@ impl ClickDown {
     
     /// Load folders for a space
     fn load_folders(&self, space_id: String) -> iced::Task<Message> {
-        let client = self.client.clone().unwrap();
+        let client = match self.client.clone() {
+            Some(client) => client,
+            None => return iced::Task::done(Message::AuthError("Client not initialized".to_string())),
+        };
         iced::Task::perform(
             async move {
                 client.get_folders(&space_id).await
@@ -520,7 +526,10 @@ impl ClickDown {
     
     /// Load lists in a folder
     fn load_lists_in_folder(&self, folder_id: String) -> iced::Task<Message> {
-        let client = self.client.clone().unwrap();
+        let client = match self.client.clone() {
+            Some(client) => client,
+            None => return iced::Task::done(Message::AuthError("Client not initialized".to_string())),
+        };
         iced::Task::perform(
             async move {
                 client.get_lists_in_folder(&folder_id, None).await
@@ -534,7 +543,10 @@ impl ClickDown {
     
     /// Load tasks in a list
     fn load_tasks(&self, list_id: String) -> iced::Task<Message> {
-        let client = self.client.clone().unwrap();
+        let client = match self.client.clone() {
+            Some(client) => client,
+            None => return iced::Task::done(Message::AuthError("Client not initialized".to_string())),
+        };
         let filters = TaskFilters::default();
         iced::Task::perform(
             async move {

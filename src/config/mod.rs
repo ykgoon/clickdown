@@ -183,6 +183,18 @@ impl ConfigManager {
 
 impl Default for ConfigManager {
     fn default() -> Self {
-        Self::new().expect("Failed to create ConfigManager")
+        // Return a ConfigManager with default config if initialization fails
+        // This allows the app to start even if config directory can't be created
+        use tracing::warn;
+        match Self::new() {
+            Ok(manager) => manager,
+            Err(e) => {
+                warn!("Failed to initialize ConfigManager: {}", e);
+                ConfigManager {
+                    config: Config::default(),
+                    config_path: PathBuf::new(),
+                }
+            }
+        }
     }
 }
