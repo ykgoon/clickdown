@@ -520,21 +520,6 @@ impl ClickDown {
         iced::Task::none()
     }
 
-    pub fn subscription(&self) -> Subscription<Message> {
-        iced::event::listen_with(|event, _status, _window_id| {
-            match event {
-                iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
-                    key: iced::keyboard::Key::Character(c),
-                    modifiers,
-                    ..
-                }) if modifiers.control() && (c.as_str() == "q" || c.as_str() == "Q") => {
-                    Some(Message::WindowCloseRequested)
-                }
-                _ => None,
-            }
-        })
-    }
-
     pub fn view(&self) -> Element<'_, Message> {
         match &self.state {
             AppState::Unauthenticated => {
@@ -745,11 +730,38 @@ fn loading_view<'a, Message: 'static>(text: &'a str) -> Element<'a, Message> {
 
 /// Run the application
 pub fn run() -> Result<()> {
-    iced::run(
-        "ClickDown",
-        ClickDown::update,
-        ClickDown::view,
-    )?;
+    iced::application("ClickDown", ClickDown::update, ClickDown::view)
+        .subscription(subscription)
+        .run()?;
 
     Ok(())
+}
+
+/// Application subscription - handles keyboard events
+pub fn subscription(_state: &ClickDown) -> Subscription<Message> {
+    use iced::keyboard::key::{Code, Physical};
+
+    iced::event::listen_with(|event, _status, _window_id| {
+        match event {
+            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                key,
+                physical_key,
+                modifiers,
+                ..
+            }) if modifiers.control() => {
+                // Match physical Q key (works regardless of keyboard layout)
+                if physical_key == Physical::Code(Code::KeyQ) {
+                    return Some(Message::WindowCloseRequested);
+                }
+                // Fallback to character match for systems that don't provide physical key info
+                match key {
+                    iced::keyboard::Key::Character(c) if c.as_str() == "q" || c.as_str() == "Q" => {
+                        Some(Message::WindowCloseRequested)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    })
 }
