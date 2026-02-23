@@ -8,6 +8,7 @@ use pulldown_cmark::{Parser, Options, html};
 
 use crate::models::{Document, Page};
 use crate::app::Message;
+use crate::ui::screen_id_overlay;
 
 /// Document viewer state
 #[derive(Debug, Clone, Default)]
@@ -85,11 +86,13 @@ pub fn view(state: &State) -> Element<'_, Message> {
         );
     }
 
-    Container::new(Scrollable::new(content))
+    let main_content = Container::new(Scrollable::new(content))
         .width(Length::Fill)
         .height(Length::Fill)
-        .padding(24)
-        .into()
+        .padding(24);
+
+    // Wrap with screen ID overlay
+    screen_id_overlay::with_overlay(main_content.into(), "document")
 }
 
 fn document_header(doc: &Document) -> Element<'_, Message> {

@@ -6,6 +6,7 @@ use iced::{
 };
 
 use crate::app::Message;
+use crate::ui::screen_id_overlay;
 
 /// Authentication view state
 #[derive(Debug, Clone, Default)]
@@ -82,7 +83,7 @@ pub fn view<'a>(state: &'a State, error: Option<&'a str>) -> Element<'a, Message
         .push(widget::Space::with_height(Length::Fixed(48.0)))
         .push(help_text);
 
-    Container::new(
+    let main_content = Container::new(
         Column::new()
             .push(widget::Space::with_height(Length::Fill))
             .push(content)
@@ -90,6 +91,8 @@ pub fn view<'a>(state: &'a State, error: Option<&'a str>) -> Element<'a, Message
     )
     .width(Length::Fill)
     .height(Length::Fill)
-    .center_x(Length::Fill)
-    .into()
+    .center_x(Length::Fill);
+
+    // Wrap with screen ID overlay
+    screen_id_overlay::with_overlay(main_content.into(), "auth")
 }

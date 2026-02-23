@@ -12,6 +12,7 @@ pub mod cache;
 pub mod config;
 pub mod ui;
 pub mod app;
+pub mod screen_id;
 
 pub use app::ClickDown;
 pub use api::{ClickUpClient, AuthManager, ClickUpApi, MockClickUpClient};

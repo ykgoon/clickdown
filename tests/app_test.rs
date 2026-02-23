@@ -25,35 +25,25 @@ fn assert_app_state(app: &ClickDown, expected: AppState) {
     );
 }
 
-/// Manually trigger workspace loading for testing
-/// This bypasses the async Task mechanism for synchronous testing
-fn load_workspaces_sync(app: &mut ClickDown) {
-    // Get workspaces from the mock client directly
-    if let Some(ref client) = app.client {
-        // For testing purposes, we'll manually call the update with the result
-        // This is a simplified approach - in real code, the Task would be executed
-    }
-}
-
 /// Test that the app initializes correctly with a mock client
 #[tokio::test]
 async fn test_app_initialization_with_mock_client() {
     let mock_client = MockClickUpClient::new()
         .with_workspaces(vec![test_workspace()]);
-    
+
     let (mut app, _task) = init_app_with_mock_client(mock_client);
-    
+
     // App should start in LoadingWorkspaces state
     assert_app_state(&app, AppState::LoadingWorkspaces);
-    
+
     // Simulate Initialize message and get the task
-    let task = app.update(Message::Initialize);
-    
+    let _task = app.update(Message::Initialize);
+
     // For testing, we manually trigger the workspace loaded message
-    // In real code, the Task would be executed by the iced runtime
-    let workspaces = mock_client.get_workspaces().await.unwrap();
+    // Use the test fixture directly instead of querying the moved mock_client
+    let workspaces = vec![test_workspace()];
     app.update(Message::WorkspacesLoaded(workspaces));
-    
+
     // After initialization, should be in Main state with workspaces loaded
     assert_app_state(&app, AppState::Main);
     assert!(!app.workspaces().is_empty());
@@ -304,17 +294,103 @@ async fn test_sidebar_toggle() {
 #[tokio::test]
 async fn test_document_loading() {
     use fixtures::{test_document, test_page};
-    
+
     let doc = test_document();
     let page = test_page();
-    
+
     let mock_client = MockClickUpClient::new()
         .with_documents(vec![doc.clone()])
         .with_pages(vec![page.clone()]);
-    
+
     // Document search would be triggered by a message
     // For now, verify the mock client can return documents
     let docs = mock_client.search_docs(&Default::default()).await.unwrap();
     assert_eq!(docs.len(), 1);
     assert_eq!(docs[0].id, "test-doc-1");
+}
+
+/// Test credential authentication - successful login
+#[tokio::test]
+async fn test_credential_authentication_success() {
+    let mock_client = MockClickUpClient::new()
+        .with_auth_success("test-token-123")
+        .with_workspaces(vec![test_workspace()]);
+
+    let (mut app, _task) = init_app_with_mock_client(mock_client);
+
+    // App should start in LoadingWorkspaces state (with mock client)
+    assert_app_state(&app, AppState::LoadingWorkspaces);
+
+    // Simulate credential login
+    app.update(Message::UsernameEntered("user@example.com".to_string()));
+    app.update(Message::PasswordEntered("password123".to_string()));
+    
+    // Trigger login
+    let _task = app.update(Message::LoginRequested);
+    
+    // App should be in loading state
+    assert!(app.login_logging_in());
+    
+    // Simulate successful authentication
+    app.update(Message::LoginSuccess("test-token-123".to_string()));
+    
+    // After successful login, should be loading workspaces
+    assert_app_state(&app, AppState::LoadingWorkspaces);
+}
+
+/// Test credential authentication - invalid credentials
+#[tokio::test]
+async fn test_credential_authentication_invalid_credentials() {
+    let mock_client = MockClickUpClient::new()
+        .with_auth_error("Invalid username or password".to_string());
+
+    let (mut app, _task) = init_app_with_mock_client(mock_client);
+
+    // Enter credentials
+    app.update(Message::UsernameEntered("user@example.com".to_string()));
+    app.update(Message::PasswordEntered("wrongpassword".to_string()));
+    
+    // Trigger login
+    app.update(Message::LoginRequested);
+    
+    // Simulate authentication failure
+    app.update(Message::LoginError("Invalid username or password".to_string()));
+    
+    // Should remain in current state with error
+    assert_eq!(app.error(), &Some("Invalid username or password".to_string()));
+    assert!(!app.login_logging_in());
+    assert!(app.login_password().is_empty()); // Password should be cleared
+}
+
+/// Test logout clears login state
+#[tokio::test]
+async fn test_logout_clears_login_state() {
+    let mock_client = MockClickUpClient::new()
+        .with_auth_success("test-token-123")
+        .with_workspaces(vec![test_workspace()]);
+
+    let (mut app, _task) = init_app_with_mock_client(mock_client);
+
+    // Login first - enter credentials
+    app.update(Message::UsernameEntered("user@example.com".to_string()));
+    app.update(Message::PasswordEntered("password123".to_string()));
+    
+    // Verify credentials were entered (before login completes)
+    assert_eq!(app.login_username(), "user@example.com");
+    assert_eq!(app.login_password(), "password123");
+    
+    // Complete login (this clears the credentials for security)
+    app.update(Message::LoginSuccess("test-token-123".to_string()));
+    
+    // After successful login, credentials should be cleared
+    assert!(app.login_username().is_empty());
+    assert!(app.login_password().is_empty());
+    
+    // Logout
+    app.update(Message::Logout);
+    
+    // Login state should still be cleared after logout
+    assert!(app.login_username().is_empty());
+    assert!(app.login_password().is_empty());
+    assert!(!app.login_logging_in());
 }

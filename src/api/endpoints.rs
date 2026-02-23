@@ -3,10 +3,18 @@
 /// Base URL for ClickUp API v2
 pub const BASE_URL: &str = "https://api.clickup.com/api/v2";
 
+/// Base URL for ClickUp OAuth
+pub const OAUTH_BASE_URL: &str = "https://app.clickup.com/api";
+
 /// API endpoint paths
 pub struct ApiEndpoints;
 
 impl ApiEndpoints {
+    // Authentication endpoints
+    pub fn oauth_token() -> String {
+        format!("{}/oauth/token", OAUTH_BASE_URL)
+    }
+
     // Workspace/Team endpoints
     pub fn teams() -> String {
         format!("{}/team", BASE_URL)

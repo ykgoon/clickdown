@@ -9,6 +9,7 @@ mod cache;
 mod config;
 mod ui;
 mod app;
+mod screen_id;
 
 use anyhow::Result;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};

@@ -11,7 +11,7 @@ use crate::api::{ClickUpClient, AuthManager, ClickUpApi};
 use crate::config::ConfigManager;
 use crate::models::{Workspace, ClickUpSpace, Folder, List, Task as ClickUpTask, TaskFilters, Document, Page};
 use crate::ui::{
-    sidebar, task_list, task_detail, auth_view, document_view,
+    sidebar, task_list, task_detail, auth_view, document_view, login_view,
 };
 
 /// Application state
@@ -43,8 +43,8 @@ pub struct ClickDown {
     /// Document viewer state
     document_view: document_view::State,
 
-    /// Authentication view state
-    auth: auth_view::State,
+    /// Login view state (username/password authentication)
+    login: login_view::State,
 }
 
 /// Application state machine
@@ -69,6 +69,14 @@ pub enum Message {
     AuthSuccess,
     AuthError(String),
     Logout,
+
+    // Credential authentication
+    UsernameEntered(String),
+    PasswordEntered(String),
+    ShowPasswordToggled(bool),
+    LoginRequested,
+    LoginSuccess(String),
+    LoginError(String),
 
     // Initialization
     Initialize,
@@ -138,7 +146,7 @@ impl ClickDown {
             task_list: task_list::State::new(),
             task_detail: None,
             document_view: document_view::State::new(),
-            auth: auth_view::State::new(),
+            login: login_view::State::new(),
         };
 
         // If we have a token, start initialization
@@ -178,7 +186,7 @@ impl ClickDown {
             task_list: task_list::State::new(),
             task_detail: None,
             document_view: document_view::State::new(),
-            auth: auth_view::State::new(),
+            login: login_view::State::new(),
         };
 
         (app, iced::Task::perform(
@@ -190,18 +198,66 @@ impl ClickDown {
     pub fn update(&mut self, message: Message) -> iced::Task<Message> {
         match message {
             Message::TokenEntered(token) => {
-                // Initialize client with token
-                let client = Arc::new(ClickUpClient::new(token.clone()));
-                self.client = Some(client.clone());
-                
-                // Save token
+                // Legacy token entry - save and initialize
                 if let Ok(auth) = AuthManager::new() {
                     let _ = auth.save_token(&token);
                 }
-                
+                self.state = AppState::Initializing;
+                return iced::Task::perform(
+                    async move { Message::Initialize },
+                    |msg| msg,
+                );
+            }
+
+            // Credential authentication messages
+            Message::UsernameEntered(username) => {
+                self.login.username = username;
+            }
+
+            Message::PasswordEntered(password) => {
+                self.login.password = password;
+            }
+
+            Message::ShowPasswordToggled(show) => {
+                self.login.show_password = show;
+            }
+
+            Message::LoginRequested => {
+                self.login.logging_in = true;
+                self.error = None;
+
+                let username = self.login.username.clone();
+                let password = self.login.password.clone();
+
+                return iced::Task::perform(
+                    async move {
+                        // Create a temporary client for authentication
+                        // We need an empty token here since we're authenticating
+                        let client = ClickUpClient::new(String::new());
+                        client.authenticate_with_credentials(&username, &password).await
+                    },
+                    |result| match result {
+                        Ok(auth_token) => Message::LoginSuccess(auth_token.token),
+                        Err(e) => Message::LoginError(e.to_string()),
+                    },
+                );
+            }
+
+            Message::LoginSuccess(token) => {
+                // Clear credentials for security
+                self.login.clear();
+
+                // Save the token
+                if let Ok(auth) = AuthManager::new() {
+                    let _ = auth.save_token(&token);
+                }
+
+                // Initialize client with the new token
+                let client = Arc::new(ClickUpClient::new(token.clone()));
+                self.client = Some(client.clone());
                 self.state = AppState::LoadingWorkspaces;
                 self.loading = true;
-                
+
                 return iced::Task::perform(
                     async move {
                         client.get_workspaces().await
@@ -212,7 +268,13 @@ impl ClickDown {
                     },
                 );
             }
-            
+
+            Message::LoginError(error) => {
+                self.login.logging_in = false;
+                self.login.password.clear();
+                self.error = Some(error);
+            }
+
             Message::TokenSaved => {
                 self.state = AppState::Main;
                 self.loading = false;
@@ -258,8 +320,9 @@ impl ClickDown {
                 self.sidebar = sidebar::State::new();
                 self.task_list = task_list::State::new();
                 self.task_detail = None;
+                self.login.clear();
                 self.state = AppState::Unauthenticated;
-                
+
                 if let Ok(auth) = AuthManager::new() {
                     let _ = auth.clear_token();
                 }
@@ -475,7 +538,7 @@ impl ClickDown {
     pub fn view(&self) -> Element<'_, Message> {
         match &self.state {
             AppState::Unauthenticated => {
-                auth_view::view(&self.auth, self.error.as_deref())
+                login_view::view(&self.login, self.error.as_deref())
             }
             AppState::Initializing | AppState::LoadingWorkspaces => {
                 loading_view("Loading ClickUp...")
@@ -646,10 +709,27 @@ impl ClickDown {
     pub fn has_client(&self) -> bool {
         self.client.is_some()
     }
+
+    /// Get login state username (for testing)
+    pub fn login_username(&self) -> &str {
+        &self.login.username
+    }
+
+    /// Get login state password (for testing)
+    pub fn login_password(&self) -> &str {
+        &self.login.password
+    }
+
+    /// Get login state logging_in flag (for testing)
+    pub fn login_logging_in(&self) -> bool {
+        self.login.logging_in
+    }
 }
 
 fn loading_view<'a, Message: 'static>(text: &'a str) -> Element<'a, Message> {
-    Container::new(
+    use crate::ui::screen_id_overlay;
+
+    let main_content = Container::new(
         Column::new()
             .push(Text::new(text).size(16))
             .align_x(iced::alignment::Horizontal::Center)
@@ -657,8 +737,10 @@ fn loading_view<'a, Message: 'static>(text: &'a str) -> Element<'a, Message> {
     .width(Length::Fill)
     .height(Length::Fill)
     .center_x(Length::Fill)
-    .center_y(Length::Fill)
-    .into()
+    .center_y(Length::Fill);
+
+    // Wrap with screen ID overlay
+    screen_id_overlay::with_overlay(main_content.into(), "loading")
 }
 
 /// Run the application

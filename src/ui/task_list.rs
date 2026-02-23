@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 
 use crate::models::{List, Task};
 use crate::app::Message;
+use crate::ui::screen_id_overlay;
 
 /// Task list state
 #[derive(Debug, Clone)]
@@ -81,11 +82,13 @@ pub fn view(state: &State, loading: bool) -> Element<'_, Message> {
         content = content.push(tasks_list(state));
     }
 
-    Container::new(Scrollable::new(content))
+    let main_content = Container::new(Scrollable::new(content))
         .width(Length::Fill)
         .height(Length::Fill)
-        .padding(24)
-        .into()
+        .padding(24);
+
+    // Wrap with screen ID overlay
+    screen_id_overlay::with_overlay(main_content.into(), "task-list")
 }
 
 fn header(list_name: &str) -> Element<'_, Message> {

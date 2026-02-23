@@ -8,6 +8,7 @@ use chrono::DateTime;
 
 use crate::models::Task;
 use crate::app::Message;
+use crate::ui::screen_id_overlay;
 
 /// Task detail panel state
 #[derive(Debug, Clone)]
@@ -105,10 +106,12 @@ pub fn view(state: &State) -> Element<'_, Message> {
             .push(action_buttons(state));
     }
 
-    Container::new(Scrollable::new(content))
+    let main_content = Container::new(Scrollable::new(content))
         .width(Length::Fixed(450.0))
-        .height(Length::Fill)
-        .into()
+        .height(Length::Fill);
+
+    // Wrap with screen ID overlay
+    screen_id_overlay::with_overlay(main_content.into(), "task-detail")
 }
 
 fn header(state: &State) -> Element<'_, Message> {

@@ -7,6 +7,7 @@ use iced::{
 
 use crate::models::{Workspace, ClickUpSpace, Folder, List};
 use crate::app::Message;
+use crate::ui::screen_id_overlay;
 
 /// Sidebar state
 #[derive(Debug, Clone)]
@@ -86,10 +87,12 @@ pub fn view(state: &State) -> Element<'_, Message> {
         .push(widget::Space::with_height(Length::Fill))
         .push(logout_button());
 
-    Container::new(Scrollable::new(content))
+    let main_content = Container::new(Scrollable::new(content))
         .width(Length::Fixed(width))
-        .height(Length::Fill)
-        .into()
+        .height(Length::Fill);
+
+    // Wrap with screen ID overlay
+    screen_id_overlay::with_overlay(main_content.into(), "sidebar")
 }
 
 fn header(state: &State) -> Element<'_, Message> {
