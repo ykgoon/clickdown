@@ -1,7 +1,8 @@
 # error-handling Specification
 
 ## Purpose
-TBD - created by archiving change replace-unwrap-with-error-handling. Update Purpose after archive.
+Define graceful error handling patterns throughout the application to prevent panics and provide user-friendly error messages.
+
 ## Requirements
 ### Requirement: Graceful Error Handling
 
@@ -24,4 +25,11 @@ All error-prone operations MUST propagate errors gracefully rather than panickin
 - **WHEN** AuthManager::default() cannot access the token path
 - **THEN** the error MUST be logged and a fallback instance returned
 - **AND** the application MUST continue to start
+
+#### Scenario: Credential authentication fails
+
+- **WHEN** credential exchange endpoint returns an error
+- **THEN** the error MUST be converted to `Message::AuthError` with user-friendly message
+- **AND** the UI MUST display the error without crashing
+- **AND** the login form MUST remain accessible for retry
 
