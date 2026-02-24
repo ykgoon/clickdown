@@ -16,15 +16,6 @@ pub struct AuthToken {
 /// This enables mocking the API for headless testing
 #[async_trait::async_trait]
 pub trait ClickUpApi: Send + Sync {
-    // ==================== Authentication ====================
-
-    /// Authenticate with username and password, returning an API token
-    async fn authenticate_with_credentials(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<AuthToken>;
-
     // ==================== Workspace/Team ====================
 
     /// Get all authorized workspaces

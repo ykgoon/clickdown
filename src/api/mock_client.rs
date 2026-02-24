@@ -1,6 +1,6 @@
 //! Mock ClickUp API client for testing
 
-use crate::api::client_trait::{ClickUpApi, AuthToken};
+use crate::api::client_trait::ClickUpApi;
 use crate::models::{
     Workspace, ClickUpSpace, Folder, List, Task, TaskFilters,
     CreateTaskRequest, UpdateTaskRequest, Document, Page, DocumentFilters,
@@ -14,8 +14,6 @@ use anyhow::{Result, anyhow};
 /// network calls.
 #[derive(Default)]
 pub struct MockClickUpClient {
-    /// Override for authenticate_with_credentials response
-    pub auth_credentials_response: Option<Result<AuthToken>>,
     /// Override for get_workspaces response
     pub workspaces_response: Option<Result<Vec<Workspace>>>,
     /// Override for get_spaces response
@@ -48,7 +46,6 @@ impl MockClickUpClient {
     /// Create a new mock client with default (empty) responses
     pub fn new() -> Self {
         Self {
-            auth_credentials_response: None,
             workspaces_response: None,
             spaces_response: None,
             folders_response: None,
@@ -64,21 +61,6 @@ impl MockClickUpClient {
             page_response: None,
         }
     }
-
-    /// Set successful credential authentication response
-    pub fn with_auth_success(mut self, token: &str) -> Self {
-        self.auth_credentials_response = Some(Ok(AuthToken {
-            token: token.to_string(),
-        }));
-        self
-    }
-
-    /// Set credential authentication error
-    pub fn with_auth_error(mut self, error: String) -> Self {
-        self.auth_credentials_response = Some(Err(anyhow!(error)));
-        self
-    }
-
     /// Set the workspaces response
     pub fn with_workspaces(mut self, workspaces: Vec<Workspace>) -> Self {
         self.workspaces_response = Some(Ok(workspaces));
@@ -154,18 +136,6 @@ impl MockClickUpClient {
 
 #[async_trait::async_trait]
 impl ClickUpApi for MockClickUpClient {
-    async fn authenticate_with_credentials(
-        &self,
-        _username: &str,
-        _password: &str,
-    ) -> Result<AuthToken> {
-        match &self.auth_credentials_response {
-            Some(Ok(token)) => Ok(token.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Err(anyhow!("Credential authentication not configured")),
-        }
-    }
-
     async fn get_workspaces(&self) -> Result<Vec<Workspace>> {
         match &self.workspaces_response {
             Some(Ok(workspaces)) => Ok(workspaces.clone()),

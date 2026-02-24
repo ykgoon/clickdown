@@ -1,20 +1,19 @@
 //! ClickUp API HTTP client
+//!
+//! **Note on Authentication**: ClickUp does not support username/password authentication
+//! for obtaining API tokens programmatically. This client uses Personal API Tokens that
+//! must be manually generated from the ClickUp web UI (Settings → Apps → ClickUp API).
+//! OAuth 2.0 is available for multi-user applications but requires app registration and
+//! a browser-based authorization flow.
 
 use crate::models::{WorkspacesResponse, SpacesResponse, FoldersResponse, ListsResponse, Workspace, ClickUpSpace as Space, Folder, List, Task, DocumentsResponse, DocumentPagesResponse, PageResponse, TasksResponse, CreateTaskRequest, UpdateTaskRequest, DocumentFilters, Document, Page};
 use crate::models::TaskFilters;
 use crate::api::endpoints::ApiEndpoints;
-use crate::api::client_trait::{ClickUpApi, AuthToken};
+use crate::api::client_trait::ClickUpApi;
 use anyhow::{Context, Result};
 use reqwest::{Client, Response};
 use serde::de::DeserializeOwned;
 use async_trait::async_trait;
-use serde::Deserialize;
-
-/// OAuth token response from ClickUp
-#[derive(Debug, Deserialize)]
-struct OAuthTokenResponse {
-    token: String,
-}
 
 /// ClickUp API client
 pub struct ClickUpClient {
@@ -57,55 +56,6 @@ impl ClickUpClient {
         }
 
         response.json::<T>().await.context("Failed to parse response")
-    }
-
-    /// Authenticate with username and password
-    pub async fn authenticate_with_credentials(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<AuthToken> {
-        // Note: ClickUp's actual API uses OAuth 2.0. This implementation
-        // simulates credential-based authentication for the prototype.
-        // In production, this would use OAuth 2.0 with client credentials
-        // or authorization code flow.
-        let url = ApiEndpoints::oauth_token();
-        
-        let response = self.client
-            .post(&url)
-            .header("Accept", "application/json")
-            .form(&[
-                ("grant_type", "password"),
-                ("username", username),
-                ("password", password),
-            ])
-            .send()
-            .await
-            .context("Authentication request failed")?;
-
-        let status = response.status();
-        
-        if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            
-            // Provide user-friendly error messages based on status code
-            let error_msg = match status.as_u16() {
-                401 => "Invalid username or password".to_string(),
-                403 => "Your account has been locked. Please contact ClickUp support.".to_string(),
-                429 => "Too many login attempts. Please try again later.".to_string(),
-                _ => format!("Authentication failed ({}): {}", status, error_text),
-            };
-            
-            anyhow::bail!(error_msg);
-        }
-
-        let token_response = response.json::<OAuthTokenResponse>()
-            .await
-            .context("Failed to parse authentication response")?;
-
-        Ok(AuthToken {
-            token: token_response.token,
-        })
     }
 
     // ==================== Workspace/Team ====================
@@ -259,14 +209,6 @@ impl ClickUpClient {
 /// Implement the ClickUpApi trait for ClickUpClient
 #[async_trait]
 impl ClickUpApi for ClickUpClient {
-    async fn authenticate_with_credentials(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<AuthToken> {
-        self.authenticate_with_credentials(username, password).await
-    }
-
     async fn get_workspaces(&self) -> Result<Vec<Workspace>> {
         self.get_workspaces().await
     }

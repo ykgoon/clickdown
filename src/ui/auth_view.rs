@@ -49,7 +49,8 @@ pub fn view<'a>(state: &'a State, error: Option<&'a str>) -> Element<'a, Message
         Text::new(if state.validating { "Connecting..." } else { "Connect" })
     )
     .padding([12, 32])
-    .width(Length::Fixed(400.0));
+    .width(Length::Fixed(400.0))
+    .on_press(Message::Initialize);
 
     let mut content = Column::new()
         .push(title)

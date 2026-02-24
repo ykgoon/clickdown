@@ -1,59 +1,42 @@
 # credential-auth Specification
 
 ## Purpose
-Enable users to authenticate with ClickUp using username (email) and password credentials, with the system exchanging credentials for an API token that is stored securely for future sessions.
+Enable users to authenticate with ClickUp using a Personal API Token that is stored securely for future sessions.
 
 ## Requirements
-### Requirement: User can authenticate with username and password
-The system SHALL allow users to log in using their ClickUp username (email) and password, exchanging credentials for an API token.
 
-#### Scenario: Successful authentication
-- **WHEN** user enters valid username and password
-- **AND** user clicks "Login" button
-- **THEN** system exchanges credentials for an API token
+### Requirement: User can authenticate with Personal API Token
+The system SHALL allow users to authenticate by entering their Personal API Token obtained from ClickUp web UI.
+
+#### Scenario: Successful token authentication
+- **WHEN** user enters valid Personal API Token
+- **AND** user clicks "Connect" button
+- **THEN** system validates token with ClickUp API
 - **AND** token is stored securely for future sessions
 - **AND** user is navigated to the main application view
 
-#### Scenario: Invalid credentials
-- **WHEN** user enters incorrect username or password
-- **AND** user clicks "Login" button
-- **THEN** system displays error message "Invalid username or password"
-- **AND** user remains on the login screen
-- **AND** password field is cleared for re-entry
+#### Scenario: Invalid token
+- **WHEN** user enters invalid or expired token
+- **AND** user clicks "Connect" button
+- **THEN** system displays error message "Invalid API token. Please check your token and try again."
+- **AND** user remains on the authentication screen
+- **AND** token field is cleared for re-entry
 
-#### Scenario: Network error during authentication
-- **WHEN** network is unavailable during login attempt
+#### Scenario: Network error during token validation
+- **WHEN** network is unavailable during token validation
 - **THEN** system displays error message "Unable to connect to ClickUp. Please check your internet connection."
-- **AND** user remains on the login screen
+- **AND** user remains on the authentication screen
 
-#### Scenario: Account locked or disabled
-- **WHEN** user's ClickUp account is locked or disabled
-- **THEN** system displays error message "Your account has been locked. Please contact ClickUp support."
-- **AND** user remains on the login screen
-
-### Requirement: Credentials are handled securely
-The system SHALL handle user credentials with appropriate security measures.
-
-#### Scenario: Credentials in memory
-- **WHEN** user enters username and password
-- **THEN** credentials are stored only in memory during the authentication request
-- **AND** credentials are cleared from memory after token exchange completes
-
-#### Scenario: Credentials not logged
-- **WHEN** authentication request is processed
-- **THEN** username and password MUST NOT appear in application logs
-- **AND** password MUST NOT appear in error messages
-
-#### Scenario: Token storage unchanged
-- **WHEN** authentication succeeds
-- **THEN** the obtained token is stored using existing AuthManager mechanism
-- **AND** token storage format and location remain unchanged
+#### Scenario: Token guidance displayed
+- **WHEN** user views the authentication screen
+- **THEN** system displays help text "Get your token from ClickUp Settings → Apps → ClickUp API"
+- **AND** system provides example token format placeholder
 
 ### Requirement: User can log out
-The system SHALL provide a logout mechanism that clears the stored token and returns to the login screen.
+The system SHALL provide a logout mechanism that clears the stored token and returns to the authentication screen.
 
 #### Scenario: User initiates logout
 - **WHEN** user clicks "Logout" button
 - **THEN** stored token is cleared from disk
-- **AND** user is navigated back to the login screen
-- **AND** username and password fields are cleared
+- **AND** user is navigated back to the authentication screen
+- **AND** token input field is cleared

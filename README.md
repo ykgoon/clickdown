@@ -15,7 +15,7 @@ A fast and responsive ClickUp desktop client built with Rust.
 ## Requirements
 
 - Rust 1.70+ (edition 2021)
-- ClickUp account credentials (email and password)
+- ClickUp Personal API Token (from Settings → Apps → ClickUp API)
 
 ## Building
 
@@ -35,14 +35,18 @@ cargo run
 
 ## Authentication
 
-ClickDown supports username/password authentication:
+ClickDown uses Personal API Token authentication:
 
-1. Launch the application
-2. Enter your ClickUp account email and password on the login screen
-3. Click "Login" to authenticate
-4. Your API token is automatically obtained and stored securely for future sessions
+1. Obtain your Personal API Token from ClickUp:
+   - Go to ClickUp web app
+   - Navigate to Settings → Apps → ClickUp API
+   - Generate a new token or copy an existing one
+2. Launch ClickDown
+3. Enter your Personal API Token on the authentication screen
+4. Click "Connect" to authenticate
+5. Your token is stored securely for future sessions
 
-**Note:** Credentials are only used during authentication and are never stored. Only the API token is persisted.
+**Note:** The token is stored in `~/.config/clickdown/token` (Linux) with restrictive file permissions.
 
 ## Project Structure
 
@@ -65,8 +69,7 @@ src/
 │   ├── sidebar.rs       # Navigation sidebar
 │   ├── task_list.rs     # Task list view
 │   ├── task_detail.rs   # Task detail panel
-│   ├── login_view.rs    # Login screen (username/password)
-│   ├── auth_view.rs     # Token authentication (legacy)
+│   ├── auth_view.rs     # Token authentication screen
 │   └── components/      # Reusable UI components
 ├── cache/
 │   ├── mod.rs           # SQLite cache module
