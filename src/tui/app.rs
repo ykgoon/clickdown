@@ -3,10 +3,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 use anyhow::Result;
+use arboard::Clipboard;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::{Frame, prelude::Rect};
+use tokio::sync::mpsc;
 
-use crate::api::{ClickUpApi, AuthManager};
+use crate::api::{ClickUpApi, AuthManager, ClickUpClient};
 use crate::config::ConfigManager;
 use crate::models::{Workspace, ClickUpSpace, Folder, List, Task, Document};
 
@@ -36,56 +38,66 @@ pub enum Screen {
     Document,
 }
 
+/// Async messages for API results
+#[derive(Debug, Clone)]
+pub enum AppMessage {
+    WorkspacesLoaded(Result<Vec<Workspace>, String>),
+    SpacesLoaded(Result<Vec<ClickUpSpace>, String>),
+    FoldersLoaded(Result<Vec<Folder>, String>),
+    ListsLoaded(Result<Vec<List>, String>),
+    TasksLoaded(Result<Vec<Task>, String>),
+}
+
 /// Main TUI application state
 pub struct TuiApp {
     /// Current screen
     screen: Screen,
-    
+
     /// Application state
     state: AppState,
-    
+
     /// API client
     client: Option<Arc<dyn ClickUpApi>>,
-    
+
     /// Config manager
     config: ConfigManager,
-    
+
     /// Auth manager
     auth: AuthManager,
-    
+
     /// Error message
     error: Option<String>,
-    
+
     /// Loading state
     loading: bool,
-    
+
     /// Sidebar state
     sidebar: SidebarState,
-    
+
     /// Task list state
     task_list: TaskListState,
-    
+
     /// Task detail state
     task_detail: TaskDetailState,
-    
+
     /// Auth state
     auth_state: AuthState,
-    
+
     /// Document state
     document: DocumentState,
-    
+
     /// Dialog state
     dialog: DialogState,
-    
+
     /// Help state
     help: HelpState,
-    
+
     /// Current screen title
     screen_title: String,
-    
+
     /// Status message
     status: String,
-    
+
     /// Data
     workspaces: Vec<Workspace>,
     spaces: Vec<ClickUpSpace>,
@@ -93,6 +105,12 @@ pub struct TuiApp {
     lists: Vec<List>,
     tasks: Vec<Task>,
     documents: Vec<Document>,
+
+    /// Async message receiver
+    message_rx: Option<mpsc::Receiver<AppMessage>>,
+
+    /// Async message sender
+    message_tx: Option<mpsc::Sender<AppMessage>>,
 }
 
 /// Application state
@@ -108,19 +126,22 @@ impl TuiApp {
     pub fn new() -> Result<Self> {
         let config = ConfigManager::new().unwrap_or_default();
         let auth = AuthManager::new().unwrap_or_default();
-        
+
         let state = if auth.load_token().ok().flatten().is_some() {
             AppState::Initializing
         } else {
             AppState::Unauthenticated
         };
-        
+
         let screen = if matches!(state, AppState::Unauthenticated) {
             Screen::Auth
         } else {
             Screen::Workspaces
         };
-        
+
+        // Create channel for async messages
+        let (message_tx, message_rx) = mpsc::channel(32);
+
         let mut app = Self {
             screen,
             state,
@@ -144,14 +165,23 @@ impl TuiApp {
             lists: Vec::new(),
             tasks: Vec::new(),
             documents: Vec::new(),
+            message_rx: Some(message_rx),
+            message_tx: Some(message_tx.clone()),
         };
-        
+
         app.update_screen_title();
-        
+
         if matches!(app.state, AppState::Initializing) {
-            app.load_workspaces();
+            // Load token and create client
+            if let Ok(Some(token)) = app.auth.load_token() {
+                app.client = Some(Arc::new(ClickUpClient::new(token)));
+                app.load_workspaces();
+            } else {
+                app.state = AppState::Unauthenticated;
+                app.screen = Screen::Auth;
+            }
         }
-        
+
         Ok(app)
     }
     
@@ -174,6 +204,9 @@ impl TuiApp {
         render_interval: Duration,
     ) -> Result<()> {
         loop {
+            // Handle async messages first
+            self.process_async_messages();
+
             // Handle input
             if let Some(event) = self.handle_input()? {
                 match event {
@@ -181,15 +214,92 @@ impl TuiApp {
                     _ => self.update(event),
                 }
             }
-            
+
             // Render at target frame rate
             if last_render.elapsed() >= render_interval {
                 self.render(terminal)?;
                 *last_render = std::time::Instant::now();
             }
         }
-        
+
         Ok(())
+    }
+
+    /// Process async messages from API calls
+    fn process_async_messages(&mut self) {
+        if let Some(ref mut rx) = self.message_rx {
+            // Try to receive messages without blocking
+            while let Ok(msg) = rx.try_recv() {
+                match msg {
+                    AppMessage::WorkspacesLoaded(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(workspaces) => {
+                                self.workspaces = workspaces;
+                                self.state = AppState::Main;
+                                self.status = format!("Loaded {} workspace(s)", self.workspaces.len());
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to load workspaces: {}", e));
+                                self.status = "Failed to load workspaces".to_string();
+                            }
+                        }
+                    }
+                    AppMessage::SpacesLoaded(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(spaces) => {
+                                self.spaces = spaces;
+                                self.status = format!("Loaded {} space(s)", self.spaces.len());
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to load spaces: {}", e));
+                                self.status = "Failed to load spaces".to_string();
+                            }
+                        }
+                    }
+                    AppMessage::FoldersLoaded(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(folders) => {
+                                self.folders = folders;
+                                self.status = format!("Loaded {} folder(s)", self.folders.len());
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to load folders: {}", e));
+                                self.status = "Failed to load folders".to_string();
+                            }
+                        }
+                    }
+                    AppMessage::ListsLoaded(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(lists) => {
+                                self.lists = lists;
+                                self.status = format!("Loaded {} list(s)", self.lists.len());
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to load lists: {}", e));
+                                self.status = "Failed to load lists".to_string();
+                            }
+                        }
+                    }
+                    AppMessage::TasksLoaded(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(tasks) => {
+                                self.tasks = tasks;
+                                self.status = format!("Loaded {} task(s)", self.tasks.len());
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to load tasks: {}", e));
+                                self.status = "Failed to load tasks".to_string();
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     
     fn handle_input(&mut self) -> Result<Option<InputEvent>> {
@@ -284,6 +394,28 @@ impl TuiApp {
                 }
                 KeyCode::Enter if !self.auth_state.loading => {
                     self.authenticate();
+                }
+                KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    // Handle paste (Ctrl+V or Ctrl+Shift+V)
+                    match Clipboard::new() {
+                        Ok(mut clipboard) => {
+                            match clipboard.get_text() {
+                                Ok(text) => {
+                                    // Insert clipboard content at cursor position
+                                    for c in text.chars() {
+                                        self.auth_state.add_char(c);
+                                    }
+                                    self.status = "Pasted from clipboard".to_string();
+                                }
+                                Err(_) => {
+                                    self.status = "Paste failed: could not read clipboard".to_string();
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            self.status = "Paste failed: clipboard unavailable".to_string();
+                        }
+                    }
                 }
                 KeyCode::Char(c) => {
                     self.auth_state.add_char(c);
@@ -481,64 +613,172 @@ impl TuiApp {
     }
     
     fn authenticate(&mut self) {
+        let token = self.auth_state.token_input.clone();
+        if token.is_empty() {
+            self.auth_state.error = Some("Token cannot be empty".to_string());
+            self.status = "Authentication failed".to_string();
+            return;
+        }
+
         self.loading = true;
         self.auth_state.loading = true;
         self.status = "Authenticating...".to_string();
+
+        // Create the API client with the token
+        let client = Arc::new(ClickUpClient::new(token.clone()));
         
-        // In a real implementation, this would be async
-        // For now, we'll just simulate success
-        let token = self.auth_state.token_input.clone();
-        if !token.is_empty() {
-            // Simulate successful auth
-            self.auth_state.clear();
+        // Save the token
+        if let Err(e) = self.auth.save_token(&token) {
+            self.auth_state.error = Some(format!("Failed to save token: {}", e));
             self.auth_state.loading = false;
             self.loading = false;
-            self.state = AppState::Main;
-            self.screen = Screen::Workspaces;
-            self.screen_title = generate_screen_title("Workspaces");
-            self.status = "Authenticated!".to_string();
-            self.load_workspaces();
-        } else {
-            self.auth_state.error = Some("Token cannot be empty".to_string());
-            self.auth_state.loading = false;
-            self.loading = false;
-            self.status = "Authentication failed".to_string();
+            self.status = "Failed to save token".to_string();
+            return;
         }
+
+        // Store the client
+        self.client = Some(client.clone());
+
+        // Spawn async task to load workspaces
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client.get_workspaces().await;
+            let msg = match result {
+                Ok(workspaces) => AppMessage::WorkspacesLoaded(Ok(workspaces)),
+                Err(e) => AppMessage::WorkspacesLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+
+        // Clear auth state and navigate to workspaces
+        self.auth_state.clear();
+        self.auth_state.loading = false;
+        self.state = AppState::Main;
+        self.screen = Screen::Workspaces;
+        self.screen_title = generate_screen_title("Workspaces");
+        self.status = "Authenticated! Loading workspaces...".to_string();
     }
     
     fn load_workspaces(&mut self) {
         self.loading = true;
         self.status = "Loading workspaces...".to_string();
-        // TODO: Actually load from API
-        self.loading = false;
+        
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client.get_workspaces().await;
+            let msg = match result {
+                Ok(workspaces) => AppMessage::WorkspacesLoaded(Ok(workspaces)),
+                Err(e) => AppMessage::WorkspacesLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
     }
-    
-    fn load_spaces(&mut self, _workspace_id: String) {
+
+    fn load_spaces(&mut self, workspace_id: String) {
         self.loading = true;
         self.status = "Loading spaces...".to_string();
-        // TODO: Actually load from API
-        self.loading = false;
+        
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client.get_spaces(&workspace_id).await;
+            let msg = match result {
+                Ok(spaces) => AppMessage::SpacesLoaded(Ok(spaces)),
+                Err(e) => AppMessage::SpacesLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
     }
-    
-    fn load_folders(&mut self, _space_id: String) {
+
+    fn load_folders(&mut self, space_id: String) {
         self.loading = true;
         self.status = "Loading folders...".to_string();
-        // TODO: Actually load from API
-        self.loading = false;
+        
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client.get_folders(&space_id).await;
+            let msg = match result {
+                Ok(folders) => AppMessage::FoldersLoaded(Ok(folders)),
+                Err(e) => AppMessage::FoldersLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
     }
-    
-    fn load_lists(&mut self, _folder_id: String) {
+
+    fn load_lists(&mut self, folder_id: String) {
         self.loading = true;
         self.status = "Loading lists...".to_string();
-        // TODO: Actually load from API
-        self.loading = false;
+        
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client.get_lists_in_folder(&folder_id, None).await;
+            let msg = match result {
+                Ok(lists) => AppMessage::ListsLoaded(Ok(lists)),
+                Err(e) => AppMessage::ListsLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
     }
-    
-    fn load_tasks(&mut self, _list_id: String) {
+
+    fn load_tasks(&mut self, list_id: String) {
         self.loading = true;
         self.status = "Loading tasks...".to_string();
-        // TODO: Actually load from API
-        self.loading = false;
+        
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        use crate::models::TaskFilters;
+        let tx = self.message_tx.clone().unwrap();
+        let filters = TaskFilters::default();
+        tokio::spawn(async move {
+            let result = client.get_tasks(&list_id, &filters).await;
+            let msg = match result {
+                Ok(tasks) => AppMessage::TasksLoaded(Ok(tasks)),
+                Err(e) => AppMessage::TasksLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
     }
     
     fn update_screen_title(&mut self) {

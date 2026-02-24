@@ -253,12 +253,12 @@ fn test_sidebar_state() {
 fn test_task_list_state() {
     use clickdown::tui::widgets::TaskListState;
     use clickdown::models::{Task, TaskStatus};
-    
+
     let mut task_list = TaskListState::new();
-    
+
     // Task list should start empty
     assert!(task_list.tasks.is_empty(), "Task list should start empty");
-    
+
     // Add tasks
     task_list.tasks.push(Task {
         id: "task-1".to_string(),
@@ -293,13 +293,264 @@ fn test_task_list_state() {
         time_estimate: None,
         time_spent: None,
     });
-    
+
     // Select first
     task_list.select_first();
     assert_eq!(task_list.selected.selected(), Some(0), "First task should be selected");
-    
+
     // Get selected task
     let selected = task_list.selected_task();
     assert!(selected.is_some(), "Should have selected task");
     assert_eq!(selected.unwrap().name, "Task 1", "Selected task should be Task 1");
+}
+
+/// Test that Ctrl+Shift+V does NOT trigger quit
+#[test]
+fn test_ctrl_shift_v_does_not_quit() {
+    use clickdown::tui::input::is_quit;
+    use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
+
+    // Ctrl+Shift+V should NOT be detected as quit
+    let ctrl_shift_v = KeyEvent::new(
+        KeyCode::Char('v'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT
+    );
+    assert!(!is_quit(ctrl_shift_v), "Ctrl+Shift+V should NOT trigger quit");
+
+    // Ctrl+Shift+Q should NOT be detected as quit (only exact Ctrl+Q)
+    let ctrl_shift_q = KeyEvent::new(
+        KeyCode::Char('q'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT
+    );
+    assert!(!is_quit(ctrl_shift_q), "Ctrl+Shift+Q should NOT trigger quit");
+}
+
+/// Test that exact Ctrl+Q triggers quit
+#[test]
+fn test_exact_ctrl_q_triggers_quit() {
+    use clickdown::tui::input::is_quit;
+    use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
+
+    // Exact Ctrl+Q (no Shift) should trigger quit
+    let ctrl_q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
+    assert!(is_quit(ctrl_q), "Exact Ctrl+Q should trigger quit");
+}
+
+/// Test partial token masking display
+#[test]
+fn test_partial_token_masking() {
+    use clickdown::tui::widgets::AuthState;
+
+    // Test empty token
+    let mut auth = AuthState::new();
+    assert!(auth.token_input.is_empty(), "Token should start empty");
+
+    // Test short token (< 4 chars) - all visible
+    auth.add_char('a');
+    auth.add_char('b');
+    auth.add_char('c');
+    
+    // Build display string (mimicking render_auth logic)
+    let visible_chars = 4;
+    let mut display = String::new();
+    for (i, c) in auth.token_input.chars().enumerate() {
+        if i < visible_chars {
+            display.push(c);
+        } else {
+            display.push('•');
+        }
+    }
+    assert_eq!(display, "abc", "Short token should show all chars unmasked");
+
+    // Test exactly 4 chars - all visible
+    auth.add_char('d');
+    display.clear();
+    for (i, c) in auth.token_input.chars().enumerate() {
+        if i < visible_chars {
+            display.push(c);
+        } else {
+            display.push('•');
+        }
+    }
+    assert_eq!(display, "abcd", "4-char token should show all chars unmasked");
+
+    // Test long token (> 4 chars) - first 4 visible, rest masked
+    auth.add_char('e');
+    auth.add_char('f');
+    auth.add_char('g');
+    display.clear();
+    for (i, c) in auth.token_input.chars().enumerate() {
+        if i < visible_chars {
+            display.push(c);
+        } else {
+            display.push('•');
+        }
+    }
+    assert_eq!(display, "abcd•••", "Long token should mask chars after 4th");
+}
+
+/// Test cursor position indicator
+#[test]
+fn test_cursor_indicator() {
+    use clickdown::tui::widgets::AuthState;
+
+    let mut auth = AuthState::new();
+    auth.add_char('t');
+    auth.add_char('e');
+    auth.add_char('s');
+    auth.add_char('t');
+    auth.add_char('1');
+    auth.add_char('2');
+
+    // Cursor at position 0 (beginning)
+    auth.cursor_pos = 0;
+    let visible_chars = 4;
+    let token_chars: Vec<char> = auth.token_input.chars().collect();
+    let mut display = String::new();
+    for i in 0..=token_chars.len() {
+        if i == auth.cursor_pos {
+            display.push('█');  // Block cursor
+        }
+        if i < token_chars.len() {
+            if i < visible_chars {
+                display.push(token_chars[i]);
+            } else {
+                display.push('•');
+            }
+        }
+    }
+    assert_eq!(display, "█test••", "Cursor at start should show █test••");
+
+    // Cursor at position 2 (in visible region)
+    auth.cursor_pos = 2;
+    display.clear();
+    for i in 0..=token_chars.len() {
+        if i == auth.cursor_pos {
+            display.push('█');  // Block cursor
+        }
+        if i < token_chars.len() {
+            if i < visible_chars {
+                display.push(token_chars[i]);
+            } else {
+                display.push('•');
+            }
+        }
+    }
+    assert_eq!(display, "te█st••", "Cursor at 2 should show te█st••");
+
+    // Cursor at position 5 (in masked region)
+    auth.cursor_pos = 5;
+    display.clear();
+    for i in 0..=token_chars.len() {
+        if i == auth.cursor_pos {
+            display.push('█');  // Block cursor
+        }
+        if i < token_chars.len() {
+            if i < visible_chars {
+                display.push(token_chars[i]);
+            } else {
+                display.push('•');
+            }
+        }
+    }
+    assert_eq!(display, "test•█•", "Cursor at 5 should show test•█•");
+
+    // Cursor at position 6 (at end)
+    auth.cursor_pos = 6;
+    display.clear();
+    for i in 0..=token_chars.len() {
+        if i == auth.cursor_pos {
+            display.push('█');  // Block cursor
+        }
+        if i < token_chars.len() {
+            if i < visible_chars {
+                display.push(token_chars[i]);
+            } else {
+                display.push('•');
+            }
+        }
+    }
+    assert_eq!(display, "test••█", "Cursor at end should show test••█");
+}
+
+/// Test that auth display shows token after paste
+#[test]
+fn test_auth_display_after_paste() {
+    use clickdown::tui::widgets::AuthState;
+
+    let mut auth = AuthState::new();
+    
+    // Simulate paste: add multiple characters at once
+    let pasted_text = "test_api_token_12345";
+    for c in pasted_text.chars() {
+        auth.add_char(c);
+    }
+    
+    // Verify token was added
+    assert_eq!(auth.token_input, "test_api_token_12345");
+    assert_eq!(auth.cursor_pos, 20);
+    
+    // Build display string (mimicking render_auth logic)
+    let visible_chars = 4;
+    let token_chars: Vec<char> = auth.token_input.chars().collect();
+    let mut display = String::new();
+    for i in 0..=token_chars.len() {
+        if i == auth.cursor_pos {
+            display.push('█');  // Block cursor
+        }
+        if i < token_chars.len() {
+            if i < visible_chars {
+                display.push(token_chars[i]);
+            } else {
+                display.push('•');
+            }
+        }
+    }
+    
+    // Should show "test" + 16 bullets + cursor at end
+    assert_eq!(display, "test••••••••••••••••█", "Display should show first 4 chars + bullets + cursor");
+}
+
+/// Test that auth display shows token after typing
+#[test]
+fn test_auth_display_after_typing() {
+    use clickdown::tui::widgets::AuthState;
+
+    let mut auth = AuthState::new();
+    
+    // Simulate typing character by character
+    auth.add_char('a');
+    assert_eq!(auth.token_input, "a");
+    
+    auth.add_char('b');
+    assert_eq!(auth.token_input, "ab");
+    
+    auth.add_char('c');
+    assert_eq!(auth.token_input, "abc");
+    
+    auth.add_char('d');
+    assert_eq!(auth.token_input, "abcd");
+    
+    auth.add_char('e');
+    assert_eq!(auth.token_input, "abcde");
+    
+    // Build display string
+    let visible_chars = 4;
+    let token_chars: Vec<char> = auth.token_input.chars().collect();
+    let mut display = String::new();
+    for i in 0..=token_chars.len() {
+        if i == auth.cursor_pos {
+            display.push('█');  // Block cursor
+        }
+        if i < token_chars.len() {
+            if i < visible_chars {
+                display.push(token_chars[i]);
+            } else {
+                display.push('•');
+            }
+        }
+    }
+    
+    // Should show "abcd" + 1 bullet + cursor at end
+    assert_eq!(display, "abcd•█", "Display should show abcd + bullet + cursor");
 }

@@ -35,10 +35,10 @@ pub fn read() -> Result<InputEvent> {
     }
 }
 
-/// Check if quit was requested (Ctrl+Q or Q)
+/// Check if quit was requested (Ctrl+Q only)
 pub fn is_quit(key: KeyEvent) -> bool {
     match key.code {
-        KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => true,
+        KeyCode::Char('q') if key.modifiers == KeyModifiers::CONTROL => true,
         KeyCode::Char('Q') => true,
         _ => false,
     }

@@ -19,7 +19,8 @@ fn init_logging() {
         .init();
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     init_logging();
 
     tracing::info!("Starting ClickDown TUI...");

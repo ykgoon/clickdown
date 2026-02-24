@@ -1,16 +1,17 @@
 # ClickDown
 
-A fast and responsive ClickUp desktop client built with Rust.
+A fast and responsive terminal-based ClickUp client built with Rust.
 
 ## Features
 
-- **Fast & Native**: Built with Rust and iced GUI framework for native performance
+- **Fast & Native**: Built with Rust and ratatui TUI framework for native terminal performance
 - **Workspace Navigation**: Browse workspaces, spaces, folders, and lists
 - **Task Management**: View, create, edit, and delete tasks
 - **Document Viewing**: Read ClickUp documents with Markdown rendering
 - **Offline Cache**: SQLite-based caching for instant reloads
 - **Dark Theme**: Easy on the eyes for extended use
-- **Responsive UI**: Clean, modern interface with sidebar navigation
+- **Keyboard-Driven**: Vim-style navigation (j/k to navigate, Enter to select, Esc to go back)
+- **Terminal Native**: Runs directly in your terminal with no GUI dependencies
 
 ## Requirements
 
@@ -35,15 +36,15 @@ cargo run
 
 ## Authentication
 
-ClickDown uses Personal API Token authentication:
+ClickDown uses Personal API Token authentication via a terminal-based form:
 
 1. Obtain your Personal API Token from ClickUp:
    - Go to ClickUp web app
    - Navigate to Settings → Apps → ClickUp API
    - Generate a new token or copy an existing one
 2. Launch ClickDown
-3. Enter your Personal API Token on the authentication screen
-4. Click "Connect" to authenticate
+3. Enter your Personal API Token using the keyboard on the authentication screen (characters are masked)
+4. Press Enter to connect and authenticate
 5. Your token is stored securely for future sessions
 
 **Note:** The token is stored in `~/.config/clickdown/token` (Linux) with restrictive file permissions.
@@ -53,7 +54,7 @@ ClickDown uses Personal API Token authentication:
 ```
 src/
 ├── main.rs              # Application entry point
-├── app.rs               # Main application state (Elm architecture)
+├── app.rs               # Main application state (Elm architecture pattern)
 ├── api/
 │   ├── mod.rs           # API module
 │   ├── client.rs        # ClickUp HTTP client
@@ -64,13 +65,18 @@ src/
 │   ├── workspace.rs     # Workspace, Space, Folder, List types
 │   ├── task.rs          # Task types
 │   └── document.rs      # Document types
-├── ui/
-│   ├── mod.rs           # UI module
-│   ├── sidebar.rs       # Navigation sidebar
-│   ├── task_list.rs     # Task list view
-│   ├── task_detail.rs   # Task detail panel
-│   ├── auth_view.rs     # Token authentication screen
-│   └── components/      # Reusable UI components
+├── tui/
+│   ├── mod.rs           # TUI module
+│   ├── app.rs           # TUI application state and rendering
+│   ├── terminal.rs      # Terminal initialization and cleanup
+│   ├── layout.rs        # Screen layout definitions
+│   ├── input.rs         # Keyboard input handling
+│   ├── widgets/         # Reusable TUI widgets
+│   │   ├── sidebar.rs   # Navigation sidebar
+│   │   ├── task_list.rs # Task list view
+│   │   ├── task_detail.rs # Task detail panel
+│   │   ├── auth_view.rs # Authentication screen
+│   │   └── components/  # Reusable widget components
 ├── cache/
 │   ├── mod.rs           # SQLite cache module
 │   └── schema.rs        # Database schema
@@ -81,11 +87,17 @@ src/
 
 ## Architecture
 
-ClickDown uses the **Elm Architecture** via the iced framework:
+ClickDown uses the **Elm Architecture** pattern adapted for TUI with ratatui:
 
-- **Model**: Application state (`ClickDown` struct)
+- **Model**: Application state (`TuiApp` struct)
 - **Update**: Message handling (`Message` enum)
-- **View**: UI rendering (`view` methods)
+- **View**: Terminal rendering (`render` methods)
+
+The application uses a continuous rendering loop that:
+1. Processes keyboard events via crossterm
+2. Updates application state based on messages
+3. Renders the terminal buffer with ratatui widgets
+4. Runs at ~30 FPS for responsive interaction
 
 ## Configuration
 
@@ -125,10 +137,9 @@ The application uses the ClickUp API v2:
 - [x] Document viewing with Markdown rendering
 - [x] SQLite caching layer
 - [x] Configuration and token management
-- [x] Dark theme UI
+- [x] Dark theme TUI with vim-style navigation
 
 ### In Progress / Planned 🚧
-- [ ] Keyboard shortcuts (Ctrl+N for new task, Ctrl+S to save, etc.)
 - [ ] Task filtering and sorting (by status, priority, due date, assignee)
 - [ ] Background sync mechanism (periodic refresh)
 - [ ] Task comments viewing and creation
@@ -137,9 +148,6 @@ The application uses the ClickUp API v2:
 - [ ] Task attachments
 - [ ] Rich text editor for task descriptions
 - [ ] Document editing
-- [ ] System tray integration
-- [ ] Desktop notifications
-- [ ] Multiple window support
 - [ ] Bulk operations
 - [ ] Search functionality
 - [ ] Activity log / history

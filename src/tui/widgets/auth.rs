@@ -73,6 +73,7 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
             Constraint::Length(2),
             Constraint::Length(3),
             Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Min(1),
         ])
         .split(auth_area);
@@ -87,29 +88,62 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
         .style(Style::default().fg(Color::DarkGray));
     frame.render_widget(help, inner[1]);
     
-    // Token input (masked)
-    let masked: String = state.token_input.chars().map(|_| '•').collect();
+    // Token input (partially masked: first 4 chars visible, rest masked)
     let input_display = if state.loading {
         "Loading...".to_string()
+    } else if state.token_input.is_empty() {
+        // Show placeholder when empty
+        "[Type or paste your token here]".to_string()
     } else {
-        masked
+        // Show first 4 characters unmasked, rest as bullets
+        let visible_chars = 4;
+        let mut display = String::new();
+
+        // Build display with cursor indicator in one pass
+        let token_chars: Vec<char> = state.token_input.chars().collect();
+        for i in 0..=token_chars.len() {
+            // Add cursor indicator at cursor position
+            if i == state.cursor_pos {
+                display.push('█');  // Block cursor for better visibility
+            }
+            // Add character or bullet
+            if i < token_chars.len() {
+                if i < visible_chars {
+                    display.push(token_chars[i]);
+                } else {
+                    display.push('•');
+                }
+            }
+        }
+        // Handle cursor at end
+        if state.cursor_pos > token_chars.len() {
+            display.push('█');
+        }
+
+        display
     };
-    
+
+    // Use bright white for better visibility
     let input = Paragraph::new(format!("Token: {}", input_display))
-        .style(Style::default().fg(Color::Yellow));
+        .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
     frame.render_widget(input, inner[2]);
+    
+    // Show token length for debugging
+    let token_len_info = Paragraph::new(format!("({} characters)", state.token_input.len()))
+        .style(Style::default().fg(Color::Gray));
+    frame.render_widget(token_len_info, inner[3]);
     
     // Error message
     if let Some(ref error) = state.error {
         let error_para = Paragraph::new(error.as_str())
             .style(Style::default().fg(Color::Red));
-        frame.render_widget(error_para, inner[3]);
+        frame.render_widget(error_para, inner[4]);
     }
-    
+
     // Instructions
     let instructions = Paragraph::new("Press Enter to connect, Esc to cancel")
         .style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(instructions, inner[4]);
+    frame.render_widget(instructions, inner[5]);
 }
 
 /// Create a centered rectangle
