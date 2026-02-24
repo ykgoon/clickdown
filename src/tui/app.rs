@@ -235,7 +235,15 @@ impl TuiApp {
                         self.loading = false;
                         match result {
                             Ok(workspaces) => {
-                                self.workspaces = workspaces;
+                                self.workspaces = workspaces.clone();
+                                // Populate sidebar with workspaces
+                                self.sidebar.items = self.workspaces.iter()
+                                    .map(|w| SidebarItem::Workspace { 
+                                        name: w.name.clone(), 
+                                        id: w.id.clone() 
+                                    })
+                                    .collect();
+                                self.sidebar.select_first();
                                 self.state = AppState::Main;
                                 self.status = format!("Loaded {} workspace(s)", self.workspaces.len());
                             }
@@ -249,7 +257,16 @@ impl TuiApp {
                         self.loading = false;
                         match result {
                             Ok(spaces) => {
-                                self.spaces = spaces;
+                                self.spaces = spaces.clone();
+                                // Populate sidebar with spaces
+                                self.sidebar.items = self.spaces.iter()
+                                    .map(|s| SidebarItem::Space { 
+                                        name: s.name.clone(), 
+                                        id: s.id.clone(),
+                                        indent: 1,
+                                    })
+                                    .collect();
+                                self.sidebar.select_first();
                                 self.status = format!("Loaded {} space(s)", self.spaces.len());
                             }
                             Err(e) => {
@@ -262,7 +279,16 @@ impl TuiApp {
                         self.loading = false;
                         match result {
                             Ok(folders) => {
-                                self.folders = folders;
+                                self.folders = folders.clone();
+                                // Populate sidebar with folders
+                                self.sidebar.items = self.folders.iter()
+                                    .map(|f| SidebarItem::Folder { 
+                                        name: f.name.clone(), 
+                                        id: f.id.clone(),
+                                        indent: 2,
+                                    })
+                                    .collect();
+                                self.sidebar.select_first();
                                 self.status = format!("Loaded {} folder(s)", self.folders.len());
                             }
                             Err(e) => {
@@ -275,7 +301,16 @@ impl TuiApp {
                         self.loading = false;
                         match result {
                             Ok(lists) => {
-                                self.lists = lists;
+                                self.lists = lists.clone();
+                                // Populate sidebar with lists
+                                self.sidebar.items = self.lists.iter()
+                                    .map(|l| SidebarItem::List { 
+                                        name: l.name.clone(), 
+                                        id: l.id.clone(),
+                                        indent: 3,
+                                    })
+                                    .collect();
+                                self.sidebar.select_first();
                                 self.status = format!("Loaded {} list(s)", self.lists.len());
                             }
                             Err(e) => {
