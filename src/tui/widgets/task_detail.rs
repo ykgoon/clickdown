@@ -72,8 +72,10 @@ pub fn render_task_detail(frame: &mut Frame, state: &TaskDetailState, area: Rect
             Paragraph::new(format!("Priority: {}", priority)),
             inner[2],
         );
-        
-        let desc = task.description.as_deref().unwrap_or("No description");
+
+        let desc = task.description.as_ref()
+            .map(|d| d.as_text())
+            .unwrap_or_else(|| "No description".to_string());
         frame.render_widget(
             Paragraph::new(format!("Description: {}", desc)),
             inner[3],

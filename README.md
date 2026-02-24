@@ -34,6 +34,64 @@ cargo build --release
 cargo run
 ```
 
+## CLI Debug Mode
+
+ClickDown includes a CLI debug mode for headless debugging and bug reproduction:
+
+```bash
+# Show help
+clickdown --help
+clickdown debug --help
+
+# Check authentication status
+clickdown debug auth-status
+
+# List all workspaces
+clickdown debug workspaces
+clickdown debug workspaces --json
+
+# List tasks from a list
+clickdown debug tasks <list_id>
+clickdown debug tasks <list_id> --json
+
+# Search documents
+clickdown debug docs <query>
+clickdown debug docs <query> --json
+
+# Enable verbose logging (logs go to stderr, data to stdout)
+clickdown debug workspaces --verbose
+
+# Override token for testing (does not save to disk)
+clickdown debug auth-status --token <your_token>
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error |
+| 2 | Invalid arguments |
+| 3 | Authentication error |
+| 4 | Network error |
+
+### Examples
+
+```bash
+# Debug: Check if token is valid
+clickdown debug auth-status
+echo $?  # 0 = authenticated, 3 = not authenticated
+
+# Debug: Inspect workspace data
+clickdown debug workspaces --json | jq '.[].name'
+
+# Debug: Fetch tasks with verbose logging
+clickdown debug tasks list123 --verbose 2>&1 | grep "GET"
+
+# Debug: Test with different token
+clickdown debug workspaces --token pk_test_123 --json
+```
+
 ## Authentication
 
 ClickDown uses Personal API Token authentication via a terminal-based form:

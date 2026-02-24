@@ -180,6 +180,100 @@ fn test_view_rendering() {
 | `with_documents(vec)` | Set documents response |
 | `with_pages(vec)` | Set pages response |
 
+## CLI Debug Mode Testing
+
+ClickDown includes a CLI debug mode that can be used for manual testing and debugging:
+
+### Running CLI Tests
+
+```bash
+# Run CLI integration tests
+cargo test --test cli_test
+
+# Run specific CLI test
+cargo test --test cli_test test_debug_list_workspaces
+
+# Run CLI tests with output
+cargo test --test cli_test -- --nocapture
+```
+
+### CLI Test Structure
+
+CLI tests use the same `MockClickUpClient` pattern as integration tests:
+
+```rust
+use clickdown::api::MockClickUpClient;
+use clickdown::commands::DebugOperations;
+use clickdown::api::AuthManager;
+
+#[tokio::test]
+async fn test_debug_list_workspaces() {
+    let mock_client = MockClickUpClient::new()
+        .with_workspaces(vec![test_workspace()]);
+    
+    let auth = AuthManager::default();
+    let debug_ops = DebugOperations::new(
+        Arc::new(mock_client),
+        auth,
+        None,
+    );
+    
+    let result = debug_ops.list_workspaces().await;
+    assert!(result.is_ok());
+}
+```
+
+### Manual CLI Testing
+
+For manual testing without the TUI:
+
+```bash
+# Build the CLI
+cargo build
+
+# Test authentication
+./target/debug/clickdown debug auth-status
+
+# Test workspace listing
+./target/debug/clickdown debug workspaces
+
+# Test with JSON output
+./target/debug/clickdown debug workspaces --json | jq
+
+# Test verbose logging
+./target/debug/clickdown debug workspaces --verbose
+
+# Test token override
+./target/debug/clickdown debug auth-status --token test_token
+```
+
+### CLI Exit Codes
+
+When testing CLI behavior, check exit codes:
+
+```bash
+# Success (authenticated)
+./target/debug/clickdown debug auth-status
+echo $?  # Should be 0
+
+# Auth error
+./target/debug/clickdown debug auth-status --token invalid
+echo $?  # Should be 3
+
+# Invalid arguments
+./target/debug/clickdown debug invalid_command
+echo $?  # Should be 2
+```
+
+### CLI vs. Unit Tests
+
+| CLI Tests | Unit Tests |
+|-----------|------------|
+| Test CLI argument parsing | Test business logic |
+| Test output formatting | Test state transitions |
+| Manual verification | Automated regression |
+| Real terminal behavior | Headless execution |
+
 ## Troubleshooting
 
 ### Tests Hang

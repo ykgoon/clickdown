@@ -126,6 +126,113 @@ Files:
 - `token` - API token (keep out of version control)
 - `cache/cache.db` - SQLite cache database
 
+## Debugging with CLI Mode
+
+ClickDown includes a CLI debug mode for headless debugging and bug reproduction. This is useful for:
+- Reproducing bugs reported by users
+- Testing API connectivity without launching the TUI
+- Inspecting raw API responses
+- Debugging authentication issues
+
+### Quick Start
+
+```bash
+# Show all available commands
+clickdown --help
+clickdown debug --help
+
+# Check authentication status
+clickdown debug auth-status
+echo $?  # 0 = authenticated, 3 = not authenticated
+
+# List workspaces (human-readable)
+clickdown debug workspaces
+
+# List workspaces (JSON for inspection)
+clickdown debug workspaces --json | jq '.[] | {id, name}'
+
+# Fetch tasks from a list
+clickdown debug tasks <list_id>
+clickdown debug tasks <list_id> --json
+
+# Search documents
+clickdown debug docs "Sprint Planning"
+clickdown debug docs "Sprint Planning" --json
+```
+
+### Verbose Logging
+
+Use `--verbose` to see HTTP requests and responses. Logs go to stderr, data goes to stdout:
+
+```bash
+# Verbose output with JSON data
+clickdown debug workspaces --json --verbose
+
+# Pipe data while seeing logs
+clickdown debug tasks list123 --json --verbose 2>debug.log | jq '.[].name'
+
+# Full trace logging
+RUST_LOG=trace clickdown debug auth-status --verbose
+```
+
+### Token Override for Testing
+
+Test with different tokens without modifying the stored token:
+
+```bash
+# Use alternate token (not saved to disk)
+clickdown debug workspaces --token pk_test_abc123
+
+# Combine with verbose to see auth behavior
+clickdown debug auth-status --token pk_test_abc123 --verbose
+```
+
+**Warning:** The override token is NOT saved. Logs never include the token value.
+
+### Exit Codes
+
+| Code | Meaning | When |
+|------|---------|------|
+| 0 | Success | Operation completed |
+| 1 | General error | Unexpected error |
+| 2 | Invalid arguments | Bad CLI syntax |
+| 3 | Auth error | Invalid/missing token |
+| 4 | Network error | Connection failed |
+
+### Common Debugging Workflows
+
+**Reproduce a bug:**
+1. Check auth: `clickdown debug auth-status`
+2. List workspaces: `clickdown debug workspaces --json`
+3. Fetch specific data: `clickdown debug tasks <list_id> --json`
+4. Inspect with verbose: `clickdown debug tasks <list_id> --verbose`
+
+**Test before TUI launch:**
+```bash
+# Quick connectivity check
+clickdown debug auth-status && cargo run
+```
+
+**Compare API vs. cache:**
+```bash
+# Fetch fresh data
+clickdown debug workspaces --json > fresh.json
+
+# Launch TUI and compare
+cargo run
+```
+
+### CLI Mode vs. Unit Tests
+
+| Use CLI Mode | Use Unit Tests |
+|--------------|----------------|
+| Real API calls | Mock data |
+| Headless, quick iteration | Automated, reproducible |
+| Inspect live data | Test edge cases |
+| Reproduce user bugs | Regression testing |
+
+See [TESTING.md](TESTING.md) for mock client testing patterns.
+
 ## Development Conventions
 
 ### Code Style

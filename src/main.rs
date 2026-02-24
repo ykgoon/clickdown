@@ -8,6 +8,8 @@ mod models;
 mod cache;
 mod config;
 mod tui;
+mod cli;
+mod commands;
 
 use anyhow::Result;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -23,10 +25,27 @@ fn init_logging() {
 async fn main() -> Result<()> {
     init_logging();
 
-    tracing::info!("Starting ClickDown TUI...");
+    // Parse CLI arguments
+    let args = cli::args::parse_args().map_err(|e| {
+        eprintln!("Error parsing arguments: {}", e);
+        cli::args::print_usage();
+        anyhow::anyhow!("Invalid arguments")
+    })?;
 
-    let mut app = tui::app::TuiApp::new()?;
-    app.run()?;
+    match args.debug_command {
+        Some(cmd) => {
+            // Run in CLI debug mode
+            tracing::info!("Running in CLI debug mode");
+            let exit_code = cli::run::run_cli(cmd).await;
+            std::process::exit(exit_code);
+        }
+        None => {
+            // Run in TUI mode
+            tracing::info!("Starting ClickDown TUI...");
+            let mut app = tui::app::TuiApp::new()?;
+            app.run()?;
+        }
+    }
 
     Ok(())
 }

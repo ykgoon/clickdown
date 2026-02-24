@@ -1,6 +1,145 @@
 //! Task models
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Helper function to deserialize null as empty vec for Vec<T> fields
+fn null_to_empty_vec<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Option::deserialize(deserializer).map(|opt| opt.unwrap_or_default())
+}
+
+/// Flexible deserializer for timestamp fields that can be either i64 or string
+/// ClickUp API may return timestamps as either format
+fn flexible_timestamp<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum TimestampValue {
+        Int(i64),
+        String(String),
+    }
+    
+    let opt = Option::<TimestampValue>::deserialize(deserializer)?;
+    match opt {
+        None => Ok(None),
+        Some(TimestampValue::Int(v)) => Ok(Some(v)),
+        Some(TimestampValue::String(s)) => {
+            s.parse::<i64>().map(Some).map_err(D::Error::custom)
+        }
+    }
+}
+
+/// Flexible deserializer for integer fields that can be either i32 or string
+fn flexible_int<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum IntValue {
+        Int(i32),
+        String(String),
+    }
+    
+    let opt = Option::<IntValue>::deserialize(deserializer)?;
+    match opt {
+        None => Ok(None),
+        Some(IntValue::Int(v)) => Ok(Some(v)),
+        Some(IntValue::String(s)) => {
+            s.parse::<i32>().map(Some).map_err(D::Error::custom)
+        }
+    }
+}
+
+/// Flexible deserializer for i64 fields that can be either i64 or string
+fn flexible_i64<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum I64Value {
+        Int(i64),
+        String(String),
+    }
+    
+    let opt = Option::<I64Value>::deserialize(deserializer)?;
+    match opt {
+        None => Ok(None),
+        Some(I64Value::Int(v)) => Ok(Some(v)),
+        Some(I64Value::String(s)) => {
+            s.parse::<i64>().map(Some).map_err(D::Error::custom)
+        }
+    }
+}
+
+/// Flexible description type that can be either a plain string or an object
+/// with HTML/markdown content (ClickUp API can return both formats)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TaskDescription {
+    /// Plain text description
+    Plain(String),
+    /// Rich text description with HTML and/or markdown
+    Rich {
+        #[serde(default)]
+        html: Option<String>,
+        #[serde(default)]
+        markdown: Option<String>,
+        #[serde(default)]
+        text: Option<String>,
+    },
+}
+
+impl TaskDescription {
+    /// Get the description as a string, preferring markdown > text > html > empty
+    pub fn as_text(&self) -> String {
+        match self {
+            TaskDescription::Plain(s) => s.clone(),
+            TaskDescription::Rich { markdown, text, html, .. } => {
+                markdown.clone()
+                    .or_else(|| text.clone())
+                    .or_else(|| html.clone())
+                    .unwrap_or_default()
+            }
+        }
+    }
+}
+
+/// Flexible content type that can be either a plain string or an object
+/// with HTML content (ClickUp API can return both formats)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TaskContent {
+    /// Plain text content
+    Plain(String),
+    /// HTML content
+    Rich {
+        #[serde(default)]
+        html: Option<String>,
+    },
+}
+
+impl TaskContent {
+    /// Get the content as a string
+    pub fn as_text(&self) -> String {
+        match self {
+            TaskContent::Plain(s) => s.clone(),
+            TaskContent::Rich { html } => html.clone().unwrap_or_default(),
+        }
+    }
+}
 
 /// A ClickUp Task
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -8,40 +147,40 @@ pub struct Task {
     pub id: String,
     pub name: String,
     #[serde(default)]
-    pub description: Option<String>,
+    pub description: Option<TaskDescription>,
     #[serde(default)]
     pub status: Option<TaskStatus>,
     #[serde(default)]
     pub orderindex: Option<String>,
     #[serde(default)]
-    pub content: Option<String>,
-    #[serde(default)]
+    pub content: Option<TaskContent>,
+    #[serde(default, deserialize_with = "flexible_timestamp")]
     pub created_at: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flexible_timestamp")]
     pub updated_at: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flexible_timestamp")]
     pub closed_at: Option<i64>,
     #[serde(default)]
     pub creator: Option<User>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub assignees: Vec<User>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub checklists: Vec<Checklist>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub tags: Vec<Tag>,
     #[serde(default)]
     pub parent: Option<TaskReference>,
     #[serde(default)]
     pub priority: Option<Priority>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flexible_timestamp")]
     pub due_date: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flexible_timestamp")]
     pub start_date: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flexible_int")]
     pub points: Option<i32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub custom_fields: Vec<CustomField>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub attachments: Vec<Attachment>,
     #[serde(default)]
     pub list: Option<ListReference>,
@@ -51,9 +190,9 @@ pub struct Task {
     pub space: Option<SpaceReference>,
     #[serde(default)]
     pub url: Option<String>,
-    #[serde(default, rename = "timeEstimate")]
+    #[serde(default, rename = "timeEstimate", deserialize_with = "flexible_i64")]
     pub time_estimate: Option<i64>,
-    #[serde(default, rename = "timeSpent")]
+    #[serde(default, rename = "timeSpent", deserialize_with = "flexible_i64")]
     pub time_spent: Option<i64>,
 }
 
@@ -166,6 +305,7 @@ pub struct SpaceReference {
 /// API response for getting tasks
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TasksResponse {
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub tasks: Vec<Task>,
 }
 
