@@ -1,4 +1,4 @@
-//! ClickDown - A fast ClickUp desktop client
+//! ClickDown - A TUI ClickUp client
 
 #![allow(dead_code)]
 #![allow(unused_imports)]
@@ -7,9 +7,7 @@ mod api;
 mod models;
 mod cache;
 mod config;
-mod ui;
-mod app;
-mod screen_id;
+mod tui;
 
 use anyhow::Result;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -23,10 +21,11 @@ fn init_logging() {
 
 fn main() -> Result<()> {
     init_logging();
-    
-    tracing::info!("Starting ClickDown...");
-    
-    app::run()?;
-    
+
+    tracing::info!("Starting ClickDown TUI...");
+
+    let mut app = tui::app::TuiApp::new()?;
+    app.run()?;
+
     Ok(())
 }

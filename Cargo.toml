@@ -6,8 +6,9 @@ description = "A fast and responsive ClickUp desktop client"
 authors = ["ClickDown Team"]
 
 [dependencies]
-# GUI framework
-iced = { version = "0.13", features = ["tokio"] }
+# TUI framework
+ratatui = "0.29"
+crossterm = "0.28"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
