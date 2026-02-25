@@ -11,6 +11,14 @@ where
     Option::deserialize(deserializer).map(|opt| opt.unwrap_or_default())
 }
 
+/// Helper function to deserialize null as false for bool fields
+fn null_to_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<bool>::deserialize(deserializer).map(|opt| opt.unwrap_or(false))
+}
+
 /// Flexible deserializer for timestamp fields that can be either i64 or string
 /// ClickUp API may return timestamps as either format
 fn flexible_timestamp<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
@@ -66,14 +74,14 @@ where
     D: Deserializer<'de>,
 {
     use serde::de::Error;
-    
+
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum I64Value {
         Int(i64),
         String(String),
     }
-    
+
     let opt = Option::<I64Value>::deserialize(deserializer)?;
     match opt {
         None => Ok(None),
@@ -81,6 +89,29 @@ where
         Some(I64Value::String(s)) => {
             s.parse::<i64>().map(Some).map_err(D::Error::custom)
         }
+    }
+}
+
+/// Flexible deserializer for resolved field that can be either bool or i64
+/// ClickUp API may return resolved as either format
+fn flexible_resolved<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ResolvedValue {
+        Bool(bool),
+        Int(i64),
+    }
+
+    let opt = Option::<ResolvedValue>::deserialize(deserializer)?;
+    match opt {
+        None => Ok(None),
+        Some(ResolvedValue::Bool(b)) => Ok(Some(if b { 1 } else { 0 })),
+        Some(ResolvedValue::Int(v)) => Ok(Some(v)),
     }
 }
 
@@ -145,31 +176,49 @@ impl TaskContent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
+    #[serde(default)]
+    pub custom_id: Option<String>,
+    #[serde(default, rename = "custom_item_id", deserialize_with = "flexible_int")]
+    pub custom_item_id: Option<i32>,
     pub name: String,
     #[serde(default)]
+    pub text_content: Option<String>,
+    #[serde(default)]
     pub description: Option<TaskDescription>,
+    #[serde(default, rename = "markdown_description")]
+    pub markdown_description: Option<String>,
     #[serde(default)]
     pub status: Option<TaskStatus>,
     #[serde(default)]
     pub orderindex: Option<String>,
     #[serde(default)]
     pub content: Option<TaskContent>,
-    #[serde(default, deserialize_with = "flexible_timestamp")]
+    #[serde(default, rename = "date_created", deserialize_with = "flexible_timestamp")]
     pub created_at: Option<i64>,
-    #[serde(default, deserialize_with = "flexible_timestamp")]
+    #[serde(default, rename = "date_updated", deserialize_with = "flexible_timestamp")]
     pub updated_at: Option<i64>,
-    #[serde(default, deserialize_with = "flexible_timestamp")]
+    #[serde(default, rename = "date_closed", deserialize_with = "flexible_timestamp")]
     pub closed_at: Option<i64>,
+    #[serde(default, rename = "date_done", deserialize_with = "flexible_timestamp")]
+    pub done_at: Option<i64>,
+    #[serde(default)]
+    pub archived: Option<bool>,
     #[serde(default)]
     pub creator: Option<User>,
     #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub assignees: Vec<User>,
+    #[serde(default, deserialize_with = "null_to_empty_vec", rename = "group_assignees")]
+    pub group_assignees: Vec<User>,
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
+    pub watchers: Vec<User>,
     #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub checklists: Vec<Checklist>,
     #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub tags: Vec<Tag>,
     #[serde(default)]
     pub parent: Option<TaskReference>,
+    #[serde(default, rename = "top_level_parent")]
+    pub top_level_parent: Option<TaskReference>,
     #[serde(default)]
     pub priority: Option<Priority>,
     #[serde(default, deserialize_with = "flexible_timestamp")]
@@ -182,30 +231,48 @@ pub struct Task {
     pub custom_fields: Vec<CustomField>,
     #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub attachments: Vec<Attachment>,
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
+    pub dependencies: Vec<TaskDependencyRef>,
+    #[serde(default, deserialize_with = "null_to_empty_vec", rename = "linked_tasks")]
+    pub linked_tasks: Vec<LinkedTask>,
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
+    pub locations: Vec<serde_json::Value>,
     #[serde(default)]
     pub list: Option<ListReference>,
     #[serde(default)]
     pub folder: Option<FolderReference>,
     #[serde(default)]
     pub space: Option<SpaceReference>,
+    #[serde(default, rename = "project")]
+    pub project: Option<ProjectReference>,
     #[serde(default)]
     pub url: Option<String>,
-    #[serde(default, rename = "timeEstimate", deserialize_with = "flexible_i64")]
+    #[serde(default, rename = "team_id")]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub sharing: Option<TaskSharing>,
+    #[serde(default)]
+    pub permission_level: Option<String>,
+    #[serde(default, alias = "timeEstimate", deserialize_with = "flexible_i64")]
     pub time_estimate: Option<i64>,
-    #[serde(default, rename = "timeSpent", deserialize_with = "flexible_i64")]
+    #[serde(default, alias = "timeSpent", deserialize_with = "flexible_i64")]
     pub time_spent: Option<i64>,
 }
 
 /// Task status
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskStatus {
+    #[serde(default)]
+    pub id: Option<String>,
     pub status: String,
     #[serde(default)]
     pub color: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "type")]
     pub type_field: Option<String>,
     #[serde(default)]
     pub orderindex: Option<u32>,
+    #[serde(default, rename = "status_group")]
+    pub status_group: Option<String>,
 }
 
 /// User/Assignee reference
@@ -217,8 +284,41 @@ pub struct User {
     pub color: Option<String>,
     #[serde(default)]
     pub email: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "profilePicture")]
     pub profile_picture: Option<String>,
+    #[serde(default)]
+    pub initials: Option<String>,
+}
+
+/// Task checklist item
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChecklistItem {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub orderindex: Option<f64>,
+    #[serde(default)]
+    pub assignee: Option<serde_json::Value>,
+    #[serde(default)]
+    pub group_assignee: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "null_to_false")]
+    pub resolved: bool,
+    #[serde(default)]
+    pub parent: Option<String>,
+    #[serde(default)]
+    pub date_created: Option<String>,
+    #[serde(default)]
+    pub start_date: Option<serde_json::Value>,
+    #[serde(default)]
+    pub start_date_time: Option<bool>,
+    #[serde(default)]
+    pub due_date: Option<serde_json::Value>,
+    #[serde(default)]
+    pub due_date_time: Option<bool>,
+    #[serde(default)]
+    pub sent_due_date_notif: Option<serde_json::Value>,
+    #[serde(default)]
+    pub children: Vec<serde_json::Value>,
 }
 
 /// Task checklist
@@ -228,17 +328,92 @@ pub struct Checklist {
     pub name: String,
     #[serde(default)]
     pub orderindex: Option<u32>,
+    #[serde(default, deserialize_with = "flexible_resolved")]
+    pub resolved: Option<i64>,
+    #[serde(default, deserialize_with = "flexible_resolved")]
+    pub unresolved: Option<i64>,
     #[serde(default)]
-    pub resolved: bool,
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub date_created: Option<String>,
+    #[serde(default)]
+    pub creator: Option<i64>,
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
+    pub items: Vec<ChecklistItem>,
 }
 
 /// Task tag
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tag {
-    pub id: String,
+    #[serde(default)]
+    pub id: Option<String>,
     pub name: String,
     #[serde(default)]
     pub color: Option<String>,
+    #[serde(default, alias = "tag_fg")]
+    pub tag_fg: Option<String>,
+    #[serde(default, alias = "tag_bg")]
+    pub tag_bg: Option<String>,
+    #[serde(default)]
+    pub creator: Option<i64>,
+}
+
+/// Task dependency reference
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskDependency {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default, rename = "status")]
+    pub dependency_status: Option<String>,
+}
+
+/// Task dependency reference (for dependencies array in task response)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskDependencyRef {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default, alias = "task_id")]
+    pub task_id: Option<String>,
+    #[serde(default, alias = "depends_on")]
+    pub depends_on: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default, rename = "status")]
+    pub dependency_status: Option<String>,
+    #[serde(default)]
+    pub type_field: Option<i64>,
+    #[serde(default)]
+    pub date_created: Option<String>,
+    #[serde(default)]
+    pub userid: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub chain_id: Option<serde_json::Value>,
+}
+
+/// Linked task reference
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LinkedTask {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default, alias = "task_id")]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub link_id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub date_created: Option<String>,
+    #[serde(default)]
+    pub userid: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
 }
 
 /// Task reference (for parent tasks)
@@ -261,10 +436,20 @@ pub struct Priority {
 pub struct CustomField {
     pub id: String,
     pub name: String,
-    #[serde(default)]
+    #[serde(default, rename = "type")]
     pub type_field: Option<String>,
     #[serde(default)]
     pub value: Option<serde_json::Value>,
+    #[serde(default, rename = "value_richtext")]
+    pub value_richtext: Option<serde_json::Value>,
+    #[serde(default)]
+    pub type_config: Option<serde_json::Value>,
+    #[serde(default, rename = "date_created", deserialize_with = "flexible_timestamp")]
+    pub date_created: Option<i64>,
+    #[serde(default, rename = "hide_from_guests")]
+    pub hide_from_guests: Option<bool>,
+    #[serde(default)]
+    pub required: Option<bool>,
 }
 
 /// Attachment
@@ -279,27 +464,73 @@ pub struct Attachment {
     pub title: Option<String>,
     #[serde(default)]
     pub url: Option<String>,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub extension: Option<String>,
+    #[serde(default, rename = "thumbnailSmall")]
+    pub thumbnail_small: Option<String>,
+    #[serde(default, rename = "thumbnailLarge")]
+    pub thumbnail_large: Option<String>,
 }
 
 /// Reference to a List
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListReference {
     pub id: String,
+    #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub access: Option<bool>,
 }
 
 /// Reference to a Folder
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FolderReference {
     pub id: String,
+    #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub hidden: Option<bool>,
+    #[serde(default)]
+    pub access: Option<bool>,
+}
+
+/// Reference to a Project (folder in API response)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectReference {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub hidden: Option<bool>,
+    #[serde(default)]
+    pub access: Option<bool>,
 }
 
 /// Reference to a Space
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpaceReference {
     pub id: String,
+    #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub access: Option<bool>,
+}
+
+/// Task sharing settings
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskSharing {
+    #[serde(default)]
+    pub public: Option<bool>,
+    #[serde(default, rename = "public_share_expires_on")]
+    pub public_share_expires_on: Option<i64>,
+    #[serde(default, rename = "public_fields")]
+    pub public_fields: Vec<String>,
+    #[serde(default)]
+    pub token: Option<String>,
+    #[serde(default, rename = "seo_optimized")]
+    pub seo_optimized: Option<bool>,
 }
 
 /// API response for getting tasks

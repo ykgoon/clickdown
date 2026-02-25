@@ -152,4 +152,177 @@ impl DebugOperations {
             }
         }
     }
+
+    /// List spaces in a workspace
+    pub async fn list_spaces(&self, workspace_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let spaces = api.get_spaces(workspace_id).await?;
+
+        if spaces.is_empty() {
+            println!("No spaces found in workspace {}.", workspace_id);
+            return Ok(());
+        }
+
+        for space in &spaces {
+            let private = if space.private { " (private)" } else { "" };
+            println!("{} - {}{}", space.id, space.name, private);
+        }
+
+        Ok(())
+    }
+
+    /// List spaces as JSON
+    pub async fn list_spaces_json(&self, workspace_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let spaces = api.get_spaces(workspace_id).await?;
+
+        let json = serde_json::to_string_pretty(&spaces)?;
+        println!("{}", json);
+
+        Ok(())
+    }
+
+    /// List folders in a space
+    pub async fn list_folders(&self, space_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let folders = api.get_folders(space_id).await?;
+
+        if folders.is_empty() {
+            println!("No folders found in space {}.", space_id);
+            return Ok(());
+        }
+
+        for folder in &folders {
+            let private = if folder.private { " (private)" } else { "" };
+            println!("{} - {}{}", folder.id, folder.name, private);
+        }
+
+        Ok(())
+    }
+
+    /// List folders as JSON
+    pub async fn list_folders_json(&self, space_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let folders = api.get_folders(space_id).await?;
+
+        let json = serde_json::to_string_pretty(&folders)?;
+        println!("{}", json);
+
+        Ok(())
+    }
+
+    /// List lists in a folder
+    pub async fn list_lists_in_folder(&self, folder_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let lists = api.get_lists_in_folder(folder_id, None).await?;
+
+        if lists.is_empty() {
+            println!("No lists found in folder {}.", folder_id);
+            return Ok(());
+        }
+
+        for list in &lists {
+            let archived = if list.archived { " (archived)" } else { "" };
+            println!("{} - {}{}", list.id, list.name, archived);
+        }
+
+        Ok(())
+    }
+
+    /// List lists in a space (folderless)
+    pub async fn list_lists_in_space(&self, space_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let lists = api.get_lists_in_space(space_id, None).await?;
+
+        if lists.is_empty() {
+            println!("No folderless lists found in space {}.", space_id);
+            return Ok(());
+        }
+
+        for list in &lists {
+            let archived = if list.archived { " (archived)" } else { "" };
+            println!("{} - {}{}", list.id, list.name, archived);
+        }
+
+        Ok(())
+    }
+
+    /// List lists as JSON (from folder)
+    pub async fn list_lists_json(&self, folder_id: &str, in_space: bool) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let lists = if in_space {
+            api.get_lists_in_space(folder_id, None).await?
+        } else {
+            api.get_lists_in_folder(folder_id, None).await?
+        };
+
+        let json = serde_json::to_string_pretty(&lists)?;
+        println!("{}", json);
+
+        Ok(())
+    }
+
+    /// Get a single task as JSON
+    pub async fn get_task_json(&self, task_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let task = api.get_task(task_id).await?;
+
+        let json = serde_json::to_string_pretty(&task)?;
+        println!("{}", json);
+
+        Ok(())
+    }
+
+    /// Explore full hierarchy: workspace -> spaces -> folders -> lists -> tasks
+    pub async fn explore_hierarchy(&self, workspace_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+
+        println!("=== Exploring Workspace: {} ===\n", workspace_id);
+
+        // Get spaces
+        let spaces = api.get_spaces(workspace_id).await?;
+        println!("Found {} space(s)\n", spaces.len());
+
+        for space in &spaces {
+            println!("--- Space: {} ({}) ---", space.name, space.id);
+
+            // Get folders in space
+            let folders = api.get_folders(&space.id).await?;
+            println!("  Folders: {}", folders.len());
+
+            for folder in &folders {
+                println!("    Folder: {} ({})", folder.name, folder.id);
+
+                // Get lists in folder
+                let lists = api.get_lists_in_folder(&folder.id, None).await?;
+                println!("      Lists: {}", lists.len());
+
+                for list in &lists {
+                    println!("        List: {} ({})", list.name, list.id);
+
+                    // Get sample tasks from first list
+                    let filters = TaskFilters::default();
+                    let tasks = api.get_tasks(&list.id, &filters).await?;
+                    println!("          Tasks: {}", tasks.len());
+
+                    if !tasks.is_empty() {
+                        println!("          Sample task ID: {}", tasks[0].id);
+                    }
+                }
+            }
+
+            // Also check folderless lists in space
+            let space_lists = api.get_lists_in_space(&space.id, None).await?;
+            if !space_lists.is_empty() {
+                println!("  Folderless Lists: {}", space_lists.len());
+                for list in &space_lists {
+                    println!("    List: {} ({})", list.name, list.id);
+                }
+            }
+
+            println!();
+        }
+
+        Ok(())
+    }
 }

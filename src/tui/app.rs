@@ -238,13 +238,15 @@ impl TuiApp {
                                 self.workspaces = workspaces.clone();
                                 // Populate sidebar with workspaces
                                 self.sidebar.items = self.workspaces.iter()
-                                    .map(|w| SidebarItem::Workspace { 
-                                        name: w.name.clone(), 
-                                        id: w.id.clone() 
+                                    .map(|w| SidebarItem::Workspace {
+                                        name: w.name.clone(),
+                                        id: w.id.clone()
                                     })
                                     .collect();
                                 self.sidebar.select_first();
                                 self.state = AppState::Main;
+                                // Clear any previous error state
+                                self.error = None;
                                 self.status = format!("Loaded {} workspace(s)", self.workspaces.len());
                             }
                             Err(e) => {
@@ -260,13 +262,15 @@ impl TuiApp {
                                 self.spaces = spaces.clone();
                                 // Populate sidebar with spaces
                                 self.sidebar.items = self.spaces.iter()
-                                    .map(|s| SidebarItem::Space { 
-                                        name: s.name.clone(), 
+                                    .map(|s| SidebarItem::Space {
+                                        name: s.name.clone(),
                                         id: s.id.clone(),
                                         indent: 1,
                                     })
                                     .collect();
                                 self.sidebar.select_first();
+                                // Clear any previous error state
+                                self.error = None;
                                 self.status = format!("Loaded {} space(s)", self.spaces.len());
                             }
                             Err(e) => {
@@ -282,13 +286,15 @@ impl TuiApp {
                                 self.folders = folders.clone();
                                 // Populate sidebar with folders
                                 self.sidebar.items = self.folders.iter()
-                                    .map(|f| SidebarItem::Folder { 
-                                        name: f.name.clone(), 
+                                    .map(|f| SidebarItem::Folder {
+                                        name: f.name.clone(),
                                         id: f.id.clone(),
                                         indent: 2,
                                     })
                                     .collect();
                                 self.sidebar.select_first();
+                                // Clear any previous error state
+                                self.error = None;
                                 self.status = format!("Loaded {} folder(s)", self.folders.len());
                             }
                             Err(e) => {
@@ -304,13 +310,15 @@ impl TuiApp {
                                 self.lists = lists.clone();
                                 // Populate sidebar with lists
                                 self.sidebar.items = self.lists.iter()
-                                    .map(|l| SidebarItem::List { 
-                                        name: l.name.clone(), 
+                                    .map(|l| SidebarItem::List {
+                                        name: l.name.clone(),
                                         id: l.id.clone(),
                                         indent: 3,
                                     })
                                     .collect();
                                 self.sidebar.select_first();
+                                // Clear any previous error state
+                                self.error = None;
                                 self.status = format!("Loaded {} list(s)", self.lists.len());
                             }
                             Err(e) => {
@@ -323,12 +331,20 @@ impl TuiApp {
                         self.loading = false;
                         match result {
                             Ok(tasks) => {
+                                // Update task_list.tasks for rendering (not self.tasks)
+                                self.task_list.tasks = tasks.clone();
                                 self.tasks = tasks;
-                                self.status = format!("Loaded {} task(s)", self.tasks.len());
+                                self.task_list.select_first();
+                                // Clear any previous error state
+                                self.error = None;
+                                self.status = format!("Loaded {} task(s)", self.task_list.tasks.len());
                             }
                             Err(e) => {
                                 self.error = Some(format!("Failed to load tasks: {}", e));
                                 self.status = "Failed to load tasks".to_string();
+                                // Clear tasks on error to prevent stale data
+                                self.task_list.tasks.clear();
+                                self.tasks.clear();
                             }
                         }
                     }

@@ -600,7 +600,7 @@ fn test_task_timestamp_as_string_now_works() {
     {
         "id": "task-1",
         "name": "Test",
-        "created_at": "1709251200000",
+        "date_created": "1709251200000",
         "due_date": "1709424000000"
     }
     "#;

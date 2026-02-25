@@ -91,6 +91,40 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 }
             }
         }
+        DebugOperation::Spaces { ref workspace_id } => {
+            if command.json {
+                debug_ops.list_spaces_json(workspace_id).await
+            } else {
+                debug_ops.list_spaces(workspace_id).await
+            }
+        }
+        DebugOperation::Folders { ref space_id } => {
+            if command.json {
+                debug_ops.list_folders_json(space_id).await
+            } else {
+                debug_ops.list_folders(space_id).await
+            }
+        }
+        DebugOperation::Lists { ref id, in_space } => {
+            if command.json {
+                debug_ops.list_lists_json(id, in_space).await
+            } else if in_space {
+                debug_ops.list_lists_in_space(id).await
+            } else {
+                debug_ops.list_lists_in_folder(id).await
+            }
+        }
+        DebugOperation::Task { ref task_id } => {
+            if command.json {
+                debug_ops.get_task_json(task_id).await
+            } else {
+                eprintln!("Use --json with 'task' command to see task details");
+                debug_ops.get_task_json(task_id).await
+            }
+        }
+        DebugOperation::Explore { ref workspace_id } => {
+            debug_ops.explore_hierarchy(workspace_id).await
+        }
         DebugOperation::Help => {
             // Already handled above
             return exit_codes::SUCCESS;

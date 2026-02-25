@@ -46,6 +46,16 @@ pub enum DebugOperation {
     AuthStatus,
     /// Show help
     Help,
+    /// List spaces in a workspace
+    Spaces { workspace_id: String },
+    /// List folders in a space
+    Folders { space_id: String },
+    /// List lists in a folder or space
+    Lists { id: String, in_space: bool },
+    /// Get a single task
+    Task { task_id: String },
+    /// Explore full hierarchy
+    Explore { workspace_id: String },
 }
 
 /// Parse CLI arguments from environment
@@ -142,6 +152,72 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                 }
                 operation = Some(DebugOperation::AuthStatus);
             }
+            "spaces" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                if i + 1 >= args.len() {
+                    return Err("spaces requires a workspace_id argument".to_string());
+                }
+                operation = Some(DebugOperation::Spaces {
+                    workspace_id: args[i + 1].clone()
+                });
+                i += 1; // Skip next arg
+            }
+            "folders" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                if i + 1 >= args.len() {
+                    return Err("folders requires a space_id argument".to_string());
+                }
+                operation = Some(DebugOperation::Folders {
+                    space_id: args[i + 1].clone()
+                });
+                i += 1; // Skip next arg
+            }
+            "lists" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                if i + 1 >= args.len() {
+                    return Err("lists requires a folder_id or space_id argument".to_string());
+                }
+                // Check for --in-space flag
+                let mut in_space = false;
+                if i + 2 < args.len() && args[i + 2] == "--in-space" {
+                    in_space = true;
+                }
+                operation = Some(DebugOperation::Lists {
+                    id: args[i + 1].clone(),
+                    in_space,
+                });
+                i += 1; // Skip next arg
+            }
+            "task" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                if i + 1 >= args.len() {
+                    return Err("task requires a task_id argument".to_string());
+                }
+                operation = Some(DebugOperation::Task {
+                    task_id: args[i + 1].clone()
+                });
+                i += 1; // Skip next arg
+            }
+            "explore" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                if i + 1 >= args.len() {
+                    return Err("explore requires a workspace_id argument".to_string());
+                }
+                operation = Some(DebugOperation::Explore {
+                    workspace_id: args[i + 1].clone()
+                });
+                i += 1; // Skip next arg
+            }
             "--help" | "-h" => {
                 operation = Some(DebugOperation::Help);
             }
@@ -180,11 +256,17 @@ pub fn print_usage() {
     eprintln!("    tasks <list_id>         Fetch tasks from a list");
     eprintln!("    docs <query>            Search documents");
     eprintln!("    auth-status             Check authentication status");
+    eprintln!("    spaces <workspace_id>   List spaces in a workspace");
+    eprintln!("    folders <space_id>      List folders in a space");
+    eprintln!("    lists <id>              List lists in a folder (use --in-space for space lists)");
+    eprintln!("    task <task_id>          Get a single task");
+    eprintln!("    explore <workspace_id>  Explore full hierarchy (spaces->folders->lists->tasks)");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("    --json                  Output in JSON format");
     eprintln!("    --verbose, -v           Enable verbose logging");
     eprintln!("    --token <token>         Override stored token (for testing)");
+    eprintln!("    --in-space              Use with 'lists' to list space lists instead of folder lists");
     eprintln!("    --help, -h              Show this help message");
     eprintln!();
     eprintln!("EXIT CODES:");
@@ -198,6 +280,11 @@ pub fn print_usage() {
     eprintln!("    clickdown debug workspaces");
     eprintln!("    clickdown debug tasks list123 --json");
     eprintln!("    clickdown debug auth-status --verbose");
+    eprintln!("    clickdown debug spaces 26408409 --json");
+    eprintln!("    clickdown debug folders space123 --json");
+    eprintln!("    clickdown debug lists folder123 --json");
+    eprintln!("    clickdown debug task task123 --json");
+    eprintln!("    clickdown debug explore 26408409");
 }
 
 #[cfg(test)]
@@ -212,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_parse_debug_workspaces() {
-        let args = vec!["debug".to_string(), "workspaces".to_string()];
+        let _args = vec!["debug".to_string(), "workspaces".to_string()];
         // Would need to mock env::args for full test
     }
 }
