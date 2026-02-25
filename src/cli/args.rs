@@ -56,6 +56,8 @@ pub enum DebugOperation {
     Task { task_id: String },
     /// Explore full hierarchy
     Explore { workspace_id: String },
+    /// Get comments for a task
+    Comments { task_id: String },
 }
 
 /// Parse CLI arguments from environment
@@ -218,6 +220,18 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                 });
                 i += 1; // Skip next arg
             }
+            "comments" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                if i + 1 >= args.len() {
+                    return Err("comments requires a task_id argument".to_string());
+                }
+                operation = Some(DebugOperation::Comments {
+                    task_id: args[i + 1].clone()
+                });
+                i += 1; // Skip next arg
+            }
             "--help" | "-h" => {
                 operation = Some(DebugOperation::Help);
             }
@@ -260,6 +274,7 @@ pub fn print_usage() {
     eprintln!("    folders <space_id>      List folders in a space");
     eprintln!("    lists <id>              List lists in a folder (use --in-space for space lists)");
     eprintln!("    task <task_id>          Get a single task");
+    eprintln!("    comments <task_id>      Get comments for a task");
     eprintln!("    explore <workspace_id>  Explore full hierarchy (spaces->folders->lists->tasks)");
     eprintln!();
     eprintln!("OPTIONS:");
@@ -284,6 +299,7 @@ pub fn print_usage() {
     eprintln!("    clickdown debug folders space123 --json");
     eprintln!("    clickdown debug lists folder123 --json");
     eprintln!("    clickdown debug task task123 --json");
+    eprintln!("    clickdown debug comments task123 --json");
     eprintln!("    clickdown debug explore 26408409");
 }
 

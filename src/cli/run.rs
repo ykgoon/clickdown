@@ -125,6 +125,13 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
         DebugOperation::Explore { ref workspace_id } => {
             debug_ops.explore_hierarchy(workspace_id).await
         }
+        DebugOperation::Comments { ref task_id } => {
+            if command.json {
+                debug_ops.get_comments_json(task_id).await
+            } else {
+                debug_ops.get_comments(task_id).await
+            }
+        }
         DebugOperation::Help => {
             // Already handled above
             return exit_codes::SUCCESS;

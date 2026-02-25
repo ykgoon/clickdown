@@ -5,12 +5,12 @@ use std::time::Duration;
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::{Frame, prelude::Rect};
+use ratatui::{Frame, prelude::Rect, layout::{Layout, Direction, Constraint}};
 use tokio::sync::mpsc;
 
 use crate::api::{ClickUpApi, AuthManager, ClickUpClient};
 use crate::config::ConfigManager;
-use crate::models::{Workspace, ClickUpSpace, Folder, List, Task, Document};
+use crate::models::{Workspace, ClickUpSpace, Folder, List, Task, Document, Comment, CreateCommentRequest, UpdateCommentRequest};
 
 use super::terminal;
 use super::layout::{TuiLayout, generate_screen_title};
@@ -23,6 +23,7 @@ use super::widgets::{
     DocumentState, render_document, get_document_hints,
     DialogState, DialogType, render_dialog, get_dialog_hints,
     HelpState, render_help,
+    render_comments,
 };
 
 /// Application screens
@@ -46,6 +47,9 @@ pub enum AppMessage {
     FoldersLoaded(Result<Vec<Folder>, String>),
     ListsLoaded(Result<Vec<List>, String>),
     TasksLoaded(Result<Vec<Task>, String>),
+    CommentsLoaded(Result<Vec<Comment>, String>),
+    CommentCreated(Result<Comment, String>),
+    CommentUpdated(Result<Comment, String>),
 }
 
 /// Main TUI application state
@@ -105,6 +109,13 @@ pub struct TuiApp {
     lists: Vec<List>,
     tasks: Vec<Task>,
     documents: Vec<Document>,
+    comments: Vec<Comment>,
+
+    /// Comment UI state
+    comment_selected_index: usize,
+    comment_editing_index: Option<usize>,
+    comment_new_text: String,
+    comment_focus: bool, // true = focus on comments, false = focus on task form
 
     /// Async message receiver
     message_rx: Option<mpsc::Receiver<AppMessage>>,
@@ -165,6 +176,11 @@ impl TuiApp {
             lists: Vec::new(),
             tasks: Vec::new(),
             documents: Vec::new(),
+            comments: Vec::new(),
+            comment_selected_index: 0,
+            comment_editing_index: None,
+            comment_new_text: String::new(),
+            comment_focus: false,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
         };
@@ -348,6 +364,61 @@ impl TuiApp {
                             }
                         }
                     }
+                    AppMessage::CommentsLoaded(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(comments) => {
+                                tracing::debug!("Loaded {} comments", comments.len());
+                                for (i, comment) in comments.iter().enumerate() {
+                                    tracing::debug!("Comment {}: author={:?}, created_at={:?}", 
+                                        i, 
+                                        comment.commenter.as_ref().map(|c| &c.username),
+                                        comment.created_at);
+                                }
+                                self.comments = comments;
+                                self.comment_selected_index = 0;
+                                self.error = None;
+                                self.status = format!("Loaded {} comment(s)", self.comments.len());
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to load comments: {}", e));
+                                self.status = "Failed to load comments".to_string();
+                                self.comments.clear();
+                            }
+                        }
+                    }
+                    AppMessage::CommentCreated(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(comment) => {
+                                self.comments.insert(0, comment);
+                                self.comment_new_text.clear();
+                                self.comment_editing_index = None;
+                                self.status = "Comment added".to_string();
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to create comment: {}", e));
+                                self.status = "Failed to create comment".to_string();
+                            }
+                        }
+                    }
+                    AppMessage::CommentUpdated(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(comment) => {
+                                if let Some(idx) = self.comments.iter().position(|c| c.id == comment.id) {
+                                    self.comments[idx] = comment;
+                                }
+                                self.comment_new_text.clear();
+                                self.comment_editing_index = None;
+                                self.status = "Comment updated".to_string();
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to update comment: {}", e));
+                                self.status = "Failed to update comment".to_string();
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -513,9 +584,11 @@ impl TuiApp {
                 }
                 KeyCode::Enter => {
                     if let Some(task) = self.task_list.selected_task().cloned() {
-                        self.task_detail.task = Some(task);
+                        self.task_detail.task = Some(task.clone());
                         self.screen = Screen::TaskDetail;
                         self.update_screen_title();
+                        // Load comments for this task
+                        self.load_comments(task.id.clone());
                     }
                 }
                 KeyCode::Char('n') => {
@@ -547,13 +620,56 @@ impl TuiApp {
     
     fn update_task_detail(&mut self, event: InputEvent) {
         if let InputEvent::Key(key) = event {
+            // Handle comment editing input
+            if self.comment_editing_index.is_some() || !self.comment_new_text.is_empty() {
+                match key.code {
+                    KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        // Save comment
+                        if let Some(edit_idx) = self.comment_editing_index {
+                            // Update existing comment
+                            if let Some(_task) = &self.task_detail.task {
+                                let text = self.comment_new_text.clone();
+                                let comment_id = self.comments[edit_idx].id.clone();
+                                self.update_comment(comment_id, text);
+                            }
+                        } else if !self.comment_new_text.is_empty() {
+                            // Create new comment
+                            if let Some(_task) = &self.task_detail.task {
+                                let text = self.comment_new_text.clone();
+                                let task_id = _task.id.clone();
+                                self.create_comment(task_id, text);
+                            }
+                        }
+                        return;
+                    }
+                    KeyCode::Esc => {
+                        // Cancel editing
+                        self.comment_new_text.clear();
+                        self.comment_editing_index = None;
+                        self.status = "Comment editing cancelled".to_string();
+                        return;
+                    }
+                    KeyCode::Char(c) => {
+                        // Add character to comment text
+                        self.comment_new_text.push(c);
+                        return;
+                    }
+                    KeyCode::Backspace => {
+                        self.comment_new_text.pop();
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+
+            // Handle normal task detail and comment navigation
             match key.code {
                 KeyCode::Esc => {
                     self.task_detail.editing = false;
                     self.screen = Screen::Tasks;
                     self.update_screen_title();
                 }
-                KeyCode::Char('e') => {
+                KeyCode::Char('e') if !self.comment_focus => {
                     self.task_detail.editing = true;
                 }
                 KeyCode::Char('d') => {
@@ -563,6 +679,46 @@ impl TuiApp {
                     // TODO: Save task
                     self.task_detail.editing = false;
                     self.status = "Task saved".to_string();
+                }
+                // Comment navigation
+                KeyCode::Tab => {
+                    // Toggle focus between task form and comments
+                    self.comment_focus = !self.comment_focus;
+                    self.status = if self.comment_focus {
+                        "Focus: Comments (j/k navigate, n new, e edit)".to_string()
+                    } else {
+                        "Focus: Task form".to_string()
+                    };
+                }
+                KeyCode::Char('j') if self.comment_focus => {
+                    if self.comments.is_empty() {
+                        return;
+                    }
+                    if self.comment_selected_index < self.comments.len() - 1 {
+                        self.comment_selected_index += 1;
+                    }
+                }
+                KeyCode::Char('k') if self.comment_focus => {
+                    if self.comment_selected_index > 0 {
+                        self.comment_selected_index -= 1;
+                    }
+                }
+                KeyCode::Char('n') if self.comment_focus => {
+                    // Start new comment
+                    self.comment_new_text.clear();
+                    self.comment_editing_index = None;
+                    self.status = "Type comment (Ctrl+S save, Esc cancel)".to_string();
+                }
+                KeyCode::Char('e') if self.comment_focus => {
+                    // Edit selected comment
+                    if !self.comments.is_empty() && self.comment_selected_index < self.comments.len() {
+                        // Check if user owns the comment
+                        let comment = &self.comments[self.comment_selected_index];
+                        // For now, allow editing any comment (will add ownership check later)
+                        self.comment_new_text = comment.text.clone();
+                        self.comment_editing_index = Some(self.comment_selected_index);
+                        self.status = "Editing comment (Ctrl+S save, Esc cancel)".to_string();
+                    }
                 }
                 _ => {}
             }
@@ -809,7 +965,7 @@ impl TuiApp {
     fn load_tasks(&mut self, list_id: String) {
         self.loading = true;
         self.status = "Loading tasks...".to_string();
-        
+
         let client = match &self.client {
             Some(c) => c.clone(),
             None => {
@@ -827,6 +983,92 @@ impl TuiApp {
             let msg = match result {
                 Ok(tasks) => AppMessage::TasksLoaded(Ok(tasks)),
                 Err(e) => AppMessage::TasksLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Load comments for a task
+    fn load_comments(&mut self, task_id: String) {
+        self.loading = true;
+        self.status = "Loading comments...".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client.get_task_comments(&task_id).await;
+            let msg = match result {
+                Ok(comments) => AppMessage::CommentsLoaded(Ok(comments)),
+                Err(e) => AppMessage::CommentsLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Create a new comment
+    fn create_comment(&mut self, task_id: String, text: String) {
+        self.loading = true;
+        self.status = "Saving comment...".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        let request = CreateCommentRequest {
+            comment_text: text,
+            assignee: None,
+            assigned_commenter: None,
+        };
+        tokio::spawn(async move {
+            let result = client.create_comment(&task_id, &request).await;
+            let msg = match result {
+                Ok(comment) => AppMessage::CommentCreated(Ok(comment)),
+                Err(e) => AppMessage::CommentCreated(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Update an existing comment
+    fn update_comment(&mut self, comment_id: String, text: String) {
+        self.loading = true;
+        self.status = "Saving comment...".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        let request = UpdateCommentRequest {
+            comment_text: Some(text),
+            assigned: None,
+            assignee: None,
+            assigned_commenter: None,
+        };
+        tokio::spawn(async move {
+            let result = client.update_comment(&comment_id, &request).await;
+            let msg = match result {
+                Ok(comment) => AppMessage::CommentUpdated(Ok(comment)),
+                Err(e) => AppMessage::CommentUpdated(Err(e.to_string())),
             };
             let _ = tx.send(msg).await;
         });
@@ -927,12 +1169,35 @@ impl TuiApp {
     fn render_sidebar_content(&mut self, frame: &mut Frame, sidebar_area: Rect, content_area: Rect) {
         // Render sidebar
         render_sidebar(frame, &self.sidebar, sidebar_area);
-        
+
         // Render main content based on screen
         match self.screen {
             Screen::Auth => render_auth(frame, &self.auth_state, content_area),
             Screen::Tasks => render_task_list(frame, &self.task_list, content_area),
-            Screen::TaskDetail => render_task_detail(frame, &self.task_detail, content_area),
+            Screen::TaskDetail => {
+                // Split content area between task detail and comments
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Percentage(50),
+                        Constraint::Percentage(50),
+                    ])
+                    .split(content_area);
+
+                // Render task detail in top half
+                render_task_detail(frame, &self.task_detail, chunks[0]);
+
+                // Render comments in bottom half
+                render_comments(
+                    frame,
+                    &self.comments,
+                    self.comment_selected_index,
+                    self.comment_editing_index,
+                    &self.comment_new_text,
+                    self.comment_focus,
+                    chunks[1],
+                );
+            }
             Screen::Document => render_document(frame, &self.document, content_area),
             _ => {
                 // For navigation screens, show placeholder
@@ -947,7 +1212,30 @@ impl TuiApp {
         match self.screen {
             Screen::Auth => render_auth(frame, &self.auth_state, area),
             Screen::Tasks => render_task_list(frame, &self.task_list, area),
-            Screen::TaskDetail => render_task_detail(frame, &self.task_detail, area),
+            Screen::TaskDetail => {
+                // Split area between task detail and comments
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Percentage(50),
+                        Constraint::Percentage(50),
+                    ])
+                    .split(area);
+                
+                // Render task detail in top half
+                render_task_detail(frame, &self.task_detail, chunks[0]);
+                
+                // Render comments in bottom half
+                render_comments(
+                    frame,
+                    &self.comments,
+                    self.comment_selected_index,
+                    self.comment_editing_index,
+                    &self.comment_new_text,
+                    self.comment_focus,
+                    chunks[1],
+                );
+            }
             Screen::Document => render_document(frame, &self.document, area),
             _ => {
                 use ratatui::widgets::Paragraph;

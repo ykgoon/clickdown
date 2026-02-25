@@ -4,6 +4,7 @@ use crate::api::client_trait::ClickUpApi;
 use crate::models::{
     Workspace, ClickUpSpace, Folder, List, Task, TaskFilters,
     CreateTaskRequest, UpdateTaskRequest, Document, Page, DocumentFilters,
+    Comment, CreateCommentRequest, UpdateCommentRequest,
 };
 use anyhow::{Result, anyhow};
 
@@ -40,6 +41,12 @@ pub struct MockClickUpClient {
     pub doc_pages_response: Option<Result<Vec<Page>>>,
     /// Override for get_page response
     pub page_response: Option<Result<Page>>,
+    /// Override for get_task_comments response
+    pub task_comments_response: Option<Result<Vec<Comment>>>,
+    /// Override for create_comment response
+    pub create_comment_response: Option<Result<Comment>>,
+    /// Override for update_comment response
+    pub update_comment_response: Option<Result<Comment>>,
 }
 
 impl MockClickUpClient {
@@ -59,6 +66,9 @@ impl MockClickUpClient {
             search_docs_response: None,
             doc_pages_response: None,
             page_response: None,
+            task_comments_response: None,
+            create_comment_response: None,
+            update_comment_response: None,
         }
     }
     /// Set the workspaces response
@@ -130,6 +140,24 @@ impl MockClickUpClient {
     /// Set the pages response
     pub fn with_pages(mut self, pages: Vec<Page>) -> Self {
         self.doc_pages_response = Some(Ok(pages));
+        self
+    }
+
+    /// Set the task comments response
+    pub fn with_task_comments(mut self, comments: Vec<Comment>) -> Self {
+        self.task_comments_response = Some(Ok(comments));
+        self
+    }
+
+    /// Set the create comment response
+    pub fn with_create_comment_response(mut self, comment: Comment) -> Self {
+        self.create_comment_response = Some(Ok(comment));
+        self
+    }
+
+    /// Set the update comment response
+    pub fn with_update_comment_response(mut self, comment: Comment) -> Self {
+        self.update_comment_response = Some(Ok(comment));
         self
     }
 }
@@ -253,6 +281,30 @@ impl ClickUpApi for MockClickUpClient {
             Some(Ok(page)) => Ok(page.clone()),
             Some(Err(e)) => Err(anyhow!(e.to_string())),
             None => Err(anyhow!("Page not found")),
+        }
+    }
+
+    async fn get_task_comments(&self, _task_id: &str) -> Result<Vec<Comment>> {
+        match &self.task_comments_response {
+            Some(Ok(comments)) => Ok(comments.clone()),
+            Some(Err(e)) => Err(anyhow!(e.to_string())),
+            None => Ok(vec![]),
+        }
+    }
+
+    async fn create_comment(&self, _task_id: &str, _comment: &CreateCommentRequest) -> Result<Comment> {
+        match &self.create_comment_response {
+            Some(Ok(comment)) => Ok(comment.clone()),
+            Some(Err(e)) => Err(anyhow!(e.to_string())),
+            None => Err(anyhow!("Create comment not configured")),
+        }
+    }
+
+    async fn update_comment(&self, _comment_id: &str, _comment: &UpdateCommentRequest) -> Result<Comment> {
+        match &self.update_comment_response {
+            Some(Ok(comment)) => Ok(comment.clone()),
+            Some(Err(e)) => Err(anyhow!(e.to_string())),
+            None => Err(anyhow!("Update comment not configured")),
         }
     }
 }

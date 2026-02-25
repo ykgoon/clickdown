@@ -76,4 +76,13 @@ impl ApiEndpoints {
     pub fn page(page_id: &str) -> String {
         format!("{}/page/{}", BASE_URL, page_id)
     }
+
+    // Comment endpoints
+    pub fn task_comments(task_id: &str) -> String {
+        format!("{}/task/{}/comment", BASE_URL, task_id)
+    }
+
+    pub fn comment(comment_id: &str) -> String {
+        format!("{}/comment/{}", BASE_URL, comment_id)
+    }
 }

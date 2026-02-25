@@ -3,6 +3,8 @@
 use clickdown::models::workspace::{Workspace, Space, Folder, List};
 use clickdown::models::task::Task;
 use clickdown::models::document::Document;
+use clickdown::models::CommentUser;
+use clickdown::models::comment::Comment;
 
 /// Create a test workspace
 pub fn test_workspace() -> Workspace {
@@ -119,4 +121,53 @@ pub fn test_document() -> Document {
         url: None,
         pages: vec![],
     }
+}
+
+/// Create a test comment user
+pub fn test_comment_user() -> CommentUser {
+    CommentUser {
+        id: 123,
+        username: "testuser".to_string(),
+        color: None,
+        email: Some("test@example.com".to_string()),
+        profile_picture: None,
+        initials: Some("TU".to_string()),
+    }
+}
+
+/// Create a test comment
+pub fn test_comment() -> Comment {
+    Comment {
+        id: "test-comment-1".to_string(),
+        text: "This is a test comment".to_string(),
+        text_preview: "This is a...".to_string(),
+        commenter: Some(test_comment_user()),
+        created_at: Some(1234567890000),
+        updated_at: None,
+        assigned_commenter: None,
+        assigned_by: None,
+        assigned: false,
+        reaction: String::new(),
+    }
+}
+
+/// Create a test comment with update timestamp
+pub fn test_comment_edited() -> Comment {
+    Comment {
+        id: "test-comment-2".to_string(),
+        text: "This comment was edited".to_string(),
+        text_preview: "This comment...".to_string(),
+        commenter: Some(test_comment_user()),
+        created_at: Some(1234567890000),
+        updated_at: Some(1234567900000),
+        assigned_commenter: None,
+        assigned_by: None,
+        assigned: false,
+        reaction: String::new(),
+    }
+}
+
+/// Create multiple test comments
+pub fn test_comments() -> Vec<Comment> {
+    vec![test_comment(), test_comment_edited()]
 }

@@ -3,6 +3,7 @@
 use crate::models::{
     Workspace, ClickUpSpace, Folder, List, Task, TaskFilters,
     CreateTaskRequest, UpdateTaskRequest, Document, Page, DocumentFilters,
+    Comment, CreateCommentRequest, UpdateCommentRequest,
 };
 use anyhow::Result;
 
@@ -77,4 +78,15 @@ pub trait ClickUpApi: Send + Sync {
 
     /// Get a single page
     async fn get_page(&self, page_id: &str) -> Result<Page>;
+
+    // ==================== Comments ====================
+
+    /// Get all comments for a task
+    async fn get_task_comments(&self, task_id: &str) -> Result<Vec<Comment>>;
+
+    /// Create a new comment on a task
+    async fn create_comment(&self, task_id: &str, comment: &CreateCommentRequest) -> Result<Comment>;
+
+    /// Update a comment
+    async fn update_comment(&self, comment_id: &str, comment: &UpdateCommentRequest) -> Result<Comment>;
 }

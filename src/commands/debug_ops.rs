@@ -325,4 +325,63 @@ impl DebugOperations {
 
         Ok(())
     }
+
+    /// Get comments for a task (human-readable format)
+    pub async fn get_comments(&self, task_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let comments = api.get_task_comments(task_id).await?;
+
+        if comments.is_empty() {
+            println!("No comments found for task {}.", task_id);
+            return Ok(());
+        }
+
+        println!("Comments for task {}:\n", task_id);
+        for (i, comment) in comments.iter().enumerate() {
+            let author = comment.commenter.as_ref()
+                .map(|c| c.username.as_str())
+                .unwrap_or("Anonymous");
+            
+            let date_str = comment.created_at
+                .map(|ts| format_timestamp(ts))
+                .unwrap_or_else(|| "Unknown date".to_string());
+
+            let edited = if comment.updated_at.is_some() && comment.updated_at != comment.created_at {
+                " (edited)"
+            } else {
+                ""
+            };
+
+            println!("[{}] {} - {}{}", i + 1, author, date_str, edited);
+            println!("    {}", comment.text);
+            println!();
+        }
+
+        Ok(())
+    }
+
+    /// Get comments for a task as JSON
+    pub async fn get_comments_json(&self, task_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let comments = api.get_task_comments(task_id).await?;
+
+        let json = serde_json::to_string_pretty(&comments)?;
+        println!("{}", json);
+
+        Ok(())
+    }
+}
+
+/// Format a Unix timestamp (milliseconds) to a readable date string
+fn format_timestamp(ts: i64) -> String {
+    use chrono::{DateTime, Local};
+    
+    let secs = ts / 1000;
+    match DateTime::from_timestamp(secs, 0) {
+        Some(dt) => {
+            let local_dt: DateTime<Local> = dt.into();
+            local_dt.format("%b %d, %Y %H:%M").to_string()
+        }
+        None => "Unknown date".to_string(),
+    }
 }

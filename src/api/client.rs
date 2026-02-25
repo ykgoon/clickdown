@@ -6,7 +6,7 @@
 //! OAuth 2.0 is available for multi-user applications but requires app registration and
 //! a browser-based authorization flow.
 
-use crate::models::{WorkspacesResponse, SpacesResponse, FoldersResponse, ListsResponse, Workspace, ClickUpSpace as Space, Folder, List, Task, DocumentsResponse, DocumentPagesResponse, PageResponse, TasksResponse, CreateTaskRequest, UpdateTaskRequest, DocumentFilters, Document, Page};
+use crate::models::{WorkspacesResponse, SpacesResponse, FoldersResponse, ListsResponse, Workspace, ClickUpSpace as Space, Folder, List, Task, DocumentsResponse, DocumentPagesResponse, PageResponse, TasksResponse, CreateTaskRequest, UpdateTaskRequest, DocumentFilters, Document, Page, CommentsResponse, Comment, CreateCommentRequest, UpdateCommentRequest};
 use crate::models::TaskFilters;
 use crate::api::endpoints::ApiEndpoints;
 use crate::api::client_trait::ClickUpApi;
@@ -204,6 +204,37 @@ impl ClickUpClient {
         ).await?;
         Ok(response.page)
     }
+
+    // ==================== Comments ====================
+
+    /// Get all comments for a task
+    pub async fn get_task_comments(&self, task_id: &str) -> Result<Vec<Comment>> {
+        let url = ApiEndpoints::task_comments(task_id);
+        let response = self.execute::<CommentsResponse>(
+            self.request(reqwest::Method::GET, url)
+        ).await?;
+        Ok(response.comments)
+    }
+
+    /// Create a new comment on a task
+    pub async fn create_comment(&self, task_id: &str, comment: &CreateCommentRequest) -> Result<Comment> {
+        let url = ApiEndpoints::task_comments(task_id);
+        let response = self.execute::<Comment>(
+            self.request(reqwest::Method::POST, url)
+                .json(comment)
+        ).await?;
+        Ok(response)
+    }
+
+    /// Update a comment
+    pub async fn update_comment(&self, comment_id: &str, comment: &UpdateCommentRequest) -> Result<Comment> {
+        let url = ApiEndpoints::comment(comment_id);
+        let response = self.execute::<Comment>(
+            self.request(reqwest::Method::PUT, url)
+                .json(comment)
+        ).await?;
+        Ok(response)
+    }
 }
 
 /// Implement the ClickUpApi trait for ClickUpClient
@@ -271,5 +302,17 @@ impl ClickUpApi for ClickUpClient {
 
     async fn get_page(&self, page_id: &str) -> Result<Page> {
         self.get_page(page_id).await
+    }
+
+    async fn get_task_comments(&self, task_id: &str) -> Result<Vec<Comment>> {
+        self.get_task_comments(task_id).await
+    }
+
+    async fn create_comment(&self, task_id: &str, comment: &CreateCommentRequest) -> Result<Comment> {
+        self.create_comment(task_id, comment).await
+    }
+
+    async fn update_comment(&self, comment_id: &str, comment: &UpdateCommentRequest) -> Result<Comment> {
+        self.update_comment(comment_id, comment).await
     }
 }

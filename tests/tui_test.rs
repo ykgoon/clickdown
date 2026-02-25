@@ -2,13 +2,19 @@
 //!
 //! These tests verify the TUI application functionality.
 
+mod fixtures;
+
 use clickdown::tui::app::TuiApp;
 
 /// Test that the TUI app initializes correctly
 #[test]
 fn test_tui_app_initialization() {
-    let app = TuiApp::new();
+    let rt = tokio::runtime::Runtime::new().unwrap();
     
+    let app = rt.block_on(async {
+        TuiApp::new()
+    });
+
     // App should initialize successfully
     assert!(app.is_ok(), "TUI App failed to initialize: {:?}", app.err());
 }
@@ -568,7 +574,342 @@ fn test_auth_display_after_typing() {
             }
         }
     }
-    
+
     // Should show "abcd" + 1 bullet + cursor at end
     assert_eq!(display, "abcd•█", "Display should show abcd + bullet + cursor");
+}
+
+// ==================== Comment API Tests ====================
+
+/// Test that mock client can be configured with comments
+#[test]
+fn test_mock_client_with_comments() {
+    use clickdown::api::MockClickUpClient;
+    use clickdown::api::ClickUpApi;
+    use clickdown::models::comment::Comment;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+    
+    rt.block_on(async {
+        let comments = vec![
+            Comment {
+                id: "test-comment-1".to_string(),
+                text: "First comment".to_string(),
+                text_preview: "First...".to_string(),
+                commenter: None,
+                created_at: Some(1234567890000),
+                updated_at: None,
+                assigned_commenter: None,
+                assigned_by: None,
+                assigned: false,
+                reaction: String::new(),
+            },
+            Comment {
+                id: "test-comment-2".to_string(),
+                text: "Second comment".to_string(),
+                text_preview: "Second...".to_string(),
+                commenter: None,
+                created_at: Some(1234567899000),
+                updated_at: Some(1234567900000),
+                assigned_commenter: None,
+                assigned_by: None,
+                assigned: false,
+                reaction: String::new(),
+            },
+        ];
+        
+        let mock_client = MockClickUpClient::new()
+            .with_task_comments(comments);
+
+        let comments = mock_client.get_task_comments("task-123").await.unwrap();
+        assert_eq!(comments.len(), 2);
+        assert_eq!(comments[0].id, "test-comment-1");
+    });
+}
+
+/// Test that mock client create comment works
+#[test]
+fn test_mock_client_create_comment() {
+    use clickdown::api::MockClickUpClient;
+    use clickdown::api::ClickUpApi;
+    use clickdown::models::CreateCommentRequest;
+    use clickdown::models::comment::Comment;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+    
+    rt.block_on(async {
+        let new_comment = Comment {
+            id: "test-comment-1".to_string(),
+            text: "This is a test comment".to_string(),
+            text_preview: "This is a...".to_string(),
+            commenter: None,
+            created_at: Some(1234567890000),
+            updated_at: None,
+            assigned_commenter: None,
+            assigned_by: None,
+            assigned: false,
+            reaction: String::new(),
+        };
+        
+        let mock_client = MockClickUpClient::new()
+            .with_create_comment_response(new_comment.clone());
+
+        let request = CreateCommentRequest {
+            comment_text: "New comment".to_string(),
+            assignee: None,
+            assigned_commenter: None,
+        };
+
+        let result = mock_client.create_comment("task-123", &request).await.unwrap();
+        assert_eq!(result.id, "test-comment-1");
+        assert_eq!(result.text, "This is a test comment");
+    });
+}
+
+/// Test that mock client update comment works
+#[test]
+fn test_mock_client_update_comment() {
+    use clickdown::api::MockClickUpClient;
+    use clickdown::api::ClickUpApi;
+    use clickdown::models::UpdateCommentRequest;
+    use clickdown::models::comment::Comment;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+    
+    rt.block_on(async {
+        let updated_comment = Comment {
+            id: "test-comment-2".to_string(),
+            text: "This comment was edited".to_string(),
+            text_preview: "This comment...".to_string(),
+            commenter: None,
+            created_at: Some(1234567890000),
+            updated_at: Some(1234567900000),
+            assigned_commenter: None,
+            assigned_by: None,
+            assigned: false,
+            reaction: String::new(),
+        };
+        
+        let mock_client = MockClickUpClient::new()
+            .with_update_comment_response(updated_comment.clone());
+
+        let request = UpdateCommentRequest {
+            comment_text: Some("Updated text".to_string()),
+            assigned: None,
+            assignee: None,
+            assigned_commenter: None,
+        };
+
+        let result = mock_client.update_comment("comment-123", &request).await.unwrap();
+        assert_eq!(result.id, "test-comment-2");
+        assert_eq!(result.text, "This comment was edited");
+    });
+}
+
+// ==================== Comment Cache Tests ====================
+
+/// Test that comments can be cached and retrieved
+#[test]
+fn test_cache_comments() {
+    use clickdown::cache::CacheManager;
+    use clickdown::models::comment::Comment;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = PathBuf::from(temp_dir.path()).join("cache.db");
+    
+    let mut cache = CacheManager::new(db_path).unwrap();
+    
+    // Create test comments
+    let comments = vec![
+        Comment {
+            id: "test-comment-1".to_string(),
+            text: "First comment".to_string(),
+            text_preview: "First...".to_string(),
+            commenter: None,
+            created_at: Some(1234567890000),
+            updated_at: None,
+            assigned_commenter: None,
+            assigned_by: None,
+            assigned: false,
+            reaction: String::new(),
+        },
+        Comment {
+            id: "test-comment-2".to_string(),
+            text: "Second comment".to_string(),
+            text_preview: "Second...".to_string(),
+            commenter: None,
+            created_at: Some(1234567899000),
+            updated_at: Some(1234567900000),
+            assigned_commenter: None,
+            assigned_by: None,
+            assigned: false,
+            reaction: String::new(),
+        },
+    ];
+    
+    // Cache comments
+    cache.cache_comments("task-123", &comments).unwrap();
+
+    // Retrieve comments (ordered by created_at DESC, so comment-2 comes first)
+    let cached = cache.get_cached_comments("task-123").unwrap();
+    assert_eq!(cached.len(), 2);
+    assert_eq!(cached[0].id, "test-comment-2");
+    assert_eq!(cached[1].id, "test-comment-1");
+}
+
+/// Test that cache validity check works
+#[test]
+fn test_cache_validity() {
+    use clickdown::cache::CacheManager;
+    use clickdown::models::comment::Comment;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+    use std::thread;
+    use std::time::Duration;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = PathBuf::from(temp_dir.path()).join("cache.db");
+    
+    let mut cache = CacheManager::new(db_path).unwrap();
+    
+    // Create test comments
+    let comments = vec![Comment {
+        id: "test-comment-1".to_string(),
+        text: "Test comment".to_string(),
+        text_preview: "Test...".to_string(),
+        commenter: None,
+        created_at: Some(1234567890000),
+        updated_at: None,
+        assigned_commenter: None,
+        assigned_by: None,
+        assigned: false,
+        reaction: String::new(),
+    }];
+    
+    // Cache comments
+    cache.cache_comments("task-123", &comments).unwrap();
+    
+    // Should be valid immediately
+    assert!(cache.is_cache_valid("task-123", 300).unwrap()); // 5 min TTL
+    
+    // Wait a bit and check again (still valid)
+    thread::sleep(Duration::from_millis(100));
+    assert!(cache.is_cache_valid("task-123", 300).unwrap());
+    
+    // Check with very short TTL (should be invalid)
+    assert!(!cache.is_cache_valid("task-123", 0).unwrap());
+}
+
+/// Test that clearing comments works
+#[test]
+fn test_clear_comments() {
+    use clickdown::cache::CacheManager;
+    use clickdown::models::comment::Comment;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = PathBuf::from(temp_dir.path()).join("cache.db");
+    
+    let mut cache = CacheManager::new(db_path).unwrap();
+    
+    // Create test comments
+    let comments = vec![
+        Comment {
+            id: "test-comment-1".to_string(),
+            text: "First".to_string(),
+            text_preview: "First...".to_string(),
+            commenter: None,
+            created_at: Some(1234567890000),
+            updated_at: None,
+            assigned_commenter: None,
+            assigned_by: None,
+            assigned: false,
+            reaction: String::new(),
+        },
+        Comment {
+            id: "test-comment-2".to_string(),
+            text: "Second".to_string(),
+            text_preview: "Second...".to_string(),
+            commenter: None,
+            created_at: Some(1234567899000),
+            updated_at: None,
+            assigned_commenter: None,
+            assigned_by: None,
+            assigned: false,
+            reaction: String::new(),
+        },
+    ];
+    
+    // Cache comments
+    cache.cache_comments("task-123", &comments).unwrap();
+    
+    // Verify cached
+    assert_eq!(cache.get_cached_comments("task-123").unwrap().len(), 2);
+    
+    // Clear comments for this task
+    cache.clear_comments("task-123").unwrap();
+    
+    // Should be empty
+    assert_eq!(cache.get_cached_comments("task-123").unwrap().len(), 0);
+}
+
+/// Test that comments for different tasks are isolated
+#[test]
+fn test_comments_isolated_by_task() {
+    use clickdown::cache::CacheManager;
+    use clickdown::models::comment::Comment;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = PathBuf::from(temp_dir.path()).join("cache.db");
+    
+    let mut cache = CacheManager::new(db_path).unwrap();
+    
+    // Create different comments for different tasks
+    let comment1 = Comment {
+        id: "test-comment-1".to_string(),
+        text: "Task 1 comment".to_string(),
+        text_preview: "Task 1...".to_string(),
+        commenter: None,
+        created_at: Some(1234567890000),
+        updated_at: None,
+        assigned_commenter: None,
+        assigned_by: None,
+        assigned: false,
+        reaction: String::new(),
+    };
+    
+    let comment2 = Comment {
+        id: "test-comment-2".to_string(),
+        text: "Task 2 comment".to_string(),
+        text_preview: "Task 2...".to_string(),
+        commenter: None,
+        created_at: Some(1234567890000),
+        updated_at: Some(1234567900000),
+        assigned_commenter: None,
+        assigned_by: None,
+        assigned: false,
+        reaction: String::new(),
+    };
+    
+    // Cache different comments for different tasks
+    cache.cache_comments("task-1", &[comment1]).unwrap();
+    cache.cache_comments("task-2", &[comment2]).unwrap();
+    
+    // Verify isolation
+    let task1_comments = cache.get_cached_comments("task-1").unwrap();
+    let task2_comments = cache.get_cached_comments("task-2").unwrap();
+    
+    assert_eq!(task1_comments.len(), 1);
+    assert_eq!(task1_comments[0].id, "test-comment-1");
+    
+    assert_eq!(task2_comments.len(), 1);
+    assert_eq!(task2_comments[0].id, "test-comment-2");
 }

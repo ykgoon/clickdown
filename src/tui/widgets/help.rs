@@ -86,18 +86,29 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         Line::from("  e           - Edit selected item"),
         Line::from("  d           - Delete selected item"),
     ]);
-    
+
+    let comments = Paragraph::new(vec![
+        Line::from(Span::styled("Comments (Task Detail):", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from("  Tab         - Toggle focus (task/comments)"),
+        Line::from("  j/k         - Navigate comments"),
+        Line::from("  n           - New comment"),
+        Line::from("  e           - Edit selected comment"),
+        Line::from("  Ctrl+S      - Save comment"),
+        Line::from("  Esc         - Cancel editing"),
+    ]);
+
     let forms = Paragraph::new(vec![
         Line::from(Span::styled("Forms:", Style::default().add_modifier(Modifier::BOLD))),
         Line::from("  Ctrl+S      - Save"),
         Line::from("  Esc         - Cancel"),
     ]);
-    
+
     frame.render_widget(nav, inner[0]);
     frame.render_widget(global, inner[1]);
     frame.render_widget(actions, inner[2]);
-    frame.render_widget(forms, inner[3]);
-    
+    frame.render_widget(comments, inner[3]);
+    frame.render_widget(forms, inner[4]);
+
     let close_hint = Paragraph::new("Press any key to close")
         .style(Style::default().fg(Color::DarkGray));
     frame.render_widget(close_hint, inner[8]);
