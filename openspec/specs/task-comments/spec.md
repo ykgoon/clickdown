@@ -2,15 +2,25 @@
 
 ## Purpose
 TBD - created by archiving change task-view-comments. Update Purpose after archive.
-## Requirements
-### Requirement: Task comments display
-The system SHALL display a list of comments for each task in the task detail view. Comments SHALL be shown in reverse chronological order (newest first) with proper text wrapping.
 
-#### Scenario: Comments section rendered
-- **WHEN** task detail view is displayed and comments are loaded
+## Requirements
+
+### Requirement: Task comments display
+The system SHALL display a list of comments for each task in the task detail view. The comments section SHALL occupy 70% of the vertical space in the task detail panel (3:7 ratio with description). Comments SHALL be shown in reverse chronological order (newest first) with proper text wrapping and independent scrolling.
+
+#### Scenario: Comments section rendered with correct layout
+- **WHEN** task detail view is displayed
 - **THEN** a comments section is visible below the task description
+- **AND** the comment panel occupies 70% of the available vertical space
+- **AND** the description panel occupies 30% of the available vertical space
 - **AND** comments are listed with most recent first
 - **AND** each comment shows author name, timestamp, and content
+
+#### Scenario: Comments scroll independently with auto-scroll
+- **WHEN** comments list exceeds the comment panel's available vertical space
+- **THEN** the comments section scrolls independently of the task description
+- **AND** a visual scroll indicator appears on the right edge of the comment panel
+- **AND** when navigating with j/k, the panel auto-scrolls to keep the selected comment visible
 
 #### Scenario: Comment text wrapping
 - **WHEN** comment text exceeds the widget width
@@ -28,11 +38,6 @@ The system SHALL display a list of comments for each task in the task detail vie
 - **WHEN** task has no comments
 - **THEN** a message "No comments yet. Press 'n' to add one." is displayed
 - **AND** the comment input form is accessible
-
-#### Scenario: Comments scroll independently
-- **WHEN** comments list exceeds available vertical space
-- **THEN** comments section scrolls independently of task detail form
-- **AND** scroll position is indicated with a scroll bar or line numbers
 
 ### Requirement: Comment creation
 The system SHALL allow users to create new comments on tasks via a text input form. The form SHALL support multi-line markdown input.
@@ -102,13 +107,20 @@ The system SHALL allow users to edit their own comments. Comments created by oth
 - **AND** on "No", editing continues
 
 ### Requirement: Comment navigation
-The system SHALL support keyboard navigation through the comments list. Navigation SHALL be consistent with vim-style keybindings.
+The system SHALL support keyboard navigation through the comments list with automatic scroll management. Navigation SHALL maintain the selected comment's visibility through auto-scroll behavior.
 
-#### Scenario: Navigate comments with j/k
+#### Scenario: Navigate comments with j/k with auto-scroll
 - **WHEN** focus is on the comments section
 - **THEN** pressing 'j' moves selection to the next comment (down)
 - **AND** pressing 'k' moves selection to the previous comment (up)
-- **AND** selection wraps at boundaries (optional, based on existing pattern)
+- **AND** if the selected comment scrolls out of the visible area, the panel automatically scrolls to keep it visible
+- **AND** the auto-scroll behavior is smooth and predictable
+
+#### Scenario: Scroll position indicated
+- **WHEN** the comment list is scrollable
+- **THEN** a scroll bar or indicator is displayed on the right edge of the comment panel
+- **AND** the indicator shows the current position within the full comment list
+- **AND** the indicator updates as the user scrolls or navigates
 
 #### Scenario: Focus switching with Tab
 - **WHEN** user presses Tab in task detail view

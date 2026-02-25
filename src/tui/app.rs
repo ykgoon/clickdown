@@ -13,7 +13,7 @@ use crate::config::ConfigManager;
 use crate::models::{Workspace, ClickUpSpace, Folder, List, Task, Document, Comment, CreateCommentRequest, UpdateCommentRequest};
 
 use super::terminal;
-use super::layout::{TuiLayout, generate_screen_title};
+use super::layout::{TuiLayout, generate_screen_title, split_task_detail};
 use super::input::{InputEvent, is_quit, is_enter, is_escape};
 use super::widgets::{
     SidebarState, SidebarItem, render_sidebar, get_sidebar_hints,
@@ -1175,19 +1175,13 @@ impl TuiApp {
             Screen::Auth => render_auth(frame, &self.auth_state, content_area),
             Screen::Tasks => render_task_list(frame, &self.task_list, content_area),
             Screen::TaskDetail => {
-                // Split content area between task detail and comments
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Percentage(50),
-                        Constraint::Percentage(50),
-                    ])
-                    .split(content_area);
+                // Split content area between task detail and comments with 3:7 ratio
+                let (task_detail_area, comments_area) = split_task_detail(content_area);
 
-                // Render task detail in top half
-                render_task_detail(frame, &self.task_detail, chunks[0]);
+                // Render task detail in top portion (30%)
+                render_task_detail(frame, &self.task_detail, task_detail_area);
 
-                // Render comments in bottom half
+                // Render comments in bottom portion (70%)
                 render_comments(
                     frame,
                     &self.comments,
@@ -1195,7 +1189,7 @@ impl TuiApp {
                     self.comment_editing_index,
                     &self.comment_new_text,
                     self.comment_focus,
-                    chunks[1],
+                    comments_area,
                 );
             }
             Screen::Document => render_document(frame, &self.document, content_area),
@@ -1213,19 +1207,13 @@ impl TuiApp {
             Screen::Auth => render_auth(frame, &self.auth_state, area),
             Screen::Tasks => render_task_list(frame, &self.task_list, area),
             Screen::TaskDetail => {
-                // Split area between task detail and comments
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Percentage(50),
-                        Constraint::Percentage(50),
-                    ])
-                    .split(area);
-                
-                // Render task detail in top half
-                render_task_detail(frame, &self.task_detail, chunks[0]);
-                
-                // Render comments in bottom half
+                // Split area between task detail and comments with 3:7 ratio
+                let (task_detail_area, comments_area) = split_task_detail(area);
+
+                // Render task detail in top portion (30%)
+                render_task_detail(frame, &self.task_detail, task_detail_area);
+
+                // Render comments in bottom portion (70%)
                 render_comments(
                     frame,
                     &self.comments,
@@ -1233,7 +1221,7 @@ impl TuiApp {
                     self.comment_editing_index,
                     &self.comment_new_text,
                     self.comment_focus,
-                    chunks[1],
+                    comments_area,
                 );
             }
             Screen::Document => render_document(frame, &self.document, area),
