@@ -365,9 +365,11 @@ impl TuiApp {
                         self.loading = false;
                         match result {
                             Ok(tasks) => {
+                                // Sort tasks by status priority and recency before displaying
+                                let sorted_tasks = crate::models::task::sort_tasks(tasks);
                                 // Update task_list.tasks for rendering (not self.tasks)
-                                self.task_list.tasks = tasks.clone();
-                                self.tasks = tasks;
+                                self.task_list.tasks = sorted_tasks.clone();
+                                self.tasks = sorted_tasks;
                                 self.task_list.select_first();
                                 // Clear any previous error state
                                 self.error = None;

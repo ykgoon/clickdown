@@ -623,3 +623,243 @@ pub struct UpdateTaskRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub due_date: Option<i64>,
 }
+
+/// Status group priority for sorting
+/// Lower priority value = higher in the list
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum StatusGroupPriority {
+    InProgress = 1,
+    ToDo = 2,
+    Done = 3,
+    Fallback = 4,
+}
+
+/// Get the sort priority for a status group string
+/// Returns the priority value (lower = higher priority in sort order)
+pub fn get_status_group_priority(status_group: Option<&str>) -> StatusGroupPriority {
+    match status_group {
+        Some(group) => {
+            match group.to_lowercase().as_str() {
+                "in_progress" | "in progress" => StatusGroupPriority::InProgress,
+                "todo" | "to_do" => StatusGroupPriority::ToDo,
+                "done" | "complete" => StatusGroupPriority::Done,
+                _ => {
+                    // Unknown status group - log for debugging and use fallback
+                    tracing::debug!("Unknown status_group: '{}', using fallback priority", group);
+                    StatusGroupPriority::Fallback
+                }
+            }
+        }
+        None => StatusGroupPriority::Fallback,
+    }
+}
+
+/// Get the sort key for a task
+/// Returns a tuple of (status_priority, updated_at) for sorting
+/// - status_priority: lower value = higher priority (in-progress first)
+/// - updated_at: higher value = more recent (sorted descending within group)
+///   Tasks without updated_at get i64::MIN to sort last within their group
+fn get_task_sort_key(task: &Task) -> (StatusGroupPriority, i64) {
+    let status_priority = get_status_group_priority(
+        task.status.as_ref().and_then(|s| s.status_group.as_deref())
+    );
+    
+    // Use updated_at for recency sorting within status group
+    // Tasks without updated_at get MIN value to sort last
+    let updated_at = task.updated_at.unwrap_or(i64::MIN);
+    
+    (status_priority, updated_at)
+}
+
+/// Sort tasks by status priority and recency
+/// 
+/// Sorting rules:
+/// 1. Group by status: in-progress → to-do → done → fallback
+/// 2. Within each group, sort by updated_at descending (most recent first)
+/// 3. Tasks without updated_at are placed last within their status group
+/// 
+/// This function sorts in-place and returns the sorted vector for convenience.
+pub fn sort_tasks(mut tasks: Vec<Task>) -> Vec<Task> {
+    tasks.sort_by(|a, b| {
+        let (priority_a, updated_a) = get_task_sort_key(a);
+        let (priority_b, updated_b) = get_task_sort_key(b);
+        
+        // First sort by status group priority (ascending - lower priority value first)
+        match priority_a.cmp(&priority_b) {
+            std::cmp::Ordering::Equal => {
+                // Within same status group, sort by updated_at descending (most recent first)
+                updated_b.cmp(&updated_a)
+            }
+            other => other,
+        }
+    });
+    
+    tasks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_task_with_status_and_updated_at(
+        id: &str,
+        status_group: Option<&str>,
+        updated_at: Option<i64>,
+    ) -> Task {
+        Task {
+            id: id.to_string(),
+            custom_id: None,
+            custom_item_id: None,
+            name: format!("Task {}", id),
+            text_content: None,
+            description: None,
+            markdown_description: None,
+            status: Some(TaskStatus {
+                id: None,
+                status: "test".to_string(),
+                color: None,
+                type_field: None,
+                orderindex: None,
+                status_group: status_group.map(|s| s.to_string()),
+            }),
+            orderindex: None,
+            content: None,
+            created_at: None,
+            updated_at,
+            closed_at: None,
+            done_at: None,
+            archived: None,
+            creator: None,
+            assignees: vec![],
+            group_assignees: vec![],
+            watchers: vec![],
+            checklists: vec![],
+            tags: vec![],
+            parent: None,
+            top_level_parent: None,
+            priority: None,
+            due_date: None,
+            start_date: None,
+            points: None,
+            custom_fields: vec![],
+            attachments: vec![],
+            dependencies: vec![],
+            linked_tasks: vec![],
+            locations: vec![],
+            list: None,
+            folder: None,
+            space: None,
+            project: None,
+            url: None,
+            team_id: None,
+            sharing: None,
+            permission_level: None,
+            time_estimate: None,
+            time_spent: None,
+        }
+    }
+
+    #[test]
+    fn test_status_group_priority_mapping() {
+        assert_eq!(get_status_group_priority(Some("in_progress")), StatusGroupPriority::InProgress);
+        assert_eq!(get_status_group_priority(Some("IN_PROGRESS")), StatusGroupPriority::InProgress);
+        assert_eq!(get_status_group_priority(Some("in progress")), StatusGroupPriority::InProgress);
+        
+        assert_eq!(get_status_group_priority(Some("todo")), StatusGroupPriority::ToDo);
+        assert_eq!(get_status_group_priority(Some("to_do")), StatusGroupPriority::ToDo);
+        
+        assert_eq!(get_status_group_priority(Some("done")), StatusGroupPriority::Done);
+        assert_eq!(get_status_group_priority(Some("complete")), StatusGroupPriority::Done);
+        
+        assert_eq!(get_status_group_priority(Some("unknown")), StatusGroupPriority::Fallback);
+        assert_eq!(get_status_group_priority(None), StatusGroupPriority::Fallback);
+    }
+
+    #[test]
+    fn test_sort_tasks_by_status_priority() {
+        let tasks = vec![
+            create_task_with_status_and_updated_at("done1", Some("done"), Some(1000)),
+            create_task_with_status_and_updated_at("todo1", Some("todo"), Some(1000)),
+            create_task_with_status_and_updated_at("progress1", Some("in_progress"), Some(1000)),
+        ];
+
+        let sorted = sort_tasks(tasks);
+
+        assert_eq!(sorted[0].id, "progress1");
+        assert_eq!(sorted[1].id, "todo1");
+        assert_eq!(sorted[2].id, "done1");
+    }
+
+    #[test]
+    fn test_sort_tasks_by_recency_within_status_group() {
+        let tasks = vec![
+            create_task_with_status_and_updated_at("old", Some("in_progress"), Some(1000)),
+            create_task_with_status_and_updated_at("new", Some("in_progress"), Some(3000)),
+            create_task_with_status_and_updated_at("mid", Some("in_progress"), Some(2000)),
+        ];
+
+        let sorted = sort_tasks(tasks);
+
+        assert_eq!(sorted[0].id, "new");
+        assert_eq!(sorted[1].id, "mid");
+        assert_eq!(sorted[2].id, "old");
+    }
+
+    #[test]
+    fn test_sort_tasks_missing_updated_at() {
+        let tasks = vec![
+            create_task_with_status_and_updated_at("with_date", Some("todo"), Some(1000)),
+            create_task_with_status_and_updated_at("no_date", Some("todo"), None),
+        ];
+
+        let sorted = sort_tasks(tasks);
+
+        assert_eq!(sorted[0].id, "with_date");
+        assert_eq!(sorted[1].id, "no_date");
+    }
+
+    #[test]
+    fn test_sort_tasks_missing_status() {
+        let tasks = vec![
+            create_task_with_status_and_updated_at("with_status", Some("todo"), Some(1000)),
+            create_task_with_status_and_updated_at("no_status", None, Some(1000)),
+        ];
+
+        let sorted = sort_tasks(tasks);
+
+        assert_eq!(sorted[0].id, "with_status");
+        assert_eq!(sorted[1].id, "no_status");
+    }
+
+    #[test]
+    fn test_sort_tasks_empty_list() {
+        let tasks: Vec<Task> = vec![];
+        let sorted = sort_tasks(tasks);
+        assert!(sorted.is_empty());
+    }
+
+    #[test]
+    fn test_sort_tasks_single_task() {
+        let tasks = vec![
+            create_task_with_status_and_updated_at("single", Some("in_progress"), Some(1000)),
+        ];
+        let sorted = sort_tasks(tasks);
+        assert_eq!(sorted.len(), 1);
+        assert_eq!(sorted[0].id, "single");
+    }
+
+    #[test]
+    fn test_sort_tasks_all_same_status() {
+        let tasks = vec![
+            create_task_with_status_and_updated_at("a", Some("done"), Some(1000)),
+            create_task_with_status_and_updated_at("b", Some("done"), Some(3000)),
+            create_task_with_status_and_updated_at("c", Some("done"), Some(2000)),
+        ];
+
+        let sorted = sort_tasks(tasks);
+
+        assert_eq!(sorted[0].id, "b");
+        assert_eq!(sorted[1].id, "c");
+        assert_eq!(sorted[2].id, "a");
+    }
+}
