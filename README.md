@@ -58,6 +58,27 @@ clickdown debug tasks <list_id> --json
 clickdown debug docs <query>
 clickdown debug docs <query> --json
 
+# Get comments for a task
+clickdown debug comments <task_id>
+clickdown debug comments <task_id> --json
+
+# Create a new comment
+clickdown debug create-comment <task_id> --text "Comment text"
+clickdown debug create-comment <task_id> --text "Text" --json
+
+# Create a reply to a comment
+clickdown debug create-reply <comment_id> --text "Reply text"
+clickdown debug create-reply <comment_id> --text "Text" --json
+
+# Update an existing comment
+clickdown debug update-comment <comment_id> --text "Updated text"
+clickdown debug update-comment <comment_id> --text "Text" --json
+
+# Comment options (for create-comment)
+clickdown debug create-comment <task_id> --text "Text" --parent-id <comment_id>
+clickdown debug create-comment <task_id> --text "Text" --assignee <user_id>
+clickdown debug create-comment <task_id> --text "Text" --assigned-commenter <user_id>
+
 # Enable verbose logging (logs go to stderr, data to stdout)
 clickdown debug workspaces --verbose
 
@@ -90,6 +111,26 @@ clickdown debug tasks list123 --verbose 2>&1 | grep "GET"
 
 # Debug: Test with different token
 clickdown debug workspaces --token pk_test_123 --json
+```
+
+### Debugging Comment Parse Errors
+
+If you encounter "failed to parse" errors when creating or updating comments:
+
+```bash
+# Reproduce the issue with verbose logging
+clickdown debug create-reply <comment_id> --text "Test reply" --verbose 2>&1 | tee debug.log
+
+# Inspect the error message - it includes the field path
+# Example error: "date: invalid type: floating point..."
+
+# Common issues:
+# - Float timestamps (1234567890.123 instead of 1234567890)
+# - ISO 8601 dates ("2024-01-15T10:30:00Z" instead of milliseconds)
+# - Type mismatches (string ID instead of integer)
+
+# Check the Comment model documentation for known API variations
+# See: src/models/comment.rs (module-level docs)
 ```
 
 ## Authentication

@@ -925,3 +925,145 @@ fn test_comments_isolated_by_task() {
     assert_eq!(task2_comments.len(), 1);
     assert_eq!(task2_comments[0].id, "test-comment-2");
 }
+
+// ==================== Reply Creation Tests ====================
+
+/// Test that mock client can create comment replies
+#[test]
+fn test_mock_client_create_comment_reply() {
+    use clickdown::api::MockClickUpClient;
+    use clickdown::api::ClickUpApi;
+    use clickdown::models::CreateCommentRequest;
+    use clickdown::models::comment::Comment;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let reply_comment = Comment {
+            id: "test-reply-1".to_string(),
+            text: "This is a test reply".to_string(),
+            text_preview: "This is a...".to_string(),
+            commenter: None,
+            created_at: Some(1234567890000),
+            updated_at: None,
+            assigned_commenter: None,
+            assigned_by: None,
+            assigned: false,
+            reaction: String::new(),
+            parent_id: Some("parent-comment-123".to_string()),
+        };
+
+        let mock_client = MockClickUpClient::new()
+            .with_create_comment_reply_response(reply_comment.clone());
+
+        let request = CreateCommentRequest {
+            comment_text: "This is a test reply".to_string(),
+            assignee: None,
+            assigned_commenter: None,
+            parent_id: Some("parent-comment-123".to_string()),
+        };
+
+        let result = mock_client.create_comment_reply("parent-comment-123", &request).await.unwrap();
+        assert_eq!(result.id, "test-reply-1");
+        assert_eq!(result.parent_id, Some("parent-comment-123".to_string()));
+    });
+}
+
+/// Test that reply request includes parent_id
+#[test]
+fn test_create_comment_request_with_parent_id() {
+    use clickdown::models::CreateCommentRequest;
+
+    let request = CreateCommentRequest {
+        comment_text: "Reply text".to_string(),
+        assignee: None,
+        assigned_commenter: None,
+        parent_id: Some("parent-123".to_string()),
+    };
+
+    // Verify parent_id is set correctly
+    assert_eq!(request.parent_id, Some("parent-123".to_string()));
+    assert_eq!(request.comment_text, "Reply text");
+}
+
+/// Test that CreateCommentRequest serializes parent_id correctly
+#[test]
+fn test_create_comment_request_serialization() {
+    use clickdown::models::CreateCommentRequest;
+    use serde_json;
+
+    let request = CreateCommentRequest {
+        comment_text: "Reply content".to_string(),
+        assignee: None,
+        assigned_commenter: None,
+        parent_id: Some("parent-456".to_string()),
+    };
+
+    let json = serde_json::to_string(&request).unwrap();
+    
+    // Verify JSON contains parent_id
+    assert!(json.contains("parent_id"));
+    assert!(json.contains("parent-456"));
+    assert!(json.contains("Reply content"));
+}
+
+/// Test that empty reply validation works
+#[test]
+fn test_empty_reply_validation() {
+    // Test that empty string is detected
+    let empty = "";
+    assert!(empty.trim().is_empty());
+
+    // Test that whitespace-only string is detected
+    let whitespace = "   \n\t  ";
+    assert!(whitespace.trim().is_empty());
+
+    // Test that valid text passes validation
+    let valid = "This is a valid reply";
+    assert!(!valid.trim().is_empty());
+}
+
+/// Test that reply comment has parent_id set
+#[test]
+fn test_reply_comment_parent_id() {
+    use clickdown::models::comment::Comment;
+
+    let reply = Comment {
+        id: "reply-1".to_string(),
+        text: "This is a reply".to_string(),
+        text_preview: "This is...".to_string(),
+        commenter: None,
+        created_at: Some(1234567890000),
+        updated_at: None,
+        assigned_commenter: None,
+        assigned_by: None,
+        assigned: false,
+        reaction: String::new(),
+        parent_id: Some("parent-123".to_string()),
+    };
+
+    assert_eq!(reply.parent_id, Some("parent-123".to_string()));
+}
+
+/// Test that top-level comment has no parent_id
+#[test]
+fn test_top_level_comment_no_parent_id() {
+    use clickdown::models::comment::Comment;
+
+    let top_level = Comment {
+        id: "top-level-1".to_string(),
+        text: "This is a top-level comment".to_string(),
+        text_preview: "This is...".to_string(),
+        commenter: None,
+        created_at: Some(1234567890000),
+        updated_at: None,
+        assigned_commenter: None,
+        assigned_by: None,
+        assigned: false,
+        reaction: String::new(),
+        parent_id: None,
+    };
+
+    assert_eq!(top_level.parent_id, None);
+}

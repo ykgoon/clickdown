@@ -60,7 +60,7 @@ pub enum AppMessage {
     ListsLoaded(Result<Vec<List>, String>),
     TasksLoaded(Result<Vec<Task>, String>),
     CommentsLoaded(Result<Vec<Comment>, String>),
-    CommentCreated(Result<Comment, String>),
+    CommentCreated(Result<Comment, String>, bool), // bool = is_reply
     CommentUpdated(Result<Comment, String>),
 }
 
@@ -406,18 +406,24 @@ impl TuiApp {
                             }
                         }
                     }
-                    AppMessage::CommentCreated(result) => {
+                    AppMessage::CommentCreated(result, is_reply) => {
                         self.loading = false;
                         match result {
                             Ok(comment) => {
                                 self.comments.insert(0, comment);
                                 self.comment_new_text.clear();
                                 self.comment_editing_index = None;
-                                self.status = "Comment added".to_string();
+                                self.status = if is_reply {
+                                    "Reply added".to_string()
+                                } else {
+                                    "Comment added".to_string()
+                                };
                             }
                             Err(e) => {
-                                self.error = Some(format!("Failed to create comment: {}", e));
-                                self.status = "Failed to create comment".to_string();
+                                self.error = Some(format!("Failed to create {}: {}", 
+                                    if is_reply { "reply" } else { "comment" }, e));
+                                self.status = format!("Failed to create {}", 
+                                    if is_reply { "reply" } else { "comment" });
                             }
                         }
                     }
@@ -645,18 +651,59 @@ impl TuiApp {
                     KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         // Save comment
                         if let Some(edit_idx) = self.comment_editing_index {
-                            // Update existing comment
-                            if let Some(_task) = &self.task_detail.task {
-                                let text = self.comment_new_text.clone();
-                                let comment_id = self.comments[edit_idx].id.clone();
-                                self.update_comment(comment_id, text);
+                            if edit_idx == usize::MAX {
+                                // Creating new comment or reply (sentinel value)
+                                if let Some(_task) = &self.task_detail.task {
+                                    let text = self.comment_new_text.clone();
+                                    // Validate text is not empty or whitespace-only
+                                    if text.trim().is_empty() {
+                                        self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+                                            "Reply cannot be empty".to_string()
+                                        } else {
+                                            "Comment cannot be empty".to_string()
+                                        };
+                                        return;
+                                    }
+                                    let task_id = _task.id.clone();
+
+                                    // Determine parent_id based on view mode
+                                    let parent_id = match &self.comment_view_mode {
+                                        CommentViewMode::InThread { parent_comment_id, .. } => {
+                                            Some(parent_comment_id.clone())
+                                        }
+                                        CommentViewMode::TopLevel => None,
+                                    };
+
+                                    self.create_comment(task_id, text, parent_id);
+                                }
+                            } else {
+                                // Update existing comment at index edit_idx
+                                if let Some(_task) = &self.task_detail.task {
+                                    let text = self.comment_new_text.clone();
+                                    // Validate text is not empty or whitespace-only
+                                    if text.trim().is_empty() {
+                                        self.status = "Comment cannot be empty".to_string();
+                                        return;
+                                    }
+                                    let comment_id = self.comments[edit_idx].id.clone();
+                                    self.update_comment(comment_id, text);
+                                }
                             }
                         } else if !self.comment_new_text.is_empty() {
-                            // Create new comment or reply
+                            // Fallback: Create new comment or reply (when editing_index is None but text exists)
                             if let Some(_task) = &self.task_detail.task {
                                 let text = self.comment_new_text.clone();
+                                // Validate text is not empty or whitespace-only
+                                if text.trim().is_empty() {
+                                    self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+                                        "Reply cannot be empty".to_string()
+                                    } else {
+                                        "Comment cannot be empty".to_string()
+                                    };
+                                    return;
+                                }
                                 let task_id = _task.id.clone();
-                                
+
                                 // Determine parent_id based on view mode
                                 let parent_id = match &self.comment_view_mode {
                                     CommentViewMode::InThread { parent_comment_id, .. } => {
@@ -664,7 +711,7 @@ impl TuiApp {
                                     }
                                     CommentViewMode::TopLevel => None,
                                 };
-                                
+
                                 self.create_comment(task_id, text, parent_id);
                             }
                         }
@@ -674,7 +721,11 @@ impl TuiApp {
                         // Cancel editing
                         self.comment_new_text.clear();
                         self.comment_editing_index = None;
-                        self.status = "Comment editing cancelled".to_string();
+                        self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+                            "Reply cancelled".to_string()
+                        } else {
+                            "Comment editing cancelled".to_string()
+                        };
                         return;
                     }
                     KeyCode::Char(c) => {
@@ -749,7 +800,9 @@ impl TuiApp {
                 KeyCode::Char('n') if self.comment_focus => {
                     // Start new comment
                     self.comment_new_text.clear();
-                    self.comment_editing_index = None;
+                    // usize::MAX is a sentinel value indicating "new comment" mode
+                    // (as opposed to Some(index) which means editing existing comment)
+                    self.comment_editing_index = Some(usize::MAX);
                     self.status = "Type comment (Ctrl+S save, Esc cancel)".to_string();
                 }
                 KeyCode::Char('e') if self.comment_focus => {
@@ -799,13 +852,15 @@ impl TuiApp {
                     // Reply to thread (only in thread view)
                     if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
                         self.comment_new_text.clear();
-                        self.comment_editing_index = None;
-                        
+                        // usize::MAX is a sentinel value indicating "new reply" mode
+                        // (as opposed to Some(index) which means editing existing comment)
+                        self.comment_editing_index = Some(usize::MAX);
+
                         let author = match &self.comment_view_mode {
                             CommentViewMode::InThread { parent_author, .. } => parent_author.clone(),
                             _ => "Unknown".to_string(),
                         };
-                        
+
                         self.status = format!("Replying to {} (Ctrl+S save, Esc cancel)", author);
                     } else {
                         self.status = "Press Enter to view thread, then 'r' to reply".to_string();
@@ -1141,7 +1196,13 @@ impl TuiApp {
     /// Create a new comment (top-level or reply)
     fn create_comment(&mut self, task_id: String, text: String, parent_id: Option<String>) {
         self.loading = true;
-        self.status = "Saving comment...".to_string();
+        // Show appropriate status message based on whether this is a reply
+        let is_reply = parent_id.is_some();
+        self.status = if is_reply {
+            "Saving reply...".to_string()
+        } else {
+            "Saving comment...".to_string()
+        };
 
         let client = match &self.client {
             Some(c) => c.clone(),
@@ -1159,7 +1220,7 @@ impl TuiApp {
             assigned_commenter: None,
             parent_id: parent_id.clone(),
         };
-        
+
         tokio::spawn(async move {
             // Use different endpoint based on whether this is a reply
             let result = if let Some(ref parent_comment_id) = parent_id {
@@ -1167,10 +1228,10 @@ impl TuiApp {
             } else {
                 client.create_comment(&task_id, &request).await
             };
-            
+
             let msg = match result {
-                Ok(comment) => AppMessage::CommentCreated(Ok(comment)),
-                Err(e) => AppMessage::CommentCreated(Err(e.to_string())),
+                Ok(comment) => AppMessage::CommentCreated(Ok(comment), is_reply),
+                Err(e) => AppMessage::CommentCreated(Err(e.to_string()), is_reply),
             };
             let _ = tx.send(msg).await;
         });

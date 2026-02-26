@@ -370,6 +370,144 @@ impl DebugOperations {
 
         Ok(())
     }
+
+    /// Create a new comment on a task (human-readable format)
+    pub async fn create_comment(
+        &self,
+        task_id: &str,
+        text: &str,
+        parent_id: Option<&str>,
+        assignee: Option<i64>,
+        assigned_commenter: Option<i64>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        use crate::models::CreateCommentRequest;
+
+        let request = CreateCommentRequest {
+            comment_text: text.to_string(),
+            assignee,
+            assigned_commenter,
+            parent_id: parent_id.map(String::from),
+        };
+
+        let comment = if parent_id.is_some() {
+            api.create_comment_reply(parent_id.unwrap(), &request).await?
+        } else {
+            api.create_comment(task_id, &request).await?
+        };
+
+        println!("Comment created: {}", comment.id);
+        println!("Text: {}", comment.text);
+
+        if let Some(user) = &comment.commenter {
+            println!("Author: {}", user.username);
+        }
+
+        Ok(())
+    }
+
+    /// Create a new comment on a task (JSON format)
+    pub async fn create_comment_json(
+        &self,
+        task_id: &str,
+        text: &str,
+        parent_id: Option<&str>,
+        assignee: Option<i64>,
+        assigned_commenter: Option<i64>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        use crate::models::CreateCommentRequest;
+
+        let request = CreateCommentRequest {
+            comment_text: text.to_string(),
+            assignee,
+            assigned_commenter,
+            parent_id: parent_id.map(String::from),
+        };
+
+        let comment = if parent_id.is_some() {
+            api.create_comment_reply(parent_id.unwrap(), &request).await?
+        } else {
+            api.create_comment(task_id, &request).await?
+        };
+
+        let json = serde_json::to_string_pretty(&comment)?;
+        println!("{}", json);
+
+        Ok(())
+    }
+
+    /// Create a reply to an existing comment (human-readable format)
+    pub async fn create_reply(
+        &self,
+        comment_id: &str,
+        text: &str,
+        assignee: Option<i64>,
+        assigned_commenter: Option<i64>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // create_reply is a convenience wrapper that calls create_comment with parent_id set
+        self.create_comment("", text, Some(comment_id), assignee, assigned_commenter).await
+    }
+
+    /// Create a reply to an existing comment (JSON format)
+    pub async fn create_reply_json(
+        &self,
+        comment_id: &str,
+        text: &str,
+        assignee: Option<i64>,
+        assigned_commenter: Option<i64>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // create_reply_json is a convenience wrapper
+        self.create_comment_json("", text, Some(comment_id), assignee, assigned_commenter).await
+    }
+
+    /// Update an existing comment (human-readable format)
+    pub async fn update_comment(
+        &self,
+        comment_id: &str,
+        text: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        use crate::models::UpdateCommentRequest;
+
+        let request = UpdateCommentRequest {
+            comment_text: Some(text.to_string()),
+            assigned: None,
+            assignee: None,
+            assigned_commenter: None,
+        };
+
+        let comment = api.update_comment(comment_id, &request).await?;
+
+        println!("Comment updated: {}", comment.id);
+        println!("Text: {}", comment.text);
+
+        Ok(())
+    }
+
+    /// Update an existing comment (JSON format)
+    pub async fn update_comment_json(
+        &self,
+        comment_id: &str,
+        text: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        use crate::models::UpdateCommentRequest;
+
+        let request = UpdateCommentRequest {
+            comment_text: Some(text.to_string()),
+            assigned: None,
+            assignee: None,
+            assigned_commenter: None,
+        };
+
+        let comment = api.update_comment(comment_id, &request).await?;
+
+        let json = serde_json::to_string_pretty(&comment)?;
+        println!("{}", json);
+
+        Ok(())
+    }
 }
 
 /// Format a Unix timestamp (milliseconds) to a readable date string

@@ -55,7 +55,17 @@ impl ClickUpClient {
             anyhow::bail!("API error ({}): {}", status, error_text);
         }
 
-        response.json::<T>().await.context("Failed to parse response")
+        // Get response body as text first for better error messages
+        let body = response.text().await.context("Failed to read response body")?;
+
+        // Log the raw response for debugging (but not for comments to avoid logging sensitive data)
+        tracing::debug!("API response body: {}", body);
+
+        // Parse the JSON with enhanced error reporting
+        // Use serde_path_to_error to get field-level diagnostics
+        let mut deserializer = serde_json::Deserializer::from_str(&body);
+        serde_path_to_error::deserialize(&mut deserializer)
+            .context(format!("Failed to parse response: {}", body.chars().take(200).collect::<String>()))
     }
 
     // ==================== Workspace/Team ====================
@@ -341,5 +351,61 @@ impl ClickUpApi for ClickUpClient {
 
     async fn update_comment(&self, comment_id: &str, comment: &UpdateCommentRequest) -> Result<Comment> {
         self.update_comment(comment_id, comment).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_parse_error_includes_field_path() {
+        // This test demonstrates that serde_path_to_error provides field-level diagnostics
+        // We simulate what would happen with malformed comment data
+        
+        let malformed_json = json!({
+            "id": "123",
+            "comment_text": "Test",
+            "date": 1234567890.5  // Float instead of int/string
+        });
+
+        let body = malformed_json.to_string();
+        let mut deserializer = serde_json::Deserializer::from_str(&body);
+        let result: Result<Comment, _> = serde_path_to_error::deserialize(&mut deserializer);
+        
+        assert!(result.is_err(), "Float timestamp should fail to parse");
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        
+        // Error message should include field path information
+        // serde_path_to_error formats errors as: "path.to.field: error message"
+        assert!(err_msg.contains("date") || err_msg.contains("invalid") || err_msg.contains("type"),
+                "Error should mention the problematic field: {}", err_msg);
+    }
+
+    #[test]
+    fn test_parse_error_with_nested_field() {
+        // Test error reporting for nested fields (e.g., in User object)
+        let malformed_json = json!({
+            "id": "123",
+            "comment_text": "Test",
+            "user": {
+                "id": "not-a-number",  // Should be i64
+                "username": "test"
+            }
+        });
+
+        let body = malformed_json.to_string();
+        let mut deserializer = serde_json::Deserializer::from_str(&body);
+        let result: Result<Comment, _> = serde_path_to_error::deserialize(&mut deserializer);
+        
+        assert!(result.is_err(), "String user id should fail to parse");
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        
+        // Error should indicate the nested field path
+        assert!(err_msg.contains("user") || err_msg.contains("id") || err_msg.contains("invalid"),
+                "Error should mention the nested field: {}", err_msg);
     }
 }

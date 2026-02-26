@@ -158,6 +158,27 @@ clickdown debug tasks <list_id> --json
 # Search documents
 clickdown debug docs "Sprint Planning"
 clickdown debug docs "Sprint Planning" --json
+
+# Get comments for a task
+clickdown debug comments <task_id>
+clickdown debug comments <task_id> --json
+
+# Create a new comment
+clickdown debug create-comment <task_id> --text "Comment text"
+clickdown debug create-comment <task_id> --text "Text" --json
+
+# Create a reply to a comment
+clickdown debug create-reply <comment_id> --text "Reply text"
+clickdown debug create-reply <comment_id> --text "Text" --json
+
+# Update an existing comment
+clickdown debug update-comment <comment_id> --text "Updated text"
+clickdown debug update-comment <comment_id> --text "Text" --json
+
+# Comment options (for create-comment)
+clickdown debug create-comment <task_id> --text "Text" --parent-id <comment_id>
+clickdown debug create-comment <task_id> --text "Text" --assignee <user_id>
+clickdown debug create-comment <task_id> --text "Text" --assigned-commenter <user_id>
 ```
 
 ### Verbose Logging
@@ -206,6 +227,40 @@ clickdown debug auth-status --token pk_test_abc123 --verbose
 2. List workspaces: `clickdown debug workspaces --json`
 3. Fetch specific data: `clickdown debug tasks <list_id> --json`
 4. Inspect with verbose: `clickdown debug tasks <list_id> --verbose`
+
+**Debug comment parsing issues:**
+
+When you encounter "failed to parse" errors with comment operations:
+
+1. **Reproduce with verbose logging**:
+   ```bash
+   # Create a comment with full logging
+   clickdown debug create-comment <task_id> --text "Test" --verbose 2>&1 | tee debug.log
+   
+   # Create a reply with JSON output
+   clickdown debug create-reply <comment_id> --text "Reply" --verbose --json
+   ```
+
+2. **Identify the failing field**:
+   - Error messages now include field paths via `serde_path_to_error`
+   - Look for errors like: `date: invalid type: floating point...`
+   - The error format is: `path.to.field: error message`
+
+3. **Common parsing failures**:
+   - **Float timestamps**: API returns `1234567890.123` instead of `1234567890` or `"1234567890"`
+   - **ISO 8601 dates**: API returns `"2024-01-15T10:30:00Z"` instead of milliseconds
+   - **Type mismatches**: User ID as string instead of integer
+   - **Null for required fields**: Handled by custom deserializers
+
+4. **Check the Comment model**:
+   - See `src/models/comment.rs` for deserializer documentation
+   - The module doc explains known API variations and debugging steps
+   - Custom deserializers handle: null strings, null bools, flexible timestamps
+
+5. **Add test coverage**:
+   - Add a test with the problematic JSON to `src/models/comment.rs`
+   - Verify the deserializer handles the edge case
+   - Run `cargo test --lib comment` to verify
 
 **Test before TUI launch:**
 ```bash
@@ -290,6 +345,11 @@ All state changes flow through the `Message` enum in `app.rs`:
 | `delete_task(task_id)` | Delete a task |
 | `search_docs(filters)` | Search documents |
 | `get_doc_pages(doc_id)` | Get pages in a document |
+| `get_task_comments(task_id)` | Get comments for a task |
+| `get_comment_replies(comment_id)` | Get replies to a comment |
+| `create_comment(task_id, request)` | Create a new comment |
+| `create_comment_reply(parent_id, request)` | Create a reply to a comment |
+| `update_comment(comment_id, request)` | Update a comment |
 
 ### Mock Client Configuration
 ```rust
@@ -304,6 +364,11 @@ MockClickUpClient::new()
     .with_delete_task_success()
     .with_documents(vec![...])
     .with_pages(vec![...])
+    .with_task_comments(vec![...])
+    .with_comment_replies("comment_id", vec![...])
+    .with_create_comment_response(comment)
+    .with_create_comment_reply_response(comment)
+    .with_update_comment_response(comment)
 ```
 
 ## Current Status
@@ -319,6 +384,8 @@ MockClickUpClient::new()
 - Terminal initialization and cleanup with crossterm
 - Keyboard input handling for forms and navigation
 - Screen titles and status bar with contextual help
+- Comment operations (view, create, reply, update)
+- CLI debug commands for comment debugging
 
 ### Roadmap 🚧
 - Task filtering and sorting

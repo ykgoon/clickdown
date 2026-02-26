@@ -132,6 +132,38 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 debug_ops.get_comments(task_id).await
             }
         }
+        DebugOperation::CreateComment { ref task_id } => {
+            let text = command.text.as_deref().unwrap_or("");
+            let parent_id = command.parent_id.as_deref();
+            let assignee = command.assignee.as_ref().and_then(|s| s.parse::<i64>().ok());
+            let assigned_commenter = command.assigned_commenter.as_ref().and_then(|s| s.parse::<i64>().ok());
+            
+            if command.json {
+                debug_ops.create_comment_json(task_id, text, parent_id, assignee, assigned_commenter).await
+            } else {
+                debug_ops.create_comment(task_id, text, parent_id, assignee, assigned_commenter).await
+            }
+        }
+        DebugOperation::CreateReply { ref comment_id } => {
+            let text = command.text.as_deref().unwrap_or("");
+            let assignee = command.assignee.as_ref().and_then(|s| s.parse::<i64>().ok());
+            let assigned_commenter = command.assigned_commenter.as_ref().and_then(|s| s.parse::<i64>().ok());
+            
+            if command.json {
+                debug_ops.create_reply_json(comment_id, text, assignee, assigned_commenter).await
+            } else {
+                debug_ops.create_reply(comment_id, text, assignee, assigned_commenter).await
+            }
+        }
+        DebugOperation::UpdateComment { ref comment_id } => {
+            let text = command.text.as_deref().unwrap_or("");
+            
+            if command.json {
+                debug_ops.update_comment_json(comment_id, text).await
+            } else {
+                debug_ops.update_comment(comment_id, text).await
+            }
+        }
         DebugOperation::Help => {
             // Already handled above
             return exit_codes::SUCCESS;

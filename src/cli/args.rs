@@ -31,6 +31,14 @@ pub struct DebugCommand {
     pub verbose: bool,
     /// Override token (for testing)
     pub token_override: Option<String>,
+    /// Comment text (for create/update operations)
+    pub text: Option<String>,
+    /// Parent comment ID (for threaded comments)
+    pub parent_id: Option<String>,
+    /// Assignee user ID (optional)
+    pub assignee: Option<String>,
+    /// Assigned commenter user ID (optional)
+    pub assigned_commenter: Option<String>,
 }
 
 /// Available debug operations
@@ -58,6 +66,12 @@ pub enum DebugOperation {
     Explore { workspace_id: String },
     /// Get comments for a task
     Comments { task_id: String },
+    /// Create a new comment on a task
+    CreateComment { task_id: String },
+    /// Create a reply to an existing comment
+    CreateReply { comment_id: String },
+    /// Update an existing comment
+    UpdateComment { comment_id: String },
 }
 
 /// Parse CLI arguments from environment
@@ -96,6 +110,10 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
             json: false,
             verbose: false,
             token_override: None,
+            text: None,
+            parent_id: None,
+            assignee: None,
+            assigned_commenter: None,
         });
     }
     
@@ -103,14 +121,46 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
     let mut json = false;
     let mut verbose = false;
     let mut token_override: Option<String> = None;
-    
+    let mut text: Option<String> = None;
+    let mut parent_id: Option<String> = None;
+    let mut assignee: Option<String> = None;
+    let mut assigned_commenter: Option<String> = None;
+
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        
+
         match arg.as_str() {
             "--json" => json = true,
             "--verbose" | "-v" => verbose = true,
+            "--text" => {
+                if i + 1 >= args.len() {
+                    return Err("--text requires a value".to_string());
+                }
+                text = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--parent-id" => {
+                if i + 1 >= args.len() {
+                    return Err("--parent-id requires a value".to_string());
+                }
+                parent_id = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--assignee" => {
+                if i + 1 >= args.len() {
+                    return Err("--assignee requires a value".to_string());
+                }
+                assignee = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--assigned-commenter" => {
+                if i + 1 >= args.len() {
+                    return Err("--assigned-commenter requires a value".to_string());
+                }
+                assigned_commenter = Some(args[i + 1].clone());
+                i += 1;
+            }
             "--token" => {
                 if i + 1 >= args.len() {
                     return Err("--token requires a value".to_string());
@@ -232,6 +282,42 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                 });
                 i += 1; // Skip next arg
             }
+            "create-comment" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                if i + 1 >= args.len() {
+                    return Err("create-comment requires a task_id argument".to_string());
+                }
+                operation = Some(DebugOperation::CreateComment {
+                    task_id: args[i + 1].clone()
+                });
+                i += 1;
+            }
+            "create-reply" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                if i + 1 >= args.len() {
+                    return Err("create-reply requires a comment_id argument".to_string());
+                }
+                operation = Some(DebugOperation::CreateReply {
+                    comment_id: args[i + 1].clone()
+                });
+                i += 1;
+            }
+            "update-comment" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                if i + 1 >= args.len() {
+                    return Err("update-comment requires a comment_id argument".to_string());
+                }
+                operation = Some(DebugOperation::UpdateComment {
+                    comment_id: args[i + 1].clone()
+                });
+                i += 1;
+            }
             "--help" | "-h" => {
                 operation = Some(DebugOperation::Help);
             }
@@ -248,12 +334,29 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
     }
     
     let op = operation.unwrap_or(DebugOperation::Help);
-    
+
+    // Validate comment operation arguments
+    match &op {
+        DebugOperation::CreateComment { .. } | DebugOperation::CreateReply { .. } | DebugOperation::UpdateComment { .. } => {
+            if text.is_none() {
+                return Err("--text is required for this operation".to_string());
+            }
+            if text.as_ref().map(|s| s.is_empty()).unwrap_or(false) {
+                return Err("--text cannot be empty".to_string());
+            }
+        }
+        _ => {}
+    }
+
     Ok(DebugCommand {
         operation: op,
         json,
         verbose,
         token_override,
+        text,
+        parent_id,
+        assignee,
+        assigned_commenter,
     })
 }
 
@@ -276,12 +379,19 @@ pub fn print_usage() {
     eprintln!("    task <task_id>          Get a single task");
     eprintln!("    comments <task_id>      Get comments for a task");
     eprintln!("    explore <workspace_id>  Explore full hierarchy (spaces->folders->lists->tasks)");
+    eprintln!("    create-comment <task_id>  Create a new comment (--text required)");
+    eprintln!("    create-reply <comment_id> Create a reply to a comment (--text required)");
+    eprintln!("    update-comment <comment_id> Update an existing comment (--text required)");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("    --json                  Output in JSON format");
     eprintln!("    --verbose, -v           Enable verbose logging");
     eprintln!("    --token <token>         Override stored token (for testing)");
     eprintln!("    --in-space              Use with 'lists' to list space lists instead of folder lists");
+    eprintln!("    --text <text>           Comment text (for create/update operations)");
+    eprintln!("    --parent-id <id>        Parent comment ID (for threaded comments)");
+    eprintln!("    --assignee <user_id>    Assign comment to user");
+    eprintln!("    --assigned-commenter <user_id>  Set who assigned the comment");
     eprintln!("    --help, -h              Show this help message");
     eprintln!();
     eprintln!("EXIT CODES:");
@@ -301,6 +411,9 @@ pub fn print_usage() {
     eprintln!("    clickdown debug task task123 --json");
     eprintln!("    clickdown debug comments task123 --json");
     eprintln!("    clickdown debug explore 26408409");
+    eprintln!("    clickdown debug create-comment task123 --text \"Hello world\"");
+    eprintln!("    clickdown debug create-reply comment456 --text \"Reply text\" --json");
+    eprintln!("    clickdown debug update-comment comment789 --text \"Updated\" --verbose");
 }
 
 #[cfg(test)]

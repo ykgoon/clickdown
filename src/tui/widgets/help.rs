@@ -93,8 +93,10 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         Line::from("  j/k         - Navigate comments"),
         Line::from("  n           - New comment"),
         Line::from("  e           - Edit selected comment"),
+        Line::from("  r           - Reply to thread (in thread view)"),
+        Line::from("  Enter       - View thread"),
         Line::from("  Ctrl+S      - Save comment"),
-        Line::from("  Esc         - Cancel editing"),
+        Line::from("  Esc         - Cancel editing / Exit thread"),
     ]);
 
     let forms = Paragraph::new(vec![
