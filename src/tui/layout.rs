@@ -318,7 +318,7 @@ mod tests {
         let max_offset = 100 - 20; // 80
         let result = calculate_scroll_indicator(area, 100, max_offset);
         assert!(result.is_some());
-        let (start, size) = result.unwrap();
+        let (start, _size) = result.unwrap();
         // Should be near the bottom
         assert!(start > 10);
     }

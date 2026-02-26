@@ -10,6 +10,7 @@ use ratatui::{
 };
 use crate::models::Comment;
 use crate::tui::layout::ScrollState;
+use crate::tui::app::CommentViewMode;
 
 /// Comment panel state with scroll tracking
 #[derive(Debug, Clone)]
@@ -83,11 +84,26 @@ pub fn render_comments(
     new_text: &str,
     comment_focus: bool,
     area: Rect,
+    view_mode: &CommentViewMode,
 ) {
+    // Build title based on view mode
+    let title = match view_mode {
+        CommentViewMode::TopLevel => " Comments ".to_string(),
+        CommentViewMode::InThread { parent_author, .. } => {
+            // Truncate long names
+            let truncated = if parent_author.len() > 20 {
+                format!("{}...", &parent_author[..17])
+            } else {
+                parent_author.clone()
+            };
+            format!(" Comments > {} ", truncated)
+        }
+    };
+
     // Check if area is too small to render
     if area.height < 5 || area.width < 20 {
         let block = Block::default()
-            .title(" Comments ")
+            .title(title)
             .borders(Borders::ALL)
             .style(Style::default());
         frame.render_widget(block, area);
@@ -106,7 +122,7 @@ pub fn render_comments(
     }
 
     let block = Block::default()
-        .title(" Comments ")
+        .title(title)
         .borders(Borders::ALL)
         .style(Style::default());
 
@@ -138,6 +154,7 @@ pub fn render_comments(
         editing_index,
         comment_focus,
         chunks[0],
+        view_mode,
     );
 
     // Render input form if editing or creating
@@ -181,32 +198,104 @@ fn render_comment_list(
     editing_index: Option<usize>,
     comment_focus: bool,
     area: Rect,
+    view_mode: &CommentViewMode,
 ) {
     // Check if area is too small
     if area.height < 3 || area.width < 15 {
         return;
     }
 
-    if comments.is_empty() {
-        let empty_msg = Paragraph::new("No comments yet. Press 'n' to add one.")
+    // Filter comments based on view mode
+    let filtered_comments: Vec<(usize, &Comment)> = match view_mode {
+        CommentViewMode::TopLevel => {
+            // Show only top-level comments (no parent_id)
+            let result: Vec<(usize, &Comment)> = comments.iter()
+                .enumerate()
+                .filter(|(_, c)| {
+                    let is_top_level = c.parent_id.is_none();
+                    tracing::debug!("Comment {} ({}): parent_id={:?}, is_top_level={}", 
+                        c.id, c.text.chars().take(20).collect::<String>(), c.parent_id, is_top_level);
+                    is_top_level
+                })
+                .collect();
+            tracing::info!("TopLevel view: showing {} of {} comments", result.len(), comments.len());
+            result
+        }
+        CommentViewMode::InThread { parent_comment_id, .. } => {
+            // Show parent comment first, then all replies
+            let mut result: Vec<(usize, &Comment)> = Vec::new();
+            
+            // Find and add parent comment first
+            for (i, comment) in comments.iter().enumerate() {
+                if comment.id == *parent_comment_id {
+                    tracing::debug!("Found parent comment: {}", comment.id);
+                    result.push((i, comment));
+                    break;
+                }
+            }
+            
+            // Add all replies (comments with this parent_id)
+            for (i, comment) in comments.iter().enumerate() {
+                if comment.parent_id.as_ref() == Some(parent_comment_id) {
+                    tracing::debug!("Found reply: {} -> parent={}", comment.id, parent_comment_id);
+                    result.push((i, comment));
+                }
+            }
+            
+            tracing::info!("InThread view: showing {} comments (1 parent + {} replies)", 
+                result.len(), result.len().saturating_sub(1));
+            result
+        }
+    };
+
+    if filtered_comments.is_empty() {
+        let empty_msg = match view_mode {
+            CommentViewMode::TopLevel => "No comments yet. Press 'n' to add one.",
+            CommentViewMode::InThread { .. } => "No replies yet. Press 'r' to reply.",
+        };
+        let paragraph = Paragraph::new(empty_msg)
             .style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(empty_msg, area);
+        frame.render_widget(paragraph, area);
         return;
     }
 
     // Calculate available width (accounting for borders)
     let available_width = area.width.saturating_sub(4) as usize; // 2 for borders, 2 for padding
-    
+
     // Build all comment lines first to calculate total height
-    let mut all_comment_lines: Vec<(usize, Line)> = Vec::new(); // (comment_index, line)
-    
-    for (i, comment) in comments.iter().enumerate() {
-        let is_editing = editing_index == Some(i);
+    let mut all_comment_lines: Vec<(usize, Line)> = Vec::new(); // (original_index, line)
+    let mut display_indices: Vec<usize> = Vec::new(); // Maps display position to original index
+
+    // Pre-calculate reply counts for top-level comments (for task 3.3)
+    let reply_counts: std::collections::HashMap<&str, usize> = if matches!(view_mode, CommentViewMode::TopLevel) {
+        let mut counts = std::collections::HashMap::new();
+        for comment in comments.iter() {
+            if let Some(parent_id) = &comment.parent_id {
+                *counts.entry(parent_id.as_str()).or_insert(0) += 1;
+            }
+        }
+        counts
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    // Track if we're rendering the parent comment in thread view (for task 3.4)
+    let mut is_first_comment_in_thread = true;
+
+    for (orig_idx, comment) in filtered_comments.iter() {
+        let is_editing = editing_index == Some(*orig_idx);
 
         // Skip rendering if this comment is being edited
         if is_editing {
             continue;
         }
+
+        // Track this comment's display position
+        display_indices.push(*orig_idx);
+
+        // In thread view, identify the parent comment (first comment in the filtered list)
+        let is_parent_in_thread = matches!(view_mode, CommentViewMode::InThread { .. }) && is_first_comment_in_thread;
+        is_first_comment_in_thread = false;
 
         // Format author and date
         let author = comment.commenter.as_ref()
@@ -223,35 +312,75 @@ fn render_comment_list(
             ""
         };
 
-        // Header line: author and date
-        let is_selected = i == selected_index;
-        let header_style = if is_selected && comment_focus {
+        // Check if this comment is selected by comparing with the stored selected_index
+        let is_selected = *orig_idx == selected_index;
+        
+        // Task 3.4: Parent comment in thread view gets distinct styling
+        let header_style = if is_parent_in_thread {
+            // Parent comment: bold white with underline
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else if is_selected && comment_focus {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Cyan)
         };
 
-        let header = Line::from(vec![
+        // Build header line with optional reply count (task 3.3)
+        let mut header_spans = vec![
             Span::styled(format!("{} - {}", author, date_str), header_style),
             Span::styled(edited, Style::default().fg(Color::DarkGray)),
-        ]);
-        all_comment_lines.push((i, header));
+        ];
+
+        // Add reply count indicator for top-level comments with replies
+        if matches!(view_mode, CommentViewMode::TopLevel) {
+            if let Some(reply_count) = reply_counts.get(comment.id.as_str()) {
+                if *reply_count > 0 {
+                    header_spans.push(Span::styled(
+                        format!(" • {} repl{}", reply_count, if *reply_count == 1 { "y" } else { "ies" }),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+            }
+        }
+
+        // Task 3.4: Add "Parent comment" label for parent in thread view
+        if is_parent_in_thread {
+            header_spans.push(Span::styled(
+                " • Parent comment",
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            ));
+        }
+
+        let header = Line::from(header_spans);
+        all_comment_lines.push((*orig_idx, header));
 
         // Content lines with wrapping
-        let content_style = if is_selected && comment_focus {
+        // Task 3.4: Parent comment gets distinct background
+        let content_style = if is_parent_in_thread {
+            Style::default().add_modifier(Modifier::BOLD)
+        } else if is_selected && comment_focus {
             Style::default().bg(Color::DarkGray)
         } else {
             Style::default()
         };
 
+        // Task 3.6: Add visual thread indicator for replies (not parent)
+        let is_reply_in_thread = matches!(view_mode, CommentViewMode::InThread { .. }) && !is_parent_in_thread;
+        
         // Wrap text to fit available width
         let wrapped_content = wrap_text(&comment.text, available_width);
         for line in wrapped_content {
-            all_comment_lines.push((i, Line::from(Span::styled(line, content_style))));
+            if is_reply_in_thread {
+                // Add vertical line indicator for replies (thread line)
+                let indented_line = format!("│ {}", line);
+                all_comment_lines.push((*orig_idx, Line::from(Span::styled(indented_line, content_style))));
+            } else {
+                all_comment_lines.push((*orig_idx, Line::from(Span::styled(line, content_style))));
+            }
         }
 
         // Add spacing between comments
-        all_comment_lines.push((i, Line::from("")));
+        all_comment_lines.push((*orig_idx, Line::from("")));
     }
 
     let total_lines = all_comment_lines.len();
@@ -476,6 +605,7 @@ mod tests {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            parent_id: None,
         }
     }
 }

@@ -1,9 +1,4 @@
-# task-comments Specification
-
-## Purpose
-Defines the task comments display system with threaded comment support, including top-level view and thread view modes with visual indicators for navigation context.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Task comments display
 The system SHALL display a list of comments for each task in the task detail view. The comments section SHALL occupy 70% of the vertical space in the task detail panel (3:7 ratio with description). Comments SHALL be shown in two view modes:
@@ -71,39 +66,6 @@ The system SHALL allow users to create new comments on tasks via a text input fo
 - **AND** the input form is closed
 - **AND** status bar shows "Comment added" or "Reply added"
 
-### Requirement: Comment editing
-The system SHALL allow users to edit their own comments. Comments created by other users SHALL be read-only.
-
-#### Scenario: Edit action available
-- **WHEN** user navigates to their own comment with j/k keys
-- **THEN** the status bar shows "Press 'e' to edit, 'n' for new comment"
-- **AND** the comment is visually indicated as selectable (highlight on focus)
-
-#### Scenario: Edit action restricted
-- **WHEN** user navigates to another user's comment
-- **THEN** the status bar shows "View only. Press 'n' for new comment"
-- **AND** pressing 'e' shows a message "You can only edit your own comments"
-
-#### Scenario: Comment edit form opened
-- **WHEN** user presses 'e' on their own selected comment
-- **THEN** an inline edit form appears with the comment text pre-filled
-- **AND** focus moves to the input field
-- **AND** the original comment is temporarily hidden
-
-#### Scenario: Comment edit saved
-- **WHEN** user presses Ctrl+s after editing
-- **THEN** the updated comment is sent to the ClickUp API
-- **AND** a "Saving..." indicator is shown
-- **AND** on success, the comment is updated in the list with "(edited)" indicator
-- **AND** the edit form is closed
-- **AND** status bar shows "Comment updated"
-
-#### Scenario: Comment edit cancelled
-- **WHEN** user presses Esc while editing
-- **THEN** a confirmation dialog appears "Discard changes?"
-- **AND** on "Yes", the form is closed and original comment is restored
-- **AND** on "No", editing continues
-
 ### Requirement: Comment navigation
 The system SHALL support keyboard navigation through the comments list with automatic scroll management. Navigation SHALL include entering and exiting comment threads.
 
@@ -163,32 +125,3 @@ The system SHALL fetch, create, and update comments via the ClickUp API. API cal
 - **AND** the error is logged via tracing
 - **AND** the user can retry the operation
 - **AND** if parent_id is not supported by API, a warning is logged and comments are treated as flat list
-
-### Requirement: Comment markdown rendering
-The system SHALL render markdown formatting in comment content. Rendering SHALL be consistent with document markdown rendering.
-
-#### Scenario: Basic markdown rendered
-- **WHEN** comment contains markdown formatting
-- **THEN** the following are rendered correctly:
-  - Bold (**text** or __text__)
-  - Italic (*text* or _text_)
-  - Inline code (`code`)
-  - Links ([text](url))
-  - Lists (- item or 1. item)
-
-#### Scenario: Code blocks rendered
-- **WHEN** comment contains code blocks (```language ... ```)
-- **THEN** code is displayed in monospace font
-- **AND** syntax highlighting is applied if available
-- **AND** code blocks are scrollable if they exceed widget width
-
-#### Scenario: Long URLs wrapped
-- **WHEN** comment contains a long URL
-- **THEN** the URL is wrapped at word boundaries or with hyphenation
-- **AND** the URL does not cause horizontal overflow
-
-#### Scenario: Markdown input preview
-- **WHEN** user is editing a comment
-- **THEN** a hint "Markdown supported" is shown
-- **AND** (future) a preview toggle could show rendered markdown
-

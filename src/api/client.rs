@@ -207,7 +207,7 @@ impl ClickUpClient {
 
     // ==================== Comments ====================
 
-    /// Get all comments for a task
+    /// Get all comments for a task (top-level only)
     pub async fn get_task_comments(&self, task_id: &str) -> Result<Vec<Comment>> {
         let url = ApiEndpoints::task_comments(task_id);
         let response = self.execute::<CommentsResponse>(
@@ -216,9 +216,28 @@ impl ClickUpClient {
         Ok(response.comments)
     }
 
-    /// Create a new comment on a task
+    /// Get replies to a specific comment (threaded comments)
+    pub async fn get_comment_replies(&self, comment_id: &str) -> Result<Vec<Comment>> {
+        let url = ApiEndpoints::comment_replies(comment_id);
+        let response = self.execute::<CommentsResponse>(
+            self.request(reqwest::Method::GET, url)
+        ).await?;
+        Ok(response.comments)
+    }
+
+    /// Create a new comment on a task (top-level)
     pub async fn create_comment(&self, task_id: &str, comment: &CreateCommentRequest) -> Result<Comment> {
         let url = ApiEndpoints::task_comments(task_id);
+        let response = self.execute::<Comment>(
+            self.request(reqwest::Method::POST, url)
+                .json(comment)
+        ).await?;
+        Ok(response)
+    }
+
+    /// Create a reply to an existing comment (threaded)
+    pub async fn create_comment_reply(&self, parent_comment_id: &str, comment: &CreateCommentRequest) -> Result<Comment> {
+        let url = ApiEndpoints::comment_replies(parent_comment_id);
         let response = self.execute::<Comment>(
             self.request(reqwest::Method::POST, url)
                 .json(comment)
@@ -308,8 +327,16 @@ impl ClickUpApi for ClickUpClient {
         self.get_task_comments(task_id).await
     }
 
+    async fn get_comment_replies(&self, comment_id: &str) -> Result<Vec<Comment>> {
+        self.get_comment_replies(comment_id).await
+    }
+
     async fn create_comment(&self, task_id: &str, comment: &CreateCommentRequest) -> Result<Comment> {
         self.create_comment(task_id, comment).await
+    }
+
+    async fn create_comment_reply(&self, parent_comment_id: &str, comment: &CreateCommentRequest) -> Result<Comment> {
+        self.create_comment_reply(parent_comment_id, comment).await
     }
 
     async fn update_comment(&self, comment_id: &str, comment: &UpdateCommentRequest) -> Result<Comment> {

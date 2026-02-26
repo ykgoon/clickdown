@@ -85,4 +85,8 @@ impl ApiEndpoints {
     pub fn comment(comment_id: &str) -> String {
         format!("{}/comment/{}", BASE_URL, comment_id)
     }
+
+    pub fn comment_replies(comment_id: &str) -> String {
+        format!("{}/comment/{}/reply", BASE_URL, comment_id)
+    }
 }

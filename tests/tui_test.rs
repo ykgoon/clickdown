@@ -604,6 +604,7 @@ fn test_mock_client_with_comments() {
                 assigned_by: None,
                 assigned: false,
                 reaction: String::new(),
+            parent_id: None,
             },
             Comment {
                 id: "test-comment-2".to_string(),
@@ -616,6 +617,7 @@ fn test_mock_client_with_comments() {
                 assigned_by: None,
                 assigned: false,
                 reaction: String::new(),
+            parent_id: None,
             },
         ];
         
@@ -651,6 +653,7 @@ fn test_mock_client_create_comment() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            parent_id: None,
         };
         
         let mock_client = MockClickUpClient::new()
@@ -660,6 +663,7 @@ fn test_mock_client_create_comment() {
             comment_text: "New comment".to_string(),
             assignee: None,
             assigned_commenter: None,
+            parent_id: None,
         };
 
         let result = mock_client.create_comment("task-123", &request).await.unwrap();
@@ -691,6 +695,7 @@ fn test_mock_client_update_comment() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            parent_id: None,
         };
         
         let mock_client = MockClickUpClient::new()
@@ -737,6 +742,7 @@ fn test_cache_comments() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            parent_id: None,
         },
         Comment {
             id: "test-comment-2".to_string(),
@@ -749,6 +755,7 @@ fn test_cache_comments() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            parent_id: None,
         },
     ];
     
@@ -789,6 +796,7 @@ fn test_cache_validity() {
         assigned_by: None,
         assigned: false,
         reaction: String::new(),
+            parent_id: None,
     }];
     
     // Cache comments
@@ -831,6 +839,7 @@ fn test_clear_comments() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            parent_id: None,
         },
         Comment {
             id: "test-comment-2".to_string(),
@@ -843,6 +852,7 @@ fn test_clear_comments() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            parent_id: None,
         },
     ];
     
@@ -884,6 +894,7 @@ fn test_comments_isolated_by_task() {
         assigned_by: None,
         assigned: false,
         reaction: String::new(),
+            parent_id: None,
     };
     
     let comment2 = Comment {
@@ -897,6 +908,7 @@ fn test_comments_isolated_by_task() {
         assigned_by: None,
         assigned: false,
         reaction: String::new(),
+            parent_id: None,
     };
     
     // Cache different comments for different tasks

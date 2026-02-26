@@ -39,6 +39,18 @@ pub enum Screen {
     Document,
 }
 
+/// Comment view mode for threaded comments
+#[derive(Debug, Clone, PartialEq)]
+pub enum CommentViewMode {
+    /// Showing all top-level comments
+    TopLevel,
+    /// Inside a thread, showing parent comment and replies
+    InThread {
+        parent_comment_id: String,
+        parent_author: String,
+    },
+}
+
 /// Async messages for API results
 #[derive(Debug, Clone)]
 pub enum AppMessage {
@@ -117,6 +129,10 @@ pub struct TuiApp {
     comment_new_text: String,
     comment_focus: bool, // true = focus on comments, false = focus on task form
 
+    /// Comment thread navigation state
+    comment_view_mode: CommentViewMode,
+    comment_previous_selection: Option<usize>, // Store selection when entering thread
+
     /// Async message receiver
     message_rx: Option<mpsc::Receiver<AppMessage>>,
 
@@ -181,6 +197,8 @@ impl TuiApp {
             comment_editing_index: None,
             comment_new_text: String::new(),
             comment_focus: false,
+            comment_view_mode: CommentViewMode::TopLevel,
+            comment_previous_selection: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
         };
@@ -370,10 +388,11 @@ impl TuiApp {
                             Ok(comments) => {
                                 tracing::debug!("Loaded {} comments", comments.len());
                                 for (i, comment) in comments.iter().enumerate() {
-                                    tracing::debug!("Comment {}: author={:?}, created_at={:?}", 
-                                        i, 
-                                        comment.commenter.as_ref().map(|c| &c.username),
-                                        comment.created_at);
+                                    tracing::debug!("Comment {}: id={}, parent_id={:?}, author={:?}",
+                                        i,
+                                        comment.id,
+                                        comment.parent_id,
+                                        comment.commenter.as_ref().map(|c| &c.username));
                                 }
                                 self.comments = comments;
                                 self.comment_selected_index = 0;
@@ -633,11 +652,20 @@ impl TuiApp {
                                 self.update_comment(comment_id, text);
                             }
                         } else if !self.comment_new_text.is_empty() {
-                            // Create new comment
+                            // Create new comment or reply
                             if let Some(_task) = &self.task_detail.task {
                                 let text = self.comment_new_text.clone();
                                 let task_id = _task.id.clone();
-                                self.create_comment(task_id, text);
+                                
+                                // Determine parent_id based on view mode
+                                let parent_id = match &self.comment_view_mode {
+                                    CommentViewMode::InThread { parent_comment_id, .. } => {
+                                        Some(parent_comment_id.clone())
+                                    }
+                                    CommentViewMode::TopLevel => None,
+                                };
+                                
+                                self.create_comment(task_id, text, parent_id);
                             }
                         }
                         return;
@@ -665,9 +693,24 @@ impl TuiApp {
             // Handle normal task detail and comment navigation
             match key.code {
                 KeyCode::Esc => {
-                    self.task_detail.editing = false;
-                    self.screen = Screen::Tasks;
-                    self.update_screen_title();
+                    // Exit thread view if in thread, otherwise go back to tasks
+                    if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+                        // Exit thread view and return to top-level
+                        self.comment_view_mode = CommentViewMode::TopLevel;
+                        self.comment_selected_index = self.comment_previous_selection.unwrap_or(0);
+                        self.comment_previous_selection = None;
+                        self.status = "Back to top-level comments".to_string();
+                    } else if self.comment_editing_index.is_some() || !self.comment_new_text.is_empty() {
+                        // Cancel comment editing
+                        self.comment_new_text.clear();
+                        self.comment_editing_index = None;
+                        self.status = "Comment editing cancelled".to_string();
+                    } else {
+                        // Exit task detail view
+                        self.task_detail.editing = false;
+                        self.screen = Screen::Tasks;
+                        self.update_screen_title();
+                    }
                 }
                 KeyCode::Char('e') if !self.comment_focus => {
                     self.task_detail.editing = true;
@@ -710,7 +753,7 @@ impl TuiApp {
                     self.status = "Type comment (Ctrl+S save, Esc cancel)".to_string();
                 }
                 KeyCode::Char('e') if self.comment_focus => {
-                    // Edit selected comment
+                    // Edit selected comment (only in top-level view)
                     if !self.comments.is_empty() && self.comment_selected_index < self.comments.len() {
                         // Check if user owns the comment
                         let comment = &self.comments[self.comment_selected_index];
@@ -718,6 +761,54 @@ impl TuiApp {
                         self.comment_new_text = comment.text.clone();
                         self.comment_editing_index = Some(self.comment_selected_index);
                         self.status = "Editing comment (Ctrl+S save, Esc cancel)".to_string();
+                    }
+                }
+                KeyCode::Enter if self.comment_focus => {
+                    // Enter thread view when on a top-level comment
+                    if matches!(self.comment_view_mode, CommentViewMode::TopLevel) {
+                        if !self.comments.is_empty() && self.comment_selected_index < self.comments.len() {
+                            let comment = &self.comments[self.comment_selected_index];
+                            // Only enter thread if this is a top-level comment
+                            if comment.parent_id.is_none() {
+                                // Store current selection for when we exit
+                                self.comment_previous_selection = Some(self.comment_selected_index);
+                                
+                                // Get author name for breadcrumb
+                                let author = comment.commenter.as_ref()
+                                    .map(|c| c.username.clone())
+                                    .unwrap_or_else(|| "Unknown".to_string());
+                                
+                                // Switch to thread view
+                                self.comment_view_mode = CommentViewMode::InThread {
+                                    parent_comment_id: comment.id.clone(),
+                                    parent_author: author,
+                                };
+
+                                // Set selection to the parent comment's index (not 0)
+                                // This ensures the parent comment is selected when entering thread
+                                self.comment_previous_selection = Some(self.comment_selected_index);
+                                // Keep the same index since we're selecting the parent comment
+                                // The rendering will show the parent comment first in the filtered view
+
+                                self.status = format!("Viewing thread. Press Esc to go back");
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char('r') if self.comment_focus => {
+                    // Reply to thread (only in thread view)
+                    if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+                        self.comment_new_text.clear();
+                        self.comment_editing_index = None;
+                        
+                        let author = match &self.comment_view_mode {
+                            CommentViewMode::InThread { parent_author, .. } => parent_author.clone(),
+                            _ => "Unknown".to_string(),
+                        };
+                        
+                        self.status = format!("Replying to {} (Ctrl+S save, Esc cancel)", author);
+                    } else {
+                        self.status = "Press Enter to view thread, then 'r' to reply".to_string();
                     }
                 }
                 _ => {}
@@ -988,7 +1079,7 @@ impl TuiApp {
         });
     }
 
-    /// Load comments for a task
+    /// Load comments for a task (top-level + replies)
     fn load_comments(&mut self, task_id: String) {
         self.loading = true;
         self.status = "Loading comments...".to_string();
@@ -1004,17 +1095,51 @@ impl TuiApp {
 
         let tx = self.message_tx.clone().unwrap();
         tokio::spawn(async move {
-            let result = client.get_task_comments(&task_id).await;
-            let msg = match result {
-                Ok(comments) => AppMessage::CommentsLoaded(Ok(comments)),
-                Err(e) => AppMessage::CommentsLoaded(Err(e.to_string())),
-            };
-            let _ = tx.send(msg).await;
+            // First, fetch top-level comments
+            let top_level_result = client.get_task_comments(&task_id).await;
+            
+            match top_level_result {
+                Ok(top_level_comments) => {
+                    // For each top-level comment, fetch its replies
+                    let mut all_comments = top_level_comments;
+                    
+                    // Collect all reply fetches
+                    let mut reply_futures = Vec::new();
+                    for comment in &all_comments {
+                        let comment_id = comment.id.clone();
+                        let client_clone = client.clone();
+                        reply_futures.push(async move {
+                            let result = client_clone.get_comment_replies(&comment_id).await;
+                            (comment_id, result)
+                        });
+                    }
+                    
+                    // Wait for all replies to be fetched
+                    let reply_results = futures::future::join_all(reply_futures).await;
+                    
+                    // Add replies to the comments list with parent_id set
+                    for (parent_id, reply_result) in reply_results {
+                        if let Ok(replies) = reply_result {
+                            for mut reply in replies {
+                                reply.parent_id = Some(parent_id.clone());
+                                all_comments.push(reply);
+                            }
+                        }
+                    }
+                    
+                    let msg = AppMessage::CommentsLoaded(Ok(all_comments));
+                    let _ = tx.send(msg).await;
+                }
+                Err(e) => {
+                    let msg = AppMessage::CommentsLoaded(Err(e.to_string()));
+                    let _ = tx.send(msg).await;
+                }
+            }
         });
     }
 
-    /// Create a new comment
-    fn create_comment(&mut self, task_id: String, text: String) {
+    /// Create a new comment (top-level or reply)
+    fn create_comment(&mut self, task_id: String, text: String, parent_id: Option<String>) {
         self.loading = true;
         self.status = "Saving comment...".to_string();
 
@@ -1032,9 +1157,17 @@ impl TuiApp {
             comment_text: text,
             assignee: None,
             assigned_commenter: None,
+            parent_id: parent_id.clone(),
         };
+        
         tokio::spawn(async move {
-            let result = client.create_comment(&task_id, &request).await;
+            // Use different endpoint based on whether this is a reply
+            let result = if let Some(ref parent_comment_id) = parent_id {
+                client.create_comment_reply(parent_comment_id, &request).await
+            } else {
+                client.create_comment(&task_id, &request).await
+            };
+            
             let msg = match result {
                 Ok(comment) => AppMessage::CommentCreated(Ok(comment)),
                 Err(e) => AppMessage::CommentCreated(Err(e.to_string())),
@@ -1190,6 +1323,7 @@ impl TuiApp {
                     &self.comment_new_text,
                     self.comment_focus,
                     comments_area,
+                    &self.comment_view_mode,
                 );
             }
             Screen::Document => render_document(frame, &self.document, content_area),
@@ -1222,6 +1356,7 @@ impl TuiApp {
                     &self.comment_new_text,
                     self.comment_focus,
                     comments_area,
+                    &self.comment_view_mode,
                 );
             }
             Screen::Document => render_document(frame, &self.document, area),
@@ -1240,7 +1375,17 @@ impl TuiApp {
             match self.screen {
                 Screen::Auth => get_auth_hints(),
                 Screen::Tasks => get_task_list_hints(),
-                Screen::TaskDetail => get_task_detail_hints(),
+                Screen::TaskDetail => {
+                    // Show different hints based on comment view mode
+                    if self.comment_focus {
+                        match self.comment_view_mode {
+                            CommentViewMode::TopLevel => "j/k: Navigate | Enter: View thread | n: New comment | e: Edit | Tab: Task form",
+                            CommentViewMode::InThread { .. } => "j/k: Navigate | r: Reply | Esc: Back | Tab: Task form",
+                        }
+                    } else {
+                        "e: Edit task | Tab: Comments | Esc: Back"
+                    }
+                }
                 Screen::Document => get_document_hints(),
                 _ => get_sidebar_hints(),
             }

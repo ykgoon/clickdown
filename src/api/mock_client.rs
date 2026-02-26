@@ -43,8 +43,12 @@ pub struct MockClickUpClient {
     pub page_response: Option<Result<Page>>,
     /// Override for get_task_comments response
     pub task_comments_response: Option<Result<Vec<Comment>>>,
+    /// Override for get_comment_replies response (maps comment_id -> replies)
+    pub comment_replies_response: Option<std::collections::HashMap<String, Result<Vec<Comment>>>>,
     /// Override for create_comment response
     pub create_comment_response: Option<Result<Comment>>,
+    /// Override for create_comment_reply response
+    pub create_comment_reply_response: Option<Result<Comment>>,
     /// Override for update_comment response
     pub update_comment_response: Option<Result<Comment>>,
 }
@@ -67,7 +71,9 @@ impl MockClickUpClient {
             doc_pages_response: None,
             page_response: None,
             task_comments_response: None,
+            comment_replies_response: None,
             create_comment_response: None,
+            create_comment_reply_response: None,
             update_comment_response: None,
         }
     }
@@ -158,6 +164,23 @@ impl MockClickUpClient {
     /// Set the update comment response
     pub fn with_update_comment_response(mut self, comment: Comment) -> Self {
         self.update_comment_response = Some(Ok(comment));
+        self
+    }
+
+    /// Set the comment replies response for a specific comment
+    pub fn with_comment_replies(mut self, comment_id: &str, replies: Vec<Comment>) -> Self {
+        if self.comment_replies_response.is_none() {
+            self.comment_replies_response = Some(std::collections::HashMap::new());
+        }
+        if let Some(ref mut map) = self.comment_replies_response {
+            map.insert(comment_id.to_string(), Ok(replies));
+        }
+        self
+    }
+
+    /// Set the create comment reply response
+    pub fn with_create_comment_reply_response(mut self, comment: Comment) -> Self {
+        self.create_comment_reply_response = Some(Ok(comment));
         self
     }
 }
@@ -292,11 +315,32 @@ impl ClickUpApi for MockClickUpClient {
         }
     }
 
+    async fn get_comment_replies(&self, comment_id: &str) -> Result<Vec<Comment>> {
+        match &self.comment_replies_response {
+            Some(map) => {
+                match map.get(comment_id) {
+                    Some(Ok(replies)) => Ok(replies.clone()),
+                    Some(Err(e)) => Err(anyhow!(e.to_string())),
+                    None => Ok(vec![]),
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+
     async fn create_comment(&self, _task_id: &str, _comment: &CreateCommentRequest) -> Result<Comment> {
         match &self.create_comment_response {
             Some(Ok(comment)) => Ok(comment.clone()),
             Some(Err(e)) => Err(anyhow!(e.to_string())),
             None => Err(anyhow!("Create comment not configured")),
+        }
+    }
+
+    async fn create_comment_reply(&self, _parent_comment_id: &str, _comment: &CreateCommentRequest) -> Result<Comment> {
+        match &self.create_comment_reply_response {
+            Some(Ok(comment)) => Ok(comment.clone()),
+            Some(Err(e)) => Err(anyhow!(e.to_string())),
+            None => Err(anyhow!("Create comment reply not configured")),
         }
     }
 

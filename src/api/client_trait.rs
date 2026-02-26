@@ -81,11 +81,17 @@ pub trait ClickUpApi: Send + Sync {
 
     // ==================== Comments ====================
 
-    /// Get all comments for a task
+    /// Get all comments for a task (top-level only)
     async fn get_task_comments(&self, task_id: &str) -> Result<Vec<Comment>>;
 
-    /// Create a new comment on a task
+    /// Get replies to a specific comment (threaded comments)
+    async fn get_comment_replies(&self, comment_id: &str) -> Result<Vec<Comment>>;
+
+    /// Create a new comment on a task (top-level)
     async fn create_comment(&self, task_id: &str, comment: &CreateCommentRequest) -> Result<Comment>;
+
+    /// Create a reply to an existing comment (threaded)
+    async fn create_comment_reply(&self, parent_comment_id: &str, comment: &CreateCommentRequest) -> Result<Comment>;
 
     /// Update a comment
     async fn update_comment(&self, comment_id: &str, comment: &UpdateCommentRequest) -> Result<Comment>;

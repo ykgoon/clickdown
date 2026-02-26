@@ -64,6 +64,8 @@ pub struct Comment {
     pub assigned: bool,
     #[serde(default)]
     pub reaction: String,
+    #[serde(default, rename = "parent_id", skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
 }
 
 /// User reference in comment context
@@ -96,6 +98,8 @@ pub struct CreateCommentRequest {
     pub assignee: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assigned_commenter: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "parent_id")]
+    pub parent_id: Option<String>,
 }
 
 /// Request body for updating a comment
@@ -128,6 +132,7 @@ mod tests {
         assert!(comment.updated_at.is_none());
         assert!(!comment.assigned);
         assert_eq!(comment.reaction, "");
+        assert!(comment.parent_id.is_none());
     }
 
     #[test]
@@ -153,6 +158,7 @@ mod tests {
         assert!(!comment.assigned);
         // Note: reactions field deserialization not yet implemented
         assert_eq!(comment.reaction, "");
+        assert!(comment.parent_id.is_none());
     }
 
     #[test]
@@ -248,9 +254,23 @@ mod tests {
             comment_text: "New comment".to_string(),
             assignee: None,
             assigned_commenter: None,
+            parent_id: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("\"comment_text\":\"New comment\""));
+    }
+
+    #[test]
+    fn test_create_comment_request_with_parent() {
+        let request = CreateCommentRequest {
+            comment_text: "Reply to thread".to_string(),
+            assignee: None,
+            assigned_commenter: None,
+            parent_id: Some("parent123".to_string()),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"comment_text\":\"Reply to thread\""));
+        assert!(json.contains("\"parent_id\":\"parent123\""));
     }
 
     #[test]
@@ -263,5 +283,33 @@ mod tests {
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("\"comment_text\":\"Updated text\""));
+    }
+
+    #[test]
+    fn test_comment_with_parent_id() {
+        // Test deserialization of a reply comment with parent_id
+        let json = r#"{
+            "id": "reply123",
+            "comment_text": "This is a reply",
+            "parent_id": "parent456",
+            "user": {"id": 789, "username": "testuser"}
+        }"#;
+        let comment: Comment = serde_json::from_str(json).unwrap();
+        assert_eq!(comment.id, "reply123");
+        assert_eq!(comment.text, "This is a reply");
+        assert_eq!(comment.parent_id, Some("parent456".to_string()));
+    }
+
+    #[test]
+    fn test_comment_top_level_no_parent() {
+        // Test that top-level comments have parent_id = None
+        let json = r#"{
+            "id": "top123",
+            "comment_text": "Top level comment",
+            "user": {"id": 789, "username": "testuser"}
+        }"#;
+        let comment: Comment = serde_json::from_str(json).unwrap();
+        assert_eq!(comment.id, "top123");
+        assert!(comment.parent_id.is_none());
     }
 }

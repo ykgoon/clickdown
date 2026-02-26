@@ -148,6 +148,7 @@ pub fn test_comment() -> Comment {
         assigned_by: None,
         assigned: false,
         reaction: String::new(),
+        parent_id: None,
     }
 }
 
@@ -164,6 +165,7 @@ pub fn test_comment_edited() -> Comment {
         assigned_by: None,
         assigned: false,
         reaction: String::new(),
+        parent_id: None,
     }
 }
 
