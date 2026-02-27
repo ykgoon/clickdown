@@ -15,5 +15,5 @@ pub use task_detail::{TaskDetailState, render_task_detail, get_task_detail_hints
 pub use auth::{AuthState, render_auth, get_auth_hints};
 pub use document::{DocumentState, render_document, get_document_hints};
 pub use dialog::{DialogState, DialogType, render_dialog, get_dialog_hints};
-pub use help::{HelpState, render_help};
+pub use help::{HelpState, render_help, get_help_hints};
 pub use comments::render_comments;

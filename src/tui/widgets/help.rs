@@ -38,18 +38,18 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     if !state.visible {
         return;
     }
-    
+
     let help_area = centered_rect(70, 70, area);
-    
+
     frame.render_widget(Clear, help_area);
-    
+
     let block = Block::default()
         .title(" Keyboard Shortcuts ")
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::Cyan));
-    
+
     frame.render_widget(block, help_area);
-    
+
     let inner = Layout::default()
         .direction(Direction::Vertical)
         .margin(2)
@@ -65,22 +65,22 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
             Constraint::Min(1),
         ])
         .split(help_area);
-    
+
     let nav = Paragraph::new(vec![
         Line::from(Span::styled("Navigation:", Style::default().add_modifier(Modifier::BOLD))),
         Line::from("  j/k or ↑/↓  - Move selection"),
         Line::from("  Enter       - Select/Open item"),
         Line::from("  Esc         - Go back/Close"),
     ]);
-    
+
     let global = Paragraph::new(vec![
         Line::from(Span::styled("Global:", Style::default().add_modifier(Modifier::BOLD))),
-        Line::from("  q           - Quit"),
+        Line::from("  Ctrl+Q      - Quit"),
         Line::from("  Tab         - Toggle sidebar"),
         Line::from("  ?           - Show this help"),
         Line::from("  u           - Copy element URL"),
     ]);
-    
+
     let actions = Paragraph::new(vec![
         Line::from(Span::styled("Actions:", Style::default().add_modifier(Modifier::BOLD))),
         Line::from("  n           - Create new item"),
@@ -115,6 +115,11 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     let close_hint = Paragraph::new("Press any key to close")
         .style(Style::default().fg(Color::DarkGray));
     frame.render_widget(close_hint, inner[8]);
+}
+
+/// Get help hint for status bar
+pub fn get_help_hints() -> &'static str {
+    "? - Help"
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

@@ -136,5 +136,5 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
 
 /// Get help hints for sidebar
 pub fn get_sidebar_hints() -> &'static str {
-    "j/k: Navigate | Enter: Select | Tab: Toggle | q: Quit"
+    "j/k: Navigate | Enter: Select | Tab: Toggle | Ctrl+Q: Quit"
 }

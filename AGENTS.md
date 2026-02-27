@@ -386,6 +386,7 @@ MockClickUpClient::new()
 - Screen titles and status bar with contextual help
 - Comment operations (view, create, reply, update)
 - CLI debug commands for comment debugging
+- Help dialog with keyboard shortcuts reference (`?` to toggle)
 
 ### Roadmap 🚧
 - Task filtering and sorting

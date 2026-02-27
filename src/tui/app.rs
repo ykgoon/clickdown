@@ -24,7 +24,7 @@ use super::widgets::{
     AuthState, render_auth, get_auth_hints,
     DocumentState, render_document, get_document_hints,
     DialogState, DialogType, render_dialog, get_dialog_hints,
-    HelpState, render_help,
+    HelpState, render_help, get_help_hints,
     render_comments,
 };
 
@@ -541,7 +541,15 @@ impl TuiApp {
     }
     
     fn update(&mut self, event: InputEvent) {
-        // Handle help toggle
+        // When help is visible, any key closes it
+        if self.help.visible {
+            if let InputEvent::Key(_) = event {
+                self.help.hide();
+                return;
+            }
+        }
+
+        // Handle help toggle with ?
         if let InputEvent::Key(key) = event {
             if key.code == KeyCode::Char('?') {
                 self.help.toggle();
@@ -1496,23 +1504,26 @@ impl TuiApp {
     fn get_hints(&self) -> &'static str {
         if self.dialog.is_visible() {
             get_dialog_hints()
+        } else if self.help.visible {
+            // When help is visible, don't show other hints
+            ""
         } else {
             match self.screen {
-                Screen::Auth => get_auth_hints(),
-                Screen::Tasks => get_task_list_hints(),
+                Screen::Auth => "Enter: Connect | Esc: Cancel | ? - Help",
+                Screen::Tasks => "j/k: Navigate | Enter: View | n: New | e: Edit | d: Delete | ? - Help",
                 Screen::TaskDetail => {
                     // Show different hints based on comment view mode
                     if self.comment_focus {
                         match self.comment_view_mode {
-                            CommentViewMode::TopLevel => "j/k: Navigate | Enter: View thread | n: New comment | e: Edit | Tab: Task form",
-                            CommentViewMode::InThread { .. } => "j/k: Navigate | r: Reply | Esc: Back | Tab: Task form",
+                            CommentViewMode::TopLevel => "j/k: Navigate | Enter: View thread | n: New comment | e: Edit | Tab: Task form | ? - Help",
+                            CommentViewMode::InThread { .. } => "j/k: Navigate | r: Reply | Esc: Back | Tab: Task form | ? - Help",
                         }
                     } else {
-                        "e: Edit task | Tab: Comments | Esc: Back"
+                        "e: Edit task | Tab: Comments | Esc: Back | ? - Help"
                     }
                 }
-                Screen::Document => get_document_hints(),
-                _ => get_sidebar_hints(),
+                Screen::Document => "j/k: Scroll | Esc: Close | ? - Help",
+                _ => "j/k: Navigate | Enter: Select | Tab: Toggle | Ctrl+Q: Quit | ? - Help",
             }
         }
     }

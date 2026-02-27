@@ -164,7 +164,7 @@ ClickDown uses Personal API Token authentication via a terminal-based form:
 
 | Key | Action |
 |-----|--------|
-| `q` | Quit application |
+| `Ctrl+Q` | Quit application |
 | `Tab` | Toggle sidebar |
 | `?` | Show keyboard shortcuts help |
 | `u` | Copy element URL to clipboard |
