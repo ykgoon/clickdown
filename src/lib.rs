@@ -13,6 +13,7 @@ pub mod config;
 pub mod tui;
 pub mod cli;
 pub mod commands;
+pub mod utils;
 
 pub use tui::app::TuiApp;
 pub use api::{ClickUpClient, AuthManager, ClickUpApi, MockClickUpClient};

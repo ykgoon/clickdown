@@ -11,12 +11,14 @@ use tokio::sync::mpsc;
 use crate::api::{ClickUpApi, AuthManager, ClickUpClient};
 use crate::config::ConfigManager;
 use crate::models::{Workspace, ClickUpSpace, Folder, List, Task, Document, Comment, CreateCommentRequest, UpdateCommentRequest};
+use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlError, UrlGenerator};
+use crate::tui::widgets::SidebarItem;
 
 use super::terminal;
 use super::layout::{TuiLayout, generate_screen_title, split_task_detail};
 use super::input::{InputEvent, is_quit, is_enter, is_escape};
 use super::widgets::{
-    SidebarState, SidebarItem, render_sidebar, get_sidebar_hints,
+    SidebarState, render_sidebar, get_sidebar_hints,
     TaskListState, render_task_list, get_task_list_hints,
     TaskDetailState, render_task_detail, get_task_detail_hints,
     AuthState, render_auth, get_auth_hints,
@@ -138,6 +140,22 @@ pub struct TuiApp {
 
     /// Async message sender
     message_tx: Option<mpsc::Sender<AppMessage>>,
+
+    /// Clipboard service for copying URLs
+    clipboard: ClipboardService,
+
+    /// Status message for URL copy feedback
+    url_copy_status: Option<String>,
+
+    /// Timestamp when URL copy status was set (for auto-clear)
+    url_copy_status_time: Option<std::time::Instant>,
+
+    /// Navigation context for URL generation
+    /// Tracks the current position in the workspace hierarchy
+    current_workspace_id: Option<String>,
+    current_space_id: Option<String>,
+    current_folder_id: Option<String>,
+    current_list_id: Option<String>,
 }
 
 /// Application state
@@ -201,6 +219,13 @@ impl TuiApp {
             comment_previous_selection: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
+            clipboard: ClipboardService::new(),
+            url_copy_status: None,
+            url_copy_status_time: None,
+            current_workspace_id: None,
+            current_space_id: None,
+            current_folder_id: None,
+            current_list_id: None,
         };
 
         app.update_screen_title();
@@ -522,8 +547,16 @@ impl TuiApp {
                 self.help.toggle();
                 return;
             }
+
+            // Handle URL copy with single key 'u' (for URL)
+            // This is simpler and more reliable than modifier combinations
+            if key.code == KeyCode::Char('u') {
+                tracing::debug!("URL copy shortcut detected (u key)");
+                self.copy_url();
+                return;
+            }
         }
-        
+
         match self.screen {
             Screen::Auth => self.update_auth(event),
             Screen::Workspaces | Screen::Spaces | Screen::Folders | Screen::Lists => {
@@ -894,10 +927,14 @@ impl TuiApp {
         // Navigate based on current screen and selection
         // Clone the selected item to avoid borrow checker issues
         let selected_item = self.sidebar.selected_item().cloned();
-        
+
         match &self.screen {
             Screen::Workspaces => {
                 if let Some(SidebarItem::Workspace { id, name }) = selected_item {
+                    self.current_workspace_id = Some(id.clone());
+                    self.current_space_id = None;
+                    self.current_folder_id = None;
+                    self.current_list_id = None;
                     self.load_spaces(id.clone());
                     self.screen = Screen::Spaces;
                     self.screen_title = generate_screen_title(&name);
@@ -905,6 +942,9 @@ impl TuiApp {
             }
             Screen::Spaces => {
                 if let Some(SidebarItem::Space { id, name, .. }) = selected_item {
+                    self.current_space_id = Some(id.clone());
+                    self.current_folder_id = None;
+                    self.current_list_id = None;
                     self.load_folders(id.clone());
                     self.screen = Screen::Folders;
                     self.screen_title = generate_screen_title(&name);
@@ -912,6 +952,8 @@ impl TuiApp {
             }
             Screen::Folders => {
                 if let Some(SidebarItem::Folder { id, name, .. }) = selected_item {
+                    self.current_folder_id = Some(id.clone());
+                    self.current_list_id = None;
                     self.load_lists(id.clone());
                     self.screen = Screen::Lists;
                     self.screen_title = generate_screen_title(&name);
@@ -919,6 +961,7 @@ impl TuiApp {
             }
             Screen::Lists => {
                 if let Some(SidebarItem::List { id, name, .. }) = selected_item {
+                    self.current_list_id = Some(id.clone());
                     self.load_tasks(id.clone());
                     self.screen = Screen::Tasks;
                     self.screen_title = generate_screen_title(&format!("Tasks: {}", name));
@@ -933,22 +976,29 @@ impl TuiApp {
             Screen::Auth => {} // Can't go back from auth
             Screen::Workspaces => {} // Can't go back from workspaces
             Screen::Spaces => {
+                self.current_space_id = None;
+                self.current_folder_id = None;
+                self.current_list_id = None;
                 self.screen = Screen::Workspaces;
                 self.screen_title = generate_screen_title("Workspaces");
             }
             Screen::Folders => {
+                self.current_folder_id = None;
+                self.current_list_id = None;
                 self.screen = Screen::Spaces;
                 if let Some(space) = self.spaces.first() {
                     self.screen_title = generate_screen_title(&space.name);
                 }
             }
             Screen::Lists => {
+                self.current_list_id = None;
                 self.screen = Screen::Folders;
                 if let Some(folder) = self.folders.first() {
                     self.screen_title = generate_screen_title(&folder.name);
                 }
             }
             Screen::Tasks => {
+                self.current_list_id = None;
                 self.screen = Screen::Lists;
                 if let Some(list) = self.lists.first() {
                     self.screen_title = generate_screen_title(&list.name);
@@ -1320,6 +1370,14 @@ impl TuiApp {
     }
     
     fn render(&mut self, terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>) -> Result<()> {
+        // Auto-clear URL copy status after 3 seconds
+        if let Some(status_time) = self.url_copy_status_time {
+            if status_time.elapsed() > std::time::Duration::from_secs(3) {
+                self.url_copy_status = None;
+                self.url_copy_status_time = None;
+            }
+        }
+
         terminal.draw(|frame: &mut Frame| {
             let area = frame.area();
             let layout = TuiLayout::new(area);
@@ -1343,16 +1401,20 @@ impl TuiApp {
             
             // Render dialog if visible
             render_dialog(frame, &self.dialog, area);
-            
+
             // Render help overlay if visible
             render_help(frame, &self.help, area);
-            
+
             // Render status bar
             let hints = self.get_hints();
-            let status = if self.loading {
-                "Loading...".to_string()
-            } else if let Some(ref error) = self.error {
+            // Priority: error > url_copy_status > loading > regular status
+            let status = if let Some(ref error) = self.error {
                 error.clone()
+            } else if let Some(ref url_status) = self.url_copy_status {
+                // Show URL copy status (takes priority over regular status)
+                url_status.clone()
+            } else if self.loading {
+                "Loading...".to_string()
             } else {
                 self.status.clone()
             };
@@ -1451,6 +1513,147 @@ impl TuiApp {
                 }
                 Screen::Document => get_document_hints(),
                 _ => get_sidebar_hints(),
+            }
+        }
+    }
+
+    /// Copy URL for the current context to clipboard
+    fn copy_url(&mut self) {
+        tracing::debug!("copy_url called, screen: {:?}", self.screen);
+        
+        // Helper to get ID from sidebar item
+        fn get_sidebar_id(item: &SidebarItem) -> &str {
+            match item {
+                SidebarItem::Workspace { id, .. } => id,
+                SidebarItem::Space { id, .. } => id,
+                SidebarItem::Folder { id, .. } => id,
+                SidebarItem::List { id, .. } => id,
+            }
+        }
+
+        let url_result = match self.screen {
+            Screen::Auth => {
+                self.url_copy_status = Some("URL copy not available on auth screen".to_string());
+                return;
+            }
+            Screen::Workspaces => {
+                if let Some(ws) = self.sidebar.selected_item() {
+                    ClickUpUrlGenerator::workspace_url(get_sidebar_id(ws))
+                } else {
+                    self.url_copy_status = Some("No workspace selected".to_string());
+                    return;
+                }
+            }
+            Screen::Spaces => {
+                if let Some(space) = self.sidebar.selected_item() {
+                    // Use tracked workspace context
+                    if let Some(ref ws_id) = self.current_workspace_id {
+                        ClickUpUrlGenerator::space_url(ws_id, get_sidebar_id(space))
+                    } else {
+                        self.url_copy_status = Some("Missing workspace context".to_string());
+                        return;
+                    }
+                } else {
+                    self.url_copy_status = Some("No space selected".to_string());
+                    return;
+                }
+            }
+            Screen::Folders => {
+                if let Some(folder) = self.sidebar.selected_item() {
+                    // Use tracked workspace context
+                    if let Some(ref ws_id) = self.current_workspace_id {
+                        ClickUpUrlGenerator::folder_url(ws_id, get_sidebar_id(folder))
+                    } else {
+                        self.url_copy_status = Some("Missing workspace context".to_string());
+                        return;
+                    }
+                } else {
+                    self.url_copy_status = Some("No folder selected".to_string());
+                    return;
+                }
+            }
+            Screen::Lists => {
+                if let Some(list) = self.sidebar.selected_item() {
+                    // Use tracked workspace context
+                    if let Some(ref ws_id) = self.current_workspace_id {
+                        ClickUpUrlGenerator::list_url(ws_id, get_sidebar_id(list))
+                    } else {
+                        self.url_copy_status = Some("Missing workspace context".to_string());
+                        return;
+                    }
+                } else {
+                    self.url_copy_status = Some("No list selected".to_string());
+                    return;
+                }
+            }
+            Screen::Tasks => {
+                if let Some(task) = self.task_list.selected_task() {
+                    // Short-form task URL: only need task ID
+                    ClickUpUrlGenerator::task_url("", "", &task.id)
+                } else {
+                    self.url_copy_status = Some("No task selected".to_string());
+                    return;
+                }
+            }
+            Screen::TaskDetail => {
+                // Check if comment focus is active and a comment is selected
+                if self.comment_focus && !self.comments.is_empty() && self.comment_selected_index < self.comments.len() {
+                    // Copy selected comment URL
+                    let comment = &self.comments[self.comment_selected_index];
+                    if let Some(task) = &self.task_detail.task {
+                        ClickUpUrlGenerator::comment_url("", "", &task.id, &comment.id)
+                    } else {
+                        self.url_copy_status = Some("No task selected".to_string());
+                        return;
+                    }
+                } else {
+                    // Copy task URL
+                    if let Some(task) = &self.task_detail.task {
+                        ClickUpUrlGenerator::task_url("", "", &task.id)
+                    } else {
+                        self.url_copy_status = Some("No task selected".to_string());
+                        return;
+                    }
+                }
+            }
+            Screen::Document => {
+                if let Some(doc) = self.documents.first() {
+                    // Short-form document URL: only need doc ID
+                    ClickUpUrlGenerator::document_url("", &doc.id)
+                } else {
+                    self.url_copy_status = Some("No document selected".to_string());
+                    return;
+                }
+            }
+        };
+
+        // Handle URL generation result
+        let url = match url_result {
+            Ok(url) => {
+                tracing::debug!("Generated URL: {}", url);
+                url
+            }
+            Err(e) => {
+                self.url_copy_status = Some(format!("URL error: {}", e));
+                return;
+            }
+        };
+
+        // Copy to clipboard
+        match self.clipboard.copy_text(&url) {
+            Ok(()) => {
+                // Show success with truncated URL
+                let truncated = if url.len() > 60 {
+                    format!("{}...", &url[..57])
+                } else {
+                    url.clone()
+                };
+                self.url_copy_status = Some(format!("Copied: {}", truncated));
+                self.url_copy_status_time = Some(std::time::Instant::now());
+            }
+            Err(e) => {
+                self.url_copy_status = Some(format!("Failed to copy URL: {}", e));
+                self.url_copy_status_time = Some(std::time::Instant::now());
             }
         }
     }

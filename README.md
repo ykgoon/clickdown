@@ -12,6 +12,7 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Dark Theme**: Easy on the eyes for extended use
 - **Keyboard-Driven**: Vim-style navigation (j/k to navigate, Enter to select, Esc to go back)
 - **Terminal Native**: Runs directly in your terminal with no GUI dependencies
+- **URL Copying**: Quickly copy ClickUp web app URLs for any element (press `u`)
 
 ## Requirements
 
@@ -147,6 +148,82 @@ ClickDown uses Personal API Token authentication via a terminal-based form:
 5. Your token is stored securely for future sessions
 
 **Note:** The token is stored in `~/.config/clickdown/token` (Linux) with restrictive file permissions.
+
+## Keyboard Shortcuts
+
+### Navigation
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move selection down |
+| `k` / `↑` | Move selection up |
+| `Enter` | Select/open item |
+| `Esc` | Go back / Close |
+
+### Global
+
+| Key | Action |
+|-----|--------|
+| `q` | Quit application |
+| `Tab` | Toggle sidebar |
+| `?` | Show keyboard shortcuts help |
+| `u` | Copy element URL to clipboard |
+
+### Actions
+
+| Key | Action |
+|-----|--------|
+| `n` | Create new item |
+| `e` | Edit selected item |
+| `d` | Delete selected item |
+
+### Comments (Task Detail View)
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Toggle focus between task form and comments |
+| `j` / `k` | Navigate comments |
+| `n` | New comment |
+| `e` | Edit selected comment |
+| `r` | Reply to thread (when viewing a thread) |
+| `Enter` | View comment thread |
+| `Ctrl+S` | Save comment |
+| `Esc` | Cancel editing / Exit thread |
+
+### Forms
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+S` | Save form |
+| `Esc` | Cancel editing |
+
+## Copying Element URLs
+
+ClickDown allows you to quickly copy ClickUp web app URLs for any element. This is useful when you need to view additional details in the web app that aren't available in the terminal interface.
+
+**How to use:**
+1. Navigate to any element (workspace, space, folder, list, task, comment, or document)
+2. Select the element using `j`/`k` navigation
+3. Press `u` to copy the URL to your clipboard
+4. Paste the URL in your browser to open the element in ClickUp
+
+**URL formats:**
+ClickUp uses different URL formats depending on the element type:
+
+**Short-form URLs (task, comment, document):**
+- Task: `https://app.clickup.com/t/{task_id}`
+- Comment: `https://app.clickup.com/t/{task_id}?comment={comment_id}`
+- Document: `https://app.clickup.com/d/{doc_id}`
+
+**Long-form URLs with view context (workspace, space, folder, list):**
+- Workspace: `https://app.clickup.com/{workspace_id}`
+- Space: `https://app.clickup.com/{workspace_id}/v/o/s/{space_id}`
+- Folder: `https://app.clickup.com/{workspace_id}/v/o/f/{folder_id}`
+- List: `https://app.clickup.com/{workspace_id}/v/l/6-{list_id}-1`
+
+Note: The list URL format includes a view number (typically `6` for list view) and a suffix (typically `1`). These values may vary based on workspace configuration.
+
+**Feedback:** When you copy a URL, the status bar will show "Copied: <URL>" (truncated for long URLs). If the clipboard is unavailable (e.g., in a headless SSH session), you'll see an error message.
 
 ## Project Structure
 

@@ -78,6 +78,7 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         Line::from("  q           - Quit"),
         Line::from("  Tab         - Toggle sidebar"),
         Line::from("  ?           - Show this help"),
+        Line::from("  u           - Copy element URL"),
     ]);
     
     let actions = Paragraph::new(vec![

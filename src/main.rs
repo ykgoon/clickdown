@@ -10,6 +10,7 @@ mod config;
 mod tui;
 mod cli;
 mod commands;
+mod utils;
 
 use anyhow::Result;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
