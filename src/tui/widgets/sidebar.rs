@@ -30,6 +30,18 @@ pub enum SidebarItem {
     List { name: String, id: String, indent: usize },
 }
 
+impl SidebarItem {
+    /// Get the ID of this sidebar item
+    pub fn id(&self) -> &str {
+        match self {
+            SidebarItem::Workspace { id, .. } => id,
+            SidebarItem::Space { id, .. } => id,
+            SidebarItem::Folder { id, .. } => id,
+            SidebarItem::List { id, .. } => id,
+        }
+    }
+}
+
 impl SidebarState {
     pub fn new() -> Self {
         Self {
@@ -87,6 +99,17 @@ impl SidebarState {
     pub fn selected_item(&self) -> Option<&SidebarItem> {
         self.selected.selected().and_then(|i| self.items.get(i))
     }
+
+    /// Select item by ID, returns true if found
+    pub fn select_by_id(&mut self, id: &str) -> bool {
+        for (i, item) in self.items.iter().enumerate() {
+            if item.id() == id {
+                self.selected.select(Some(i));
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl Default for SidebarState {
@@ -137,4 +160,63 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
 /// Get help hints for sidebar
 pub fn get_sidebar_hints() -> &'static str {
     "j/k: Navigate | Enter: Select | Tab: Toggle | Ctrl+Q: Quit"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_select_by_id_finds_matching_item() {
+        let mut state = SidebarState::new();
+        state.items = vec![
+            SidebarItem::Workspace { name: "WS1".to_string(), id: "ws-1".to_string() },
+            SidebarItem::Workspace { name: "WS2".to_string(), id: "ws-2".to_string() },
+            SidebarItem::Workspace { name: "WS3".to_string(), id: "ws-3".to_string() },
+        ];
+
+        let found = state.select_by_id("ws-2");
+
+        assert!(found, "Should find matching ID");
+        assert_eq!(state.selected.selected(), Some(1), "Should select index 1");
+    }
+
+    #[test]
+    fn test_select_by_id_returns_false_for_non_existent_id() {
+        let mut state = SidebarState::new();
+        state.items = vec![
+            SidebarItem::Workspace { name: "WS1".to_string(), id: "ws-1".to_string() },
+            SidebarItem::Workspace { name: "WS2".to_string(), id: "ws-2".to_string() },
+        ];
+
+        let found = state.select_by_id("ws-nonexistent");
+
+        assert!(!found, "Should not find non-existent ID");
+        assert_eq!(state.selected.selected(), None, "Should not change selection");
+    }
+
+    #[test]
+    fn test_select_by_id_empty_items() {
+        let mut state = SidebarState::new();
+        state.items = vec![];
+
+        let found = state.select_by_id("any-id");
+
+        assert!(!found, "Should not find ID in empty list");
+    }
+
+    #[test]
+    fn test_sidebar_item_id() {
+        let workspace = SidebarItem::Workspace { name: "Test".to_string(), id: "ws-123".to_string() };
+        assert_eq!(workspace.id(), "ws-123");
+
+        let space = SidebarItem::Space { name: "Test".to_string(), id: "sp-456".to_string(), indent: 1 };
+        assert_eq!(space.id(), "sp-456");
+
+        let folder = SidebarItem::Folder { name: "Test".to_string(), id: "fd-789".to_string(), indent: 2 };
+        assert_eq!(folder.id(), "fd-789");
+
+        let list = SidebarItem::List { name: "Test".to_string(), id: "lt-abc".to_string(), indent: 3 };
+        assert_eq!(list.id(), "lt-abc");
+    }
 }

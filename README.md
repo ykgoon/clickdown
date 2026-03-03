@@ -8,6 +8,7 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Workspace Navigation**: Browse workspaces, spaces, folders, and lists
 - **Task Management**: View, create, edit, and delete tasks
 - **Document Viewing**: Read ClickUp documents with Markdown rendering
+- **Session Restore**: Automatically restores your last viewed location on startup
 - **Offline Cache**: SQLite-based caching for instant reloads
 - **Dark Theme**: Easy on the eyes for extended use
 - **Keyboard-Driven**: Vim-style navigation (j/k to navigate, Enter to select, Esc to go back)
@@ -148,6 +149,25 @@ ClickDown uses Personal API Token authentication via a terminal-based form:
 5. Your token is stored securely for future sessions
 
 **Note:** The token is stored in `~/.config/clickdown/token` (Linux) with restrictive file permissions.
+
+## Session Restore
+
+ClickDown automatically saves your navigation state when you exit and restores it on startup:
+
+- **What is saved**: Your current screen (Tasks, Task Detail, Document, etc.) and navigation context (workspace, space, folder, list IDs)
+- **When it saves**: On graceful exit (Ctrl+Q or confirmed quit)
+- **When it restores**: On every startup if saved state exists
+- **Fallback behavior**: If a saved resource no longer exists (e.g., deleted list), ClickDown falls back to the nearest valid parent and shows a status message
+
+**Example scenarios:**
+- You're viewing a task detail panel, exit with Ctrl+Q → Next startup opens directly to that task
+- You're browsing a list, exit → Next startup shows that list
+- Your saved list was deleted → Next startup shows the parent folder with message "Saved list not found, showing lists"
+
+**Status messages:**
+- "Restored to Tasks view" - Session successfully restored
+- "Saved list not found, showing lists" - Fallback occurred
+- Session state is stored in the SQLite cache database (`cache.db`)
 
 ## Keyboard Shortcuts
 

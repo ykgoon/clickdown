@@ -9,8 +9,9 @@ use ratatui::{Frame, prelude::Rect, layout::{Layout, Direction, Constraint}};
 use tokio::sync::mpsc;
 
 use crate::api::{ClickUpApi, AuthManager, ClickUpClient};
+use crate::cache::CacheManager;
 use crate::config::ConfigManager;
-use crate::models::{Workspace, ClickUpSpace, Folder, List, Task, Document, Comment, CreateCommentRequest, UpdateCommentRequest};
+use crate::models::{Workspace, ClickUpSpace, Folder, List, Task, Document, Comment, CreateCommentRequest, UpdateCommentRequest, SessionState};
 use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlError, UrlGenerator};
 use crate::tui::widgets::SidebarItem;
 
@@ -79,6 +80,9 @@ pub struct TuiApp {
 
     /// Config manager
     config: ConfigManager,
+
+    /// Cache manager
+    cache: CacheManager,
 
     /// Auth manager
     auth: AuthManager,
@@ -156,6 +160,16 @@ pub struct TuiApp {
     current_space_id: Option<String>,
     current_folder_id: Option<String>,
     current_list_id: Option<String>,
+
+    /// Session restore state
+    /// Tracks whether we're currently restoring a saved session
+    restoring_session: bool,
+    /// Target IDs to restore at each navigation level
+    restored_workspace_id: Option<String>,
+    restored_space_id: Option<String>,
+    restored_folder_id: Option<String>,
+    restored_list_id: Option<String>,
+    restored_task_id: Option<String>,
 }
 
 /// Application state
@@ -171,6 +185,7 @@ impl TuiApp {
     pub fn new() -> Result<Self> {
         let config = ConfigManager::new().unwrap_or_default();
         let auth = AuthManager::new().unwrap_or_default();
+        let cache = CacheManager::new(ConfigManager::database_path()?)?;
 
         let state = if auth.load_token().ok().flatten().is_some() {
             AppState::Initializing
@@ -192,6 +207,7 @@ impl TuiApp {
             state,
             client: None,
             config,
+            cache,
             auth,
             error: None,
             loading: false,
@@ -226,7 +242,18 @@ impl TuiApp {
             current_space_id: None,
             current_folder_id: None,
             current_list_id: None,
+            restoring_session: false,
+            restored_workspace_id: None,
+            restored_space_id: None,
+            restored_folder_id: None,
+            restored_list_id: None,
+            restored_task_id: None,
         };
+
+        // Try to restore session state if authenticated
+        if matches!(app.state, AppState::Initializing) {
+            let _ = app.restore_session_state();
+        }
 
         app.update_screen_title();
 
@@ -269,7 +296,13 @@ impl TuiApp {
             // Handle input
             if let Some(event) = self.handle_input()? {
                 match event {
-                    InputEvent::Quit => break,
+                    InputEvent::Quit => {
+                        // Save session state before quitting
+                        if let Err(e) = self.save_session_state() {
+                            tracing::error!("Failed to save session state: {}", e);
+                        }
+                        break;
+                    }
                     _ => self.update(event),
                 }
             }
@@ -288,7 +321,14 @@ impl TuiApp {
     fn process_async_messages(&mut self) {
         if let Some(ref mut rx) = self.message_rx {
             // Try to receive messages without blocking
+            // We need to collect messages first to avoid borrow conflicts with load_* methods
+            let mut messages = Vec::new();
             while let Ok(msg) = rx.try_recv() {
+                messages.push(msg);
+            }
+            
+            // Now process messages without holding the borrow
+            for msg in messages {
                 match msg {
                     AppMessage::WorkspacesLoaded(result) => {
                         self.loading = false;
@@ -302,15 +342,51 @@ impl TuiApp {
                                         id: w.id.clone()
                                     })
                                     .collect();
-                                self.sidebar.select_first();
+                                
+                                // Check if we're restoring a session
+                                if self.restoring_session {
+                                    // Try to select the restored workspace
+                                    if let Some(restored_id) = self.restored_workspace_id.clone() {
+                                        if self.sidebar.select_by_id(&restored_id) {
+                                            // Found the workspace, load its spaces
+                                            let workspace_name = self.workspaces.iter()
+                                                .find(|w| w.id == restored_id)
+                                                .map(|w| w.name.clone())
+                                                .unwrap_or_default();
+                                            self.load_spaces(restored_id.clone());
+                                            self.screen = Screen::Spaces;
+                                            self.screen_title = generate_screen_title(&workspace_name);
+                                        } else {
+                                            // Workspace not found, fallback to Workspaces screen
+                                            self.restoring_session = false;
+                                            self.screen = Screen::Workspaces;
+                                            self.screen_title = generate_screen_title("Workspaces");
+                                            self.status = "Saved workspace not found, showing workspaces".to_string();
+                                            tracing::warn!("Restored workspace {} not found, falling back to Workspaces", restored_id);
+                                        }
+                                    } else {
+                                        // No workspace ID saved, stay at Workspaces
+                                        self.restoring_session = false;
+                                        self.sidebar.select_first();
+                                        self.status = format!("Loaded {} workspace(s)", self.workspaces.len());
+                                    }
+                                } else {
+                                    // Normal behavior (not restoring)
+                                    self.sidebar.select_first();
+                                    self.status = format!("Loaded {} workspace(s)", self.workspaces.len());
+                                }
+                                
                                 self.state = AppState::Main;
                                 // Clear any previous error state
                                 self.error = None;
-                                self.status = format!("Loaded {} workspace(s)", self.workspaces.len());
                             }
                             Err(e) => {
+                                self.loading = false;
                                 self.error = Some(format!("Failed to load workspaces: {}", e));
                                 self.status = "Failed to load workspaces".to_string();
+                                if self.restoring_session {
+                                    self.restoring_session = false;
+                                }
                             }
                         }
                     }
@@ -327,14 +403,50 @@ impl TuiApp {
                                         indent: 1,
                                     })
                                     .collect();
-                                self.sidebar.select_first();
+                                
+                                // Check if we're restoring a session
+                                if self.restoring_session {
+                                    // Try to select the restored space
+                                    if let Some(restored_id) = self.restored_space_id.clone() {
+                                        if self.sidebar.select_by_id(&restored_id) {
+                                            // Found the space, load its folders
+                                            let space_name = self.spaces.iter()
+                                                .find(|s| s.id == restored_id)
+                                                .map(|s| s.name.clone())
+                                                .unwrap_or_default();
+                                            self.load_folders(restored_id.clone());
+                                            self.screen = Screen::Folders;
+                                            self.screen_title = generate_screen_title(&space_name);
+                                        } else {
+                                            // Space not found, fallback to Spaces screen
+                                            self.restoring_session = false;
+                                            self.screen = Screen::Spaces;
+                                            self.screen_title = generate_screen_title("Spaces");
+                                            self.status = "Saved space not found, showing spaces".to_string();
+                                            tracing::warn!("Restored space {} not found, falling back to Spaces", restored_id);
+                                        }
+                                    } else {
+                                        // No space ID saved, stay at Spaces
+                                        self.restoring_session = false;
+                                        self.sidebar.select_first();
+                                        self.status = format!("Loaded {} space(s)", self.spaces.len());
+                                    }
+                                } else {
+                                    // Normal behavior (not restoring)
+                                    self.sidebar.select_first();
+                                    self.status = format!("Loaded {} space(s)", self.spaces.len());
+                                }
+                                
                                 // Clear any previous error state
                                 self.error = None;
-                                self.status = format!("Loaded {} space(s)", self.spaces.len());
                             }
                             Err(e) => {
+                                self.loading = false;
                                 self.error = Some(format!("Failed to load spaces: {}", e));
                                 self.status = "Failed to load spaces".to_string();
+                                if self.restoring_session {
+                                    self.restoring_session = false;
+                                }
                             }
                         }
                     }
@@ -351,14 +463,50 @@ impl TuiApp {
                                         indent: 2,
                                     })
                                     .collect();
-                                self.sidebar.select_first();
+                                
+                                // Check if we're restoring a session
+                                if self.restoring_session {
+                                    // Try to select the restored folder
+                                    if let Some(restored_id) = self.restored_folder_id.clone() {
+                                        if self.sidebar.select_by_id(&restored_id) {
+                                            // Found the folder, load its lists
+                                            let folder_name = self.folders.iter()
+                                                .find(|f| f.id == restored_id)
+                                                .map(|f| f.name.clone())
+                                                .unwrap_or_default();
+                                            self.load_lists(restored_id.clone());
+                                            self.screen = Screen::Lists;
+                                            self.screen_title = generate_screen_title(&folder_name);
+                                        } else {
+                                            // Folder not found, fallback to Folders screen
+                                            self.restoring_session = false;
+                                            self.screen = Screen::Folders;
+                                            self.screen_title = generate_screen_title("Folders");
+                                            self.status = "Saved folder not found, showing folders".to_string();
+                                            tracing::warn!("Restored folder {} not found, falling back to Folders", restored_id);
+                                        }
+                                    } else {
+                                        // No folder ID saved, stay at Folders
+                                        self.restoring_session = false;
+                                        self.sidebar.select_first();
+                                        self.status = format!("Loaded {} folder(s)", self.folders.len());
+                                    }
+                                } else {
+                                    // Normal behavior (not restoring)
+                                    self.sidebar.select_first();
+                                    self.status = format!("Loaded {} folder(s)", self.folders.len());
+                                }
+                                
                                 // Clear any previous error state
                                 self.error = None;
-                                self.status = format!("Loaded {} folder(s)", self.folders.len());
                             }
                             Err(e) => {
+                                self.loading = false;
                                 self.error = Some(format!("Failed to load folders: {}", e));
                                 self.status = "Failed to load folders".to_string();
+                                if self.restoring_session {
+                                    self.restoring_session = false;
+                                }
                             }
                         }
                     }
@@ -375,14 +523,50 @@ impl TuiApp {
                                         indent: 3,
                                     })
                                     .collect();
-                                self.sidebar.select_first();
+                                
+                                // Check if we're restoring a session
+                                if self.restoring_session {
+                                    // Try to select the restored list
+                                    if let Some(restored_id) = self.restored_list_id.clone() {
+                                        if self.sidebar.select_by_id(&restored_id) {
+                                            // Found the list, load its tasks
+                                            let list_name = self.lists.iter()
+                                                .find(|l| l.id == restored_id)
+                                                .map(|l| l.name.clone())
+                                                .unwrap_or_default();
+                                            self.load_tasks(restored_id.clone());
+                                            self.screen = Screen::Tasks;
+                                            self.screen_title = generate_screen_title(&format!("Tasks: {}", list_name));
+                                        } else {
+                                            // List not found, fallback to Lists screen
+                                            self.restoring_session = false;
+                                            self.screen = Screen::Lists;
+                                            self.screen_title = generate_screen_title("Lists");
+                                            self.status = "Saved list not found, showing lists".to_string();
+                                            tracing::warn!("Restored list {} not found, falling back to Lists", restored_id);
+                                        }
+                                    } else {
+                                        // No list ID saved, stay at Lists
+                                        self.restoring_session = false;
+                                        self.sidebar.select_first();
+                                        self.status = format!("Loaded {} list(s)", self.lists.len());
+                                    }
+                                } else {
+                                    // Normal behavior (not restoring)
+                                    self.sidebar.select_first();
+                                    self.status = format!("Loaded {} list(s)", self.lists.len());
+                                }
+                                
                                 // Clear any previous error state
                                 self.error = None;
-                                self.status = format!("Loaded {} list(s)", self.lists.len());
                             }
                             Err(e) => {
+                                self.loading = false;
                                 self.error = Some(format!("Failed to load lists: {}", e));
                                 self.status = "Failed to load lists".to_string();
+                                if self.restoring_session {
+                                    self.restoring_session = false;
+                                }
                             }
                         }
                     }
@@ -395,17 +579,54 @@ impl TuiApp {
                                 // Update task_list.tasks for rendering (not self.tasks)
                                 self.task_list.tasks = sorted_tasks.clone();
                                 self.tasks = sorted_tasks;
-                                self.task_list.select_first();
+                                
+                                // Check if we're restoring a session
+                                if self.restoring_session {
+                                    // Try to select the restored task
+                                    if let Some(ref restored_id) = self.restored_task_id {
+                                        // Find the task in the list
+                                        if let Some(task_idx) = self.task_list.tasks.iter().position(|t| &t.id == restored_id) {
+                                            // Found the task, select it
+                                            self.task_list.selected.select(Some(task_idx));
+                                            
+                                            // Check if we should navigate to TaskDetail view
+                                            // We need to check the original saved screen type
+                                            // For now, stay at Tasks view - user can navigate to task detail
+                                            self.restoring_session = false;
+                                            self.status = format!("Restored to Tasks view - {} task(s) loaded", self.task_list.tasks.len());
+                                            tracing::info!("Session restore complete: tasks loaded, task {} selected", restored_id);
+                                        } else {
+                                            // Task not found, stay at Tasks screen
+                                            self.restoring_session = false;
+                                            self.task_list.select_first();
+                                            self.status = "Saved task not found, showing tasks".to_string();
+                                            tracing::warn!("Restored task {} not found, falling back to Tasks", restored_id);
+                                        }
+                                    } else {
+                                        // No task ID saved, stay at Tasks
+                                        self.restoring_session = false;
+                                        self.task_list.select_first();
+                                        self.status = format!("Loaded {} task(s)", self.task_list.tasks.len());
+                                    }
+                                } else {
+                                    // Normal behavior (not restoring)
+                                    self.task_list.select_first();
+                                    self.status = format!("Loaded {} task(s)", self.task_list.tasks.len());
+                                }
+                                
                                 // Clear any previous error state
                                 self.error = None;
-                                self.status = format!("Loaded {} task(s)", self.task_list.tasks.len());
                             }
                             Err(e) => {
+                                self.loading = false;
                                 self.error = Some(format!("Failed to load tasks: {}", e));
                                 self.status = "Failed to load tasks".to_string();
                                 // Clear tasks on error to prevent stale data
                                 self.task_list.tasks.clear();
                                 self.tasks.clear();
+                                if self.restoring_session {
+                                    self.restoring_session = false;
+                                }
                             }
                         }
                     }
@@ -1667,6 +1888,139 @@ impl TuiApp {
                 self.url_copy_status_time = Some(std::time::Instant::now());
             }
         }
+    }
+
+    /// Save the current session state to the cache
+    ///
+    /// This captures the current navigation context for restoration on next startup.
+    pub fn save_session_state(&mut self) -> Result<()> {
+        let state = SessionState::from_app(
+            &self.screen,
+            self.current_workspace_id.clone(),
+            self.current_space_id.clone(),
+            self.current_folder_id.clone(),
+            self.current_list_id.clone(),
+            self.task_detail.task.as_ref().map(|t| t.id.clone()),
+            self.documents.first().map(|d| d.id.clone()),
+        );
+        self.cache.save_session_state(&state)
+    }
+
+    /// Restore session state from the cache
+    ///
+    /// Returns true if session restore is in progress, false if no saved state exists.
+    /// Sets restoring_session flag and stores target IDs for progressive restore.
+    /// The actual navigation chain replay happens in async message handlers.
+    pub fn restore_session_state(&mut self) -> Result<bool> {
+        let saved_state = match self.cache.load_session_state()? {
+            Some(state) => state,
+            None => {
+                tracing::debug!("No saved session state found");
+                return Ok(false);
+            }
+        };
+
+        tracing::info!("Restoring session state: screen={}, workspace={:?}, space={:?}, folder={:?}, list={:?}",
+            saved_state.screen,
+            saved_state.workspace_id,
+            saved_state.space_id,
+            saved_state.folder_id,
+            saved_state.list_id);
+
+        // Set restoring session flag
+        self.restoring_session = true;
+
+        // Store target IDs for progressive restore
+        self.restored_workspace_id = saved_state.workspace_id.clone();
+        self.restored_space_id = saved_state.space_id.clone();
+        self.restored_folder_id = saved_state.folder_id.clone();
+        self.restored_list_id = saved_state.list_id.clone();
+        self.restored_task_id = saved_state.task_id.clone();
+
+        // Restore current navigation IDs (used for URL generation etc.)
+        self.current_workspace_id = saved_state.workspace_id.clone();
+        self.current_space_id = saved_state.space_id.clone();
+        self.current_folder_id = saved_state.folder_id.clone();
+        self.current_list_id = saved_state.list_id.clone();
+
+        // Start at Workspaces - the navigation chain will replay from here
+        // The async handlers will navigate through each level and select the restored items
+        self.screen = Screen::Workspaces;
+        self.screen_title = generate_screen_title("Workspaces");
+
+        Ok(true) // Return true to indicate restore is in progress
+    }
+
+    /// Apply fallback logic when restoring session state
+    ///
+    /// If the saved navigation context is invalid, falls back to the nearest valid parent.
+    /// Returns the final screen and an optional fallback message.
+    fn apply_session_fallback(
+        &self,
+        target_screen: Screen,
+        saved_state: &SessionState,
+    ) -> (Screen, Option<String>) {
+        // Check if we have valid context for the target screen
+        match target_screen {
+            Screen::Auth => {
+                // Auth screen doesn't need fallback - always valid but shouldn't be restored
+                (Screen::Workspaces, Some("Session cleared, showing workspaces".to_string()))
+            }
+            Screen::Document => {
+                if saved_state.document_id.is_some() {
+                    // Would need to validate doc exists - for now assume valid
+                    return (Screen::Document, None);
+                }
+                // Fall back to Tasks
+                (Screen::Tasks, Some("Saved document not found, showing tasks".to_string()))
+            }
+            Screen::TaskDetail => {
+                if saved_state.task_id.is_some() && saved_state.list_id.is_some() {
+                    return (Screen::TaskDetail, None);
+                }
+                // Fall back to Tasks
+                (Screen::Tasks, Some("Saved task not found, showing tasks".to_string()))
+            }
+            Screen::Tasks => {
+                if saved_state.list_id.is_some() {
+                    return (Screen::Tasks, None);
+                }
+                // Fall back to Lists
+                (Screen::Lists, Some("Saved list not found, showing lists".to_string()))
+            }
+            Screen::Lists => {
+                if saved_state.folder_id.is_some() || saved_state.space_id.is_some() {
+                    return (Screen::Lists, None);
+                }
+                // Fall back to Folders
+                (Screen::Folders, Some("Saved folder not found, showing folders".to_string()))
+            }
+            Screen::Folders => {
+                if saved_state.space_id.is_some() {
+                    return (Screen::Folders, None);
+                }
+                // Fall back to Spaces
+                (Screen::Spaces, Some("Saved space not found, showing spaces".to_string()))
+            }
+            Screen::Spaces => {
+                if saved_state.workspace_id.is_some() {
+                    return (Screen::Spaces, None);
+                }
+                // Fall back to Workspaces
+                (Screen::Workspaces, Some("Saved workspace not found, showing workspaces".to_string()))
+            }
+            Screen::Workspaces => {
+                // Always valid
+                (Screen::Workspaces, None)
+            }
+        }
+    }
+
+    /// Clear session state from the cache
+    ///
+    /// Used when logging out to ensure next startup begins fresh.
+    pub fn clear_session_state(&mut self) -> Result<()> {
+        self.cache.clear_session_state()
     }
 }
 

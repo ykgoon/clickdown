@@ -62,6 +62,8 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
             Constraint::Length(3),
             Constraint::Length(1),
             Constraint::Length(3),
+            Constraint::Length(1),
+            Constraint::Length(3),
             Constraint::Min(1),
         ])
         .split(help_area);
@@ -75,7 +77,7 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
 
     let global = Paragraph::new(vec![
         Line::from(Span::styled("Global:", Style::default().add_modifier(Modifier::BOLD))),
-        Line::from("  Ctrl+Q      - Quit"),
+        Line::from("  Ctrl+Q      - Quit (saves session)"),
         Line::from("  Tab         - Toggle sidebar"),
         Line::from("  ?           - Show this help"),
         Line::from("  u           - Copy element URL"),
@@ -106,15 +108,22 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         Line::from("  Esc         - Cancel"),
     ]);
 
+    let session = Paragraph::new(vec![
+        Line::from(Span::styled("Session:", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from("  Session auto-saves on exit"),
+        Line::from("  Restores last view on startup"),
+    ]);
+
     frame.render_widget(nav, inner[0]);
     frame.render_widget(global, inner[1]);
     frame.render_widget(actions, inner[2]);
     frame.render_widget(comments, inner[3]);
     frame.render_widget(forms, inner[4]);
+    frame.render_widget(session, inner[5]);
 
     let close_hint = Paragraph::new("Press any key to close")
         .style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(close_hint, inner[8]);
+    frame.render_widget(close_hint, inner[10]);
 }
 
 /// Get help hint for status bar
