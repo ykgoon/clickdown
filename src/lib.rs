@@ -3,9 +3,6 @@
 //! This library provides the core functionality for the ClickDown TUI application,
 //! including API client, models, caching, configuration, and TUI components.
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 pub mod api;
 pub mod models;
 pub mod cache;

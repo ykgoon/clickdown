@@ -1,119 +1,9 @@
 //! Task models
 
-use serde::{Deserialize, Deserializer, Serialize};
-
-/// Helper function to deserialize null as empty vec for Vec<T> fields
-fn null_to_empty_vec<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
-where
-    T: Deserialize<'de>,
-    D: Deserializer<'de>,
-{
-    Option::deserialize(deserializer).map(|opt| opt.unwrap_or_default())
-}
-
-/// Helper function to deserialize null as false for bool fields
-fn null_to_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Option::<bool>::deserialize(deserializer).map(|opt| opt.unwrap_or(false))
-}
-
-/// Flexible deserializer for timestamp fields that can be either i64 or string
-/// ClickUp API may return timestamps as either format
-fn flexible_timestamp<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::Error;
-    
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum TimestampValue {
-        Int(i64),
-        String(String),
-    }
-    
-    let opt = Option::<TimestampValue>::deserialize(deserializer)?;
-    match opt {
-        None => Ok(None),
-        Some(TimestampValue::Int(v)) => Ok(Some(v)),
-        Some(TimestampValue::String(s)) => {
-            s.parse::<i64>().map(Some).map_err(D::Error::custom)
-        }
-    }
-}
-
-/// Flexible deserializer for integer fields that can be either i32 or string
-fn flexible_int<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::Error;
-    
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum IntValue {
-        Int(i32),
-        String(String),
-    }
-    
-    let opt = Option::<IntValue>::deserialize(deserializer)?;
-    match opt {
-        None => Ok(None),
-        Some(IntValue::Int(v)) => Ok(Some(v)),
-        Some(IntValue::String(s)) => {
-            s.parse::<i32>().map(Some).map_err(D::Error::custom)
-        }
-    }
-}
-
-/// Flexible deserializer for i64 fields that can be either i64 or string
-fn flexible_i64<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::Error;
-
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum I64Value {
-        Int(i64),
-        String(String),
-    }
-
-    let opt = Option::<I64Value>::deserialize(deserializer)?;
-    match opt {
-        None => Ok(None),
-        Some(I64Value::Int(v)) => Ok(Some(v)),
-        Some(I64Value::String(s)) => {
-            s.parse::<i64>().map(Some).map_err(D::Error::custom)
-        }
-    }
-}
-
-/// Flexible deserializer for resolved field that can be either bool or i64
-/// ClickUp API may return resolved as either format
-fn flexible_resolved<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::Error;
-
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum ResolvedValue {
-        Bool(bool),
-        Int(i64),
-    }
-
-    let opt = Option::<ResolvedValue>::deserialize(deserializer)?;
-    match opt {
-        None => Ok(None),
-        Some(ResolvedValue::Bool(b)) => Ok(Some(if b { 1 } else { 0 })),
-        Some(ResolvedValue::Int(v)) => Ok(Some(v)),
-    }
-}
+use serde::{Deserialize, Serialize};
+use crate::utils::deserializers::{
+    null_to_empty_vec, null_to_false, flexible_timestamp, flexible_int, flexible_i64, flexible_resolved,
+};
 
 /// Flexible description type that can be either a plain string or an object
 /// with HTML/markdown content (ClickUp API can return both formats)
@@ -556,38 +446,19 @@ pub struct TaskFilters {
 impl TaskFilters {
     /// Convert filters to query parameters
     pub fn to_query_string(&self) -> String {
-        let mut params = Vec::new();
-
-        if let Some(archived) = self.archived {
-            params.push(format!("archived={}", archived));
-        }
-        if let Some(page) = self.page {
-            params.push(format!("page={}", page));
-        }
-        if let Some(ref order_by) = self.order_by {
-            params.push(format!("order_by={}", order_by));
-        }
-        if let Some(reverse) = self.reverse {
-            params.push(format!("reverse={}", reverse));
-        }
-        if let Some(subtasks) = self.subtasks {
-            params.push(format!("subtasks={}", subtasks));
-        }
-        for status in &self.statuses {
-            params.push(format!("statuses[]={}", status));
-        }
-        for assignee in &self.assignees {
-            params.push(format!("assignees[]={}", assignee));
-        }
-        if let Some(include_md) = self.include_markdown_description {
-            params.push(format!("include_markdown_description={}", include_md));
-        }
-
-        if params.is_empty() {
-            String::new()
-        } else {
-            format!("?{}", params.join("&"))
-        }
+        use crate::utils::QueryParams;
+        
+        let mut params = QueryParams::new();
+        params.add_opt("archived", self.archived);
+        params.add_opt("page", self.page);
+        params.add_opt("order_by", self.order_by.as_ref());
+        params.add_opt("reverse", self.reverse);
+        params.add_opt("subtasks", self.subtasks);
+        params.add_all("statuses", &self.statuses);
+        params.add_all_ints("assignees", &self.assignees);
+        params.add_opt("include_markdown_description", self.include_markdown_description);
+        
+        params.to_query_string()
     }
 }
 

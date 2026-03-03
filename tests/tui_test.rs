@@ -220,18 +220,18 @@ fn test_auth_state() {
 #[test]
 fn test_sidebar_state() {
     use clickdown::tui::widgets::{SidebarState, SidebarItem};
-    
+
     let mut sidebar = SidebarState::new();
-    
+
     // Sidebar should start empty
-    assert!(sidebar.items.is_empty(), "Sidebar should start empty");
-    
+    assert!(sidebar.items().is_empty(), "Sidebar should start empty");
+
     // Add items
-    sidebar.items.push(SidebarItem::Workspace {
+    sidebar.items_mut().push(SidebarItem::Workspace {
         name: "Test Workspace".to_string(),
         id: "ws-1".to_string(),
     });
-    sidebar.items.push(SidebarItem::Space {
+    sidebar.items_mut().push(SidebarItem::Space {
         name: "Test Space".to_string(),
         id: "sp-1".to_string(),
         indent: 1,
@@ -239,19 +239,19 @@ fn test_sidebar_state() {
     
     // Select first
     sidebar.select_first();
-    assert_eq!(sidebar.selected.selected(), Some(0), "First item should be selected");
-    
+    assert_eq!(sidebar.state().selected(), Some(0), "First item should be selected");
+
     // Select next
     sidebar.select_next();
-    assert_eq!(sidebar.selected.selected(), Some(1), "Second item should be selected");
-    
+    assert_eq!(sidebar.state().selected(), Some(1), "Second item should be selected");
+
     // Select next (wrap around)
     sidebar.select_next();
-    assert_eq!(sidebar.selected.selected(), Some(0), "Should wrap to first item");
-    
+    assert_eq!(sidebar.state().selected(), Some(0), "Should wrap to first item");
+
     // Select previous
     sidebar.select_previous();
-    assert_eq!(sidebar.selected.selected(), Some(1), "Should go back to second item");
+    assert_eq!(sidebar.state().selected(), Some(1), "Should go back to second item");
 }
 
 /// Test task list state
@@ -263,10 +263,10 @@ fn test_task_list_state() {
     let mut task_list = TaskListState::new();
 
     // Task list should start empty
-    assert!(task_list.tasks.is_empty(), "Task list should start empty");
+    assert!(task_list.tasks().is_empty(), "Task list should start empty");
 
     // Add tasks
-    task_list.tasks.push(Task {
+    task_list.tasks_mut().push(Task {
         id: "task-1".to_string(),
         custom_id: None,
         custom_item_id: None,
@@ -320,7 +320,7 @@ fn test_task_list_state() {
 
     // Select first
     task_list.select_first();
-    assert_eq!(task_list.selected.selected(), Some(0), "First task should be selected");
+    assert_eq!(task_list.state().selected(), Some(0), "First task should be selected");
 
     // Get selected task
     let selected = task_list.selected_task();

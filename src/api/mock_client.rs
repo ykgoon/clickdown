@@ -8,6 +8,33 @@ use crate::models::{
 };
 use anyhow::{Result, anyhow};
 
+/// Helper function to return configured response or default empty vec
+fn return_vec_response<T: Clone>(configured: &Option<Result<Vec<T>>>) -> Result<Vec<T>> {
+    match configured {
+        Some(Ok(items)) => Ok(items.clone()),
+        Some(Err(e)) => Err(anyhow!(e.to_string())),
+        None => Ok(vec![]),
+    }
+}
+
+/// Helper function to return configured response or default single item
+fn return_response<T: Clone>(configured: &Option<Result<T>>, not_found_msg: &str) -> Result<T> {
+    match configured {
+        Some(Ok(item)) => Ok(item.clone()),
+        Some(Err(e)) => Err(anyhow!(e.to_string())),
+        None => Err(anyhow!("{}", not_found_msg)),
+    }
+}
+
+/// Helper function to return configured response for unit result
+fn return_unit_response(configured: &Option<Result<()>>, not_configured_msg: &str) -> Result<()> {
+    match configured {
+        Some(Ok(())) => Ok(()),
+        Some(Err(e)) => Err(anyhow!(e.to_string())),
+        None => Err(anyhow!("{}", not_configured_msg)),
+    }
+}
+
 /// Mock ClickUp API client for headless testing
 ///
 /// This client implements the ClickUpApi trait and can be configured
@@ -188,19 +215,11 @@ impl MockClickUpClient {
 #[async_trait::async_trait]
 impl ClickUpApi for MockClickUpClient {
     async fn get_workspaces(&self) -> Result<Vec<Workspace>> {
-        match &self.workspaces_response {
-            Some(Ok(workspaces)) => Ok(workspaces.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Ok(vec![]), // Default to empty list
-        }
+        return_vec_response(&self.workspaces_response)
     }
 
     async fn get_spaces(&self, _team_id: &str) -> Result<Vec<ClickUpSpace>> {
-        match &self.spaces_response {
-            Some(Ok(spaces)) => Ok(spaces.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Ok(vec![]),
-        }
+        return_vec_response(&self.spaces_response)
     }
 
     async fn get_space(&self, _space_id: &str) -> Result<ClickUpSpace> {
@@ -212,11 +231,7 @@ impl ClickUpApi for MockClickUpClient {
     }
 
     async fn get_folders(&self, _space_id: &str) -> Result<Vec<Folder>> {
-        match &self.folders_response {
-            Some(Ok(folders)) => Ok(folders.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Ok(vec![]),
-        }
+        return_vec_response(&self.folders_response)
     }
 
     async fn get_lists_in_folder(
@@ -224,11 +239,7 @@ impl ClickUpApi for MockClickUpClient {
         _folder_id: &str,
         _archived: Option<bool>,
     ) -> Result<Vec<List>> {
-        match &self.lists_in_folder_response {
-            Some(Ok(lists)) => Ok(lists.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Ok(vec![]),
-        }
+        return_vec_response(&self.lists_in_folder_response)
     }
 
     async fn get_lists_in_space(
@@ -236,83 +247,43 @@ impl ClickUpApi for MockClickUpClient {
         _space_id: &str,
         _archived: Option<bool>,
     ) -> Result<Vec<List>> {
-        match &self.lists_in_space_response {
-            Some(Ok(lists)) => Ok(lists.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Ok(vec![]),
-        }
+        return_vec_response(&self.lists_in_space_response)
     }
 
     async fn get_tasks(&self, _list_id: &str, _filters: &TaskFilters) -> Result<Vec<Task>> {
-        match &self.tasks_response {
-            Some(Ok(tasks)) => Ok(tasks.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Ok(vec![]),
-        }
+        return_vec_response(&self.tasks_response)
     }
 
     async fn get_task(&self, _task_id: &str) -> Result<Task> {
-        match &self.task_response {
-            Some(Ok(task)) => Ok(task.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Err(anyhow!("Task not found")),
-        }
+        return_response(&self.task_response, "Task not found")
     }
 
     async fn create_task(&self, _list_id: &str, _task: &CreateTaskRequest) -> Result<Task> {
-        match &self.create_task_response {
-            Some(Ok(task)) => Ok(task.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Err(anyhow!("Create task not configured")),
-        }
+        return_response(&self.create_task_response, "Create task not configured")
     }
 
     async fn update_task(&self, _task_id: &str, _task: &UpdateTaskRequest) -> Result<Task> {
-        match &self.update_task_response {
-            Some(Ok(task)) => Ok(task.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Err(anyhow!("Update task not configured")),
-        }
+        return_response(&self.update_task_response, "Update task not configured")
     }
 
     async fn delete_task(&self, _task_id: &str) -> Result<()> {
-        match &self.delete_task_response {
-            Some(Ok(())) => Ok(()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Err(anyhow!("Delete task not configured")),
-        }
+        return_unit_response(&self.delete_task_response, "Delete task not configured")
     }
 
     async fn search_docs(&self, _filters: &DocumentFilters) -> Result<Vec<Document>> {
-        match &self.search_docs_response {
-            Some(Ok(docs)) => Ok(docs.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Ok(vec![]),
-        }
+        return_vec_response(&self.search_docs_response)
     }
 
     async fn get_doc_pages(&self, _doc_id: &str) -> Result<Vec<Page>> {
-        match &self.doc_pages_response {
-            Some(Ok(pages)) => Ok(pages.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Ok(vec![]),
-        }
+        return_vec_response(&self.doc_pages_response)
     }
 
     async fn get_page(&self, _page_id: &str) -> Result<Page> {
-        match &self.page_response {
-            Some(Ok(page)) => Ok(page.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Err(anyhow!("Page not found")),
-        }
+        return_response(&self.page_response, "Page not found")
     }
 
     async fn get_task_comments(&self, _task_id: &str) -> Result<Vec<Comment>> {
-        match &self.task_comments_response {
-            Some(Ok(comments)) => Ok(comments.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Ok(vec![]),
-        }
+        return_vec_response(&self.task_comments_response)
     }
 
     async fn get_comment_replies(&self, comment_id: &str) -> Result<Vec<Comment>> {
@@ -329,26 +300,14 @@ impl ClickUpApi for MockClickUpClient {
     }
 
     async fn create_comment(&self, _task_id: &str, _comment: &CreateCommentRequest) -> Result<Comment> {
-        match &self.create_comment_response {
-            Some(Ok(comment)) => Ok(comment.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Err(anyhow!("Create comment not configured")),
-        }
+        return_response(&self.create_comment_response, "Create comment not configured")
     }
 
     async fn create_comment_reply(&self, _parent_comment_id: &str, _comment: &CreateCommentRequest) -> Result<Comment> {
-        match &self.create_comment_reply_response {
-            Some(Ok(comment)) => Ok(comment.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Err(anyhow!("Create comment reply not configured")),
-        }
+        return_response(&self.create_comment_reply_response, "Create comment reply not configured")
     }
 
     async fn update_comment(&self, _comment_id: &str, _comment: &UpdateCommentRequest) -> Result<Comment> {
-        match &self.update_comment_response {
-            Some(Ok(comment)) => Ok(comment.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Err(anyhow!("Update comment not configured")),
-        }
+        return_response(&self.update_comment_response, "Update comment not configured")
     }
 }

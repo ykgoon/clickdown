@@ -4,56 +4,59 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Color, Style, Modifier},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::{Block, Borders, List, ListItem},
     text::{Line, Span},
 };
 use crate::models::Task;
+use crate::tui::helpers::SelectableList;
 
 /// Task list state
 #[derive(Debug, Clone)]
 pub struct TaskListState {
-    pub selected: ListState,
-    pub tasks: Vec<Task>,
+    list: SelectableList<Task>,
 }
 
 impl TaskListState {
     pub fn new() -> Self {
         Self {
-            selected: ListState::default(),
-            tasks: Vec::new(),
+            list: SelectableList::empty(),
         }
     }
-    
+
     pub fn select_first(&mut self) {
-        if !self.tasks.is_empty() {
-            self.selected.select(Some(0));
-        }
+        self.list.select_first();
     }
-    
+
     pub fn select_next(&mut self) {
-        if self.tasks.is_empty() {
-            return;
-        }
-        let i = match self.selected.selected() {
-            Some(i) => if i >= self.tasks.len() - 1 { 0 } else { i + 1 },
-            None => 0,
-        };
-        self.selected.select(Some(i));
+        self.list.select_next();
     }
-    
+
     pub fn select_previous(&mut self) {
-        if self.tasks.is_empty() {
-            return;
-        }
-        let i = match self.selected.selected() {
-            Some(i) => if i == 0 { self.tasks.len() - 1 } else { i - 1 },
-            None => 0,
-        };
-        self.selected.select(Some(i));
+        self.list.select_previous();
     }
-    
+
     pub fn selected_task(&self) -> Option<&Task> {
-        self.selected.selected().and_then(|i| self.tasks.get(i))
+        self.list.selected()
+    }
+
+    /// Select task by index
+    pub fn select(&mut self, index: Option<usize>) {
+        self.list.select(index);
+    }
+
+    /// Get tasks
+    pub fn tasks(&self) -> &[Task] {
+        self.list.items()
+    }
+
+    /// Get mutable tasks
+    pub fn tasks_mut(&mut self) -> &mut Vec<Task> {
+        self.list.items_mut()
+    }
+
+    /// Get the internal list state for rendering
+    pub fn state(&self) -> &ratatui::widgets::ListState {
+        self.list.state()
     }
 }
 
@@ -90,14 +93,14 @@ fn get_priority_indicator(priority: &Option<crate::models::Priority>) -> &'stati
 }
 
 pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect) {
-    let items: Vec<ListItem> = state.tasks.iter().map(|task| {
+    let items: Vec<ListItem> = state.tasks().iter().map(|task| {
         let status_color = get_status_color(&task.status);
         let priority = get_priority_indicator(&task.priority);
-        
+
         let status_str = task.status.as_ref()
             .map(|s| s.status.chars().next().unwrap_or(' ').to_uppercase().to_string())
             .unwrap_or_else(|| "-".to_string());
-        
+
         ListItem::new(Line::from(vec![
             Span::styled(format!("[{}] ", priority), Style::default().fg(Color::Yellow)),
             Span::styled(status_str, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
@@ -105,7 +108,7 @@ pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect) {
             Span::raw(task.name.as_str()),
         ]))
     }).collect();
-    
+
     let list = List::new(items)
         .block(Block::default()
             .title(" Tasks ")
@@ -117,8 +120,8 @@ pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect) {
                 .add_modifier(Modifier::BOLD)
         )
         .highlight_symbol("▸ ");
-    
-    frame.render_stateful_widget(list, area, &mut state.selected.clone());
+
+    frame.render_stateful_widget(list, area, &mut state.state().clone());
 }
 
 pub fn get_task_list_hints() -> &'static str {

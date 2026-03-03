@@ -266,93 +266,100 @@ impl ClickUpClient {
     }
 }
 
-/// Implement the ClickUpApi trait for ClickUpClient
-#[async_trait]
-impl ClickUpApi for ClickUpClient {
-    async fn get_workspaces(&self) -> Result<Vec<Workspace>> {
-        self.get_workspaces().await
-    }
+/// Macro to generate trait implementation that delegates to inherent methods
+macro_rules! impl_clickup_api {
+    ($struct:ty) => {
+        #[async_trait]
+        impl ClickUpApi for $struct {
+            async fn get_workspaces(&self) -> Result<Vec<Workspace>> {
+                self.get_workspaces().await
+            }
 
-    async fn get_spaces(&self, team_id: &str) -> Result<Vec<Space>> {
-        self.get_spaces(team_id).await
-    }
+            async fn get_spaces(&self, team_id: &str) -> Result<Vec<Space>> {
+                self.get_spaces(team_id).await
+            }
 
-    async fn get_space(&self, space_id: &str) -> Result<Space> {
-        self.get_space(space_id).await
-    }
+            async fn get_space(&self, space_id: &str) -> Result<Space> {
+                self.get_space(space_id).await
+            }
 
-    async fn get_folders(&self, space_id: &str) -> Result<Vec<Folder>> {
-        self.get_folders(space_id).await
-    }
+            async fn get_folders(&self, space_id: &str) -> Result<Vec<Folder>> {
+                self.get_folders(space_id).await
+            }
 
-    async fn get_lists_in_folder(
-        &self,
-        folder_id: &str,
-        archived: Option<bool>,
-    ) -> Result<Vec<List>> {
-        self.get_lists_in_folder(folder_id, archived).await
-    }
+            async fn get_lists_in_folder(
+                &self,
+                folder_id: &str,
+                archived: Option<bool>,
+            ) -> Result<Vec<List>> {
+                self.get_lists_in_folder(folder_id, archived).await
+            }
 
-    async fn get_lists_in_space(
-        &self,
-        space_id: &str,
-        archived: Option<bool>,
-    ) -> Result<Vec<List>> {
-        self.get_lists_in_space(space_id, archived).await
-    }
+            async fn get_lists_in_space(
+                &self,
+                space_id: &str,
+                archived: Option<bool>,
+            ) -> Result<Vec<List>> {
+                self.get_lists_in_space(space_id, archived).await
+            }
 
-    async fn get_tasks(&self, list_id: &str, filters: &TaskFilters) -> Result<Vec<Task>> {
-        self.get_tasks(list_id, filters).await
-    }
+            async fn get_tasks(&self, list_id: &str, filters: &TaskFilters) -> Result<Vec<Task>> {
+                self.get_tasks(list_id, filters).await
+            }
 
-    async fn get_task(&self, task_id: &str) -> Result<Task> {
-        self.get_task(task_id).await
-    }
+            async fn get_task(&self, task_id: &str) -> Result<Task> {
+                self.get_task(task_id).await
+            }
 
-    async fn create_task(&self, list_id: &str, task: &CreateTaskRequest) -> Result<Task> {
-        self.create_task(list_id, task).await
-    }
+            async fn create_task(&self, list_id: &str, task: &CreateTaskRequest) -> Result<Task> {
+                self.create_task(list_id, task).await
+            }
 
-    async fn update_task(&self, task_id: &str, task: &UpdateTaskRequest) -> Result<Task> {
-        self.update_task(task_id, task).await
-    }
+            async fn update_task(&self, task_id: &str, task: &UpdateTaskRequest) -> Result<Task> {
+                self.update_task(task_id, task).await
+            }
 
-    async fn delete_task(&self, task_id: &str) -> Result<()> {
-        self.delete_task(task_id).await
-    }
+            async fn delete_task(&self, task_id: &str) -> Result<()> {
+                self.delete_task(task_id).await
+            }
 
-    async fn search_docs(&self, filters: &DocumentFilters) -> Result<Vec<Document>> {
-        self.search_docs(filters).await
-    }
+            async fn search_docs(&self, filters: &DocumentFilters) -> Result<Vec<Document>> {
+                self.search_docs(filters).await
+            }
 
-    async fn get_doc_pages(&self, doc_id: &str) -> Result<Vec<Page>> {
-        self.get_doc_pages(doc_id).await
-    }
+            async fn get_doc_pages(&self, doc_id: &str) -> Result<Vec<Page>> {
+                self.get_doc_pages(doc_id).await
+            }
 
-    async fn get_page(&self, page_id: &str) -> Result<Page> {
-        self.get_page(page_id).await
-    }
+            async fn get_page(&self, page_id: &str) -> Result<Page> {
+                self.get_page(page_id).await
+            }
 
-    async fn get_task_comments(&self, task_id: &str) -> Result<Vec<Comment>> {
-        self.get_task_comments(task_id).await
-    }
+            async fn get_task_comments(&self, task_id: &str) -> Result<Vec<Comment>> {
+                self.get_task_comments(task_id).await
+            }
 
-    async fn get_comment_replies(&self, comment_id: &str) -> Result<Vec<Comment>> {
-        self.get_comment_replies(comment_id).await
-    }
+            async fn get_comment_replies(&self, comment_id: &str) -> Result<Vec<Comment>> {
+                self.get_comment_replies(comment_id).await
+            }
 
-    async fn create_comment(&self, task_id: &str, comment: &CreateCommentRequest) -> Result<Comment> {
-        self.create_comment(task_id, comment).await
-    }
+            async fn create_comment(&self, task_id: &str, comment: &CreateCommentRequest) -> Result<Comment> {
+                self.create_comment(task_id, comment).await
+            }
 
-    async fn create_comment_reply(&self, parent_comment_id: &str, comment: &CreateCommentRequest) -> Result<Comment> {
-        self.create_comment_reply(parent_comment_id, comment).await
-    }
+            async fn create_comment_reply(&self, parent_comment_id: &str, comment: &CreateCommentRequest) -> Result<Comment> {
+                self.create_comment_reply(parent_comment_id, comment).await
+            }
 
-    async fn update_comment(&self, comment_id: &str, comment: &UpdateCommentRequest) -> Result<Comment> {
-        self.update_comment(comment_id, comment).await
-    }
+            async fn update_comment(&self, comment_id: &str, comment: &UpdateCommentRequest) -> Result<Comment> {
+                self.update_comment(comment_id, comment).await
+            }
+        }
+    };
 }
+
+// Implement ClickUpApi trait for ClickUpClient
+impl_clickup_api!(ClickUpClient);
 
 #[cfg(test)]
 mod tests {

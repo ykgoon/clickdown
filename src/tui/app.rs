@@ -336,7 +336,7 @@ impl TuiApp {
                             Ok(workspaces) => {
                                 self.workspaces = workspaces.clone();
                                 // Populate sidebar with workspaces
-                                self.sidebar.items = self.workspaces.iter()
+                                *self.sidebar.items_mut() = self.workspaces.iter()
                                     .map(|w| SidebarItem::Workspace {
                                         name: w.name.clone(),
                                         id: w.id.clone()
@@ -396,7 +396,7 @@ impl TuiApp {
                             Ok(spaces) => {
                                 self.spaces = spaces.clone();
                                 // Populate sidebar with spaces
-                                self.sidebar.items = self.spaces.iter()
+                                *self.sidebar.items_mut() = self.spaces.iter()
                                     .map(|s| SidebarItem::Space {
                                         name: s.name.clone(),
                                         id: s.id.clone(),
@@ -456,7 +456,7 @@ impl TuiApp {
                             Ok(folders) => {
                                 self.folders = folders.clone();
                                 // Populate sidebar with folders
-                                self.sidebar.items = self.folders.iter()
+                                *self.sidebar.items_mut() = self.folders.iter()
                                     .map(|f| SidebarItem::Folder {
                                         name: f.name.clone(),
                                         id: f.id.clone(),
@@ -516,7 +516,7 @@ impl TuiApp {
                             Ok(lists) => {
                                 self.lists = lists.clone();
                                 // Populate sidebar with lists
-                                self.sidebar.items = self.lists.iter()
+                                *self.sidebar.items_mut() = self.lists.iter()
                                     .map(|l| SidebarItem::List {
                                         name: l.name.clone(),
                                         id: l.id.clone(),
@@ -577,23 +577,23 @@ impl TuiApp {
                                 // Sort tasks by status priority and recency before displaying
                                 let sorted_tasks = crate::models::task::sort_tasks(tasks);
                                 // Update task_list.tasks for rendering (not self.tasks)
-                                self.task_list.tasks = sorted_tasks.clone();
+                                *self.task_list.tasks_mut() = sorted_tasks.clone();
                                 self.tasks = sorted_tasks;
-                                
+
                                 // Check if we're restoring a session
                                 if self.restoring_session {
                                     // Try to select the restored task
                                     if let Some(ref restored_id) = self.restored_task_id {
                                         // Find the task in the list
-                                        if let Some(task_idx) = self.task_list.tasks.iter().position(|t| &t.id == restored_id) {
+                                        if let Some(task_idx) = self.task_list.tasks().iter().position(|t| &t.id == restored_id) {
                                             // Found the task, select it
-                                            self.task_list.selected.select(Some(task_idx));
-                                            
+                                            self.task_list.select(Some(task_idx));
+
                                             // Check if we should navigate to TaskDetail view
                                             // We need to check the original saved screen type
                                             // For now, stay at Tasks view - user can navigate to task detail
                                             self.restoring_session = false;
-                                            self.status = format!("Restored to Tasks view - {} task(s) loaded", self.task_list.tasks.len());
+                                            self.status = format!("Restored to Tasks view - {} task(s) loaded", self.task_list.tasks().len());
                                             tracing::info!("Session restore complete: tasks loaded, task {} selected", restored_id);
                                         } else {
                                             // Task not found, stay at Tasks screen
@@ -606,12 +606,12 @@ impl TuiApp {
                                         // No task ID saved, stay at Tasks
                                         self.restoring_session = false;
                                         self.task_list.select_first();
-                                        self.status = format!("Loaded {} task(s)", self.task_list.tasks.len());
+                                        self.status = format!("Loaded {} task(s)", self.task_list.tasks().len());
                                     }
                                 } else {
                                     // Normal behavior (not restoring)
                                     self.task_list.select_first();
-                                    self.status = format!("Loaded {} task(s)", self.task_list.tasks.len());
+                                    self.status = format!("Loaded {} task(s)", self.task_list.tasks().len());
                                 }
                                 
                                 // Clear any previous error state
@@ -622,7 +622,7 @@ impl TuiApp {
                                 self.error = Some(format!("Failed to load tasks: {}", e));
                                 self.status = "Failed to load tasks".to_string();
                                 // Clear tasks on error to prevent stale data
-                                self.task_list.tasks.clear();
+                                self.task_list.tasks_mut().clear();
                                 self.tasks.clear();
                                 if self.restoring_session {
                                     self.restoring_session = false;

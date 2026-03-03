@@ -85,22 +85,13 @@ pub struct DocumentFilters {
 impl DocumentFilters {
     /// Convert filters to query parameters
     pub fn to_query_string(&self) -> String {
-        let mut params = Vec::new();
-
-        if let Some(ref query) = self.query {
-            params.push(format!("query={}", urlencoding::encode(query)));
-        }
-        if let Some(ref space_id) = self.space_id {
-            params.push(format!("space_id={}", space_id));
-        }
-        if let Some(ref folder_id) = self.folder_id {
-            params.push(format!("folder_id={}", folder_id));
-        }
-
-        if params.is_empty() {
-            String::new()
-        } else {
-            format!("?{}", params.join("&"))
-        }
+        use crate::utils::QueryParams;
+        
+        let mut params = QueryParams::new();
+        params.add_opt_encoded("query", self.query.as_deref());
+        params.add_opt("space_id", self.space_id.as_ref());
+        params.add_opt("folder_id", self.folder_id.as_ref());
+        
+        params.to_query_string()
     }
 }

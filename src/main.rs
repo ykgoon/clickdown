@@ -1,8 +1,5 @@
 //! ClickDown - A TUI ClickUp client
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 mod api;
 mod models;
 mod cache;

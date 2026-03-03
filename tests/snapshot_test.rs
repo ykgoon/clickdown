@@ -172,8 +172,8 @@ impl MockClipboard {
 #[test]
 fn test_sidebar_empty() {
     let mut sidebar = SidebarState::new();
-    sidebar.items = vec![];
-    
+    *sidebar.items_mut() = vec![];
+
     assert_widget_snapshot("sidebar_empty", 40, 15, |frame| {
         let area = Rect::new(0, 0, 40, 15);
         render_sidebar(frame, &sidebar, area);
@@ -183,8 +183,8 @@ fn test_sidebar_empty() {
 #[test]
 fn test_sidebar_with_items() {
     let mut sidebar = SidebarState::new();
-    sidebar.items = create_sidebar_items();
-    
+    *sidebar.items_mut() = create_sidebar_items();
+
     assert_widget_snapshot("sidebar_with_items", 40, 15, |frame| {
         let area = Rect::new(0, 0, 40, 15);
         render_sidebar(frame, &sidebar, area);
@@ -194,7 +194,7 @@ fn test_sidebar_with_items() {
 #[test]
 fn test_sidebar_with_selection() {
     let mut sidebar = SidebarState::new();
-    sidebar.items = create_sidebar_items();
+    *sidebar.items_mut() = create_sidebar_items();
     sidebar.select_first();
     
     assert_widget_snapshot("sidebar_with_selection", 40, 15, |frame| {
@@ -220,8 +220,8 @@ fn test_task_list_empty() {
 #[test]
 fn test_task_list_with_tasks() {
     let mut task_list = TaskListState::new();
-    task_list.tasks = create_test_tasks();
-    
+    *task_list.tasks_mut() = create_test_tasks();
+
     assert_widget_snapshot("task_list_with_tasks", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
         render_task_list(frame, &task_list, area);
@@ -231,7 +231,7 @@ fn test_task_list_with_tasks() {
 #[test]
 fn test_task_list_with_selection() {
     let mut task_list = TaskListState::new();
-    task_list.tasks = create_test_tasks();
+    *task_list.tasks_mut() = create_test_tasks();
     task_list.select_first();
     
     assert_widget_snapshot("task_list_with_selection", 60, 15, |frame| {
@@ -441,8 +441,8 @@ fn test_main_layout_sidebar_collapsed() {
 fn test_main_layout_sidebar_expanded() {
     let mut sidebar = SidebarState::new();
     sidebar.visible = true;
-    sidebar.items = create_sidebar_items();
-    
+    *sidebar.items_mut() = create_sidebar_items();
+
     assert_widget_snapshot("main_layout_sidebar_expanded", 80, 24, |frame| {
         let area = Rect::new(0, 0, 80, 24);
         render_sidebar(frame, &sidebar, area);
