@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+┌ Tasks ───────────────────────────────────────────────────┐
+│[↑] I Review pull request                                 │
+│[•] T Write unit tests                                    │
+│[⚡ ] D Deploy to production                               │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘

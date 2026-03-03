@@ -1,0 +1,21 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                ┌ Authentication ──────────────────────────────┐                
+                │                                              │                
+                │ Enter your ClickUp API Token                 │                
+                │ Get your token from ClickUp Settings → Apps  │                
+                │ Token: [Type or paste your token here]       │                
+                │ (0 characters)                               │                
+                │                                              │                
+                │ Press Enter to connect, Esc to cancel        │                
+                │                                              │                
+                └──────────────────────────────────────────────┘

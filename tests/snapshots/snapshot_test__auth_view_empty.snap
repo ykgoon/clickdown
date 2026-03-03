@@ -1,0 +1,18 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+            ┌ Authentication ──────────────────┐            
+            │                                  │            
+            │ Enter your ClickUp API Token     │            
+            │ Token: [Type or paste your token │            
+            │                                  │            
+            │ Press Enter to connect, Esc to c │            
+            │                                  │            
+            └──────────────────────────────────┘

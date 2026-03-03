@@ -763,7 +763,7 @@ fn test_cache_comments() {
     cache.cache_comments("task-123", &comments).unwrap();
 
     // Retrieve comments (ordered by created_at DESC, so comment-2 comes first)
-    let cached = cache.get_cached_comments("task-123").unwrap();
+    let cached = cache.get_comments("task-123").unwrap();
     assert_eq!(cached.len(), 2);
     assert_eq!(cached[0].id, "test-comment-2");
     assert_eq!(cached[1].id, "test-comment-1");
@@ -858,15 +858,15 @@ fn test_clear_comments() {
     
     // Cache comments
     cache.cache_comments("task-123", &comments).unwrap();
-    
+
     // Verify cached
-    assert_eq!(cache.get_cached_comments("task-123").unwrap().len(), 2);
-    
+    assert_eq!(cache.get_comments("task-123").unwrap().len(), 2);
+
     // Clear comments for this task
     cache.clear_comments("task-123").unwrap();
-    
+
     // Should be empty
-    assert_eq!(cache.get_cached_comments("task-123").unwrap().len(), 0);
+    assert_eq!(cache.get_comments("task-123").unwrap().len(), 0);
 }
 
 /// Test that comments for different tasks are isolated
@@ -914,14 +914,14 @@ fn test_comments_isolated_by_task() {
     // Cache different comments for different tasks
     cache.cache_comments("task-1", &[comment1]).unwrap();
     cache.cache_comments("task-2", &[comment2]).unwrap();
-    
+
     // Verify isolation
-    let task1_comments = cache.get_cached_comments("task-1").unwrap();
-    let task2_comments = cache.get_cached_comments("task-2").unwrap();
-    
+    let task1_comments = cache.get_comments("task-1").unwrap();
+    let task2_comments = cache.get_comments("task-2").unwrap();
+
     assert_eq!(task1_comments.len(), 1);
     assert_eq!(task1_comments[0].id, "test-comment-1");
-    
+
     assert_eq!(task2_comments.len(), 1);
     assert_eq!(task2_comments[0].id, "test-comment-2");
 }

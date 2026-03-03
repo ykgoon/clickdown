@@ -63,6 +63,7 @@ arboard = "3"
 [dev-dependencies]
 mockall = "0.13"
 tempfile = "3"
+insta = "1.39"
 
 [profile.release]
 lto = true

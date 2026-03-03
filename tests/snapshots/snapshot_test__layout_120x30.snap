@@ -1,0 +1,8 @@
+---
+source: tests/snapshot_test.rs
+expression: "format!(\"Title area: {}x{}\\nContent area: {}x{}\\nStatus area: {}x{}\\nToo small: {}\",\nlayout.title_area.width, layout.title_area.height, layout.content_area.width,\nlayout.content_area.height, layout.status_area.width,\nlayout.status_area.height, layout.too_small)"
+---
+Title area: 120x1
+Content area: 120x26
+Status area: 120x3
+Too small: false

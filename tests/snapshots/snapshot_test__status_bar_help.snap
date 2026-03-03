@@ -1,0 +1,5 @@
+---
+source: tests/snapshot_test.rs
+expression: status.to_string()
+---
+ j/k: Navigate | Enter: Select | Esc: Back | ?: Help | q: Quit

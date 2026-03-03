@@ -300,12 +300,108 @@ app.update(Message::WorkspacesLoaded(workspaces));
 // Now state should be Main
 ```
 
+## Snapshot Testing
+
+ClickDown uses snapshot testing with the [`insta`](https://insta.rs/) crate to capture and compare rendered UI output. Snapshot tests provide visual regression testing for TUI widgets and layouts.
+
+### Running Snapshot Tests
+
+```bash
+# Run all snapshot tests
+cargo test --test snapshot_test
+
+# Run specific snapshot test
+cargo test --test snapshot_test test_sidebar_empty
+
+# Run snapshot tests with output
+cargo test --test snapshot_test -- --nocapture
+```
+
+### Reviewing and Accepting Snapshots
+
+When snapshot tests fail (because snapshots changed), you need to review and accept the new snapshots:
+
+```bash
+# Install cargo-insta (one-time)
+cargo install cargo-insta
+
+# Review snapshots interactively
+cargo insta review
+
+# Accept all pending snapshots
+cargo insta accept
+
+# Auto-update snapshots during test run
+INSTA_UPDATE=always cargo test --test snapshot_test
+```
+
+### Snapshot Organization
+
+Snapshots are stored in `tests/snapshots/` organized by category:
+
+- `tests/snapshots/snapshot_test__*.snap` - Widget and layout snapshots
+
+Snapshot files contain the expected rendered output. When UI changes, tests will fail and show the difference between old and new output.
+
+### Adding New Snapshot Tests
+
+1. **Add a new test function** in `tests/snapshot_test.rs`:
+
+```rust
+#[test]
+fn test_my_new_widget() {
+    let widget = MyWidgetState::new();
+    
+    assert_widget_snapshot("my_widget", 80, 24, |frame| {
+        let area = Rect::new(0, 0, 80, 24);
+        render_my_widget(frame, &widget, area);
+    });
+}
+```
+
+2. **Run the test** - it will fail and create a new snapshot file
+
+3. **Review the snapshot** with `cargo insta review` or accept with `INSTA_UPDATE=always`
+
+4. **Commit the snapshot file** along with your test
+
+### Snapshot Test Best Practices
+
+- Use fixed terminal sizes (80x24, 120x30, 160x40) for consistency
+- Use deterministic test data from `fixtures.rs`
+- Name snapshots descriptively (e.g., `sidebar_empty`, `task_list_with_selection`)
+- Review snapshots carefully before accepting - they become the source of truth
+- Update snapshots when intentionally changing UI behavior
+
+### CI/CD Integration
+
+In CI, snapshot tests run automatically. If snapshots don't match, the build fails. To update snapshots in CI:
+
+1. Run tests locally with `INSTA_UPDATE=always`
+2. Commit the updated snapshot files
+3. Push changes
+
+### Troubleshooting Snapshot Tests
+
+**Test fails with "no snapshot found":**
+- Run with `INSTA_UPDATE=always` to create initial snapshot
+- Check that snapshot file exists in `tests/snapshots/`
+
+**Test fails with "snapshot assertion failed":**
+- Review differences with `cargo insta review`
+- Accept changes if UI update was intentional
+- Fix code if regression was unintentional
+
+**Snapshots differ across platforms:**
+- Ensure tests use fixed terminal sizes
+- Avoid platform-specific rendering paths in tests
+- Use `insta`'s platform-agnostic settings
+
 ## Future Enhancements
 
 Potential improvements to the testing framework:
 
-1. **Snapshot Testing** - Compare UI views against saved snapshots
-2. **Property-based Testing** - Generate random test data
-3. **Integration with CI** - Automated test runs on pull requests
-4. **Coverage Reports** - Track test coverage with `cargo tarpaulin`
+1. **Property-based Testing** - Generate random test data
+2. **Integration with CI** - Automated snapshot review on pull requests
+3. **Coverage Reports** - Track test coverage with `cargo tarpaulin`
 5. **Performance Tests** - Benchmark UI rendering and state updates

@@ -1,0 +1,20 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                    ┌ Confirm ─────────────────────────────┐                    
+                    │                                      │                    
+                    │ Are you sure you want to quit?       │                    
+                    │   No      Yes                        │                    
+                    │                                      │                    
+                    │                                      │                    
+                    │                                      │                    
+                    └──────────────────────────────────────┘
