@@ -77,27 +77,31 @@ pub enum DebugOperation {
 /// Parse CLI arguments from environment
 pub fn parse_args() -> Result<CliArgs, String> {
     let args: Vec<String> = env::args().collect();
-    
+
     // Skip program name
     if args.len() < 2 {
         // No subcommand - run TUI mode
-        return Ok(CliArgs { debug_command: None });
+        return Ok(CliArgs {
+            debug_command: None,
+        });
     }
-    
+
     let subcommand = &args[1];
-    
+
     match subcommand.as_str() {
         "debug" => {
             let debug_cmd = parse_debug_command(&args[2..])?;
-            Ok(CliArgs { debug_command: Some(debug_cmd) })
+            Ok(CliArgs {
+                debug_command: Some(debug_cmd),
+            })
         }
         "--help" | "-h" | "help" => {
             // Show help and run TUI
-            Ok(CliArgs { debug_command: None })
+            Ok(CliArgs {
+                debug_command: None,
+            })
         }
-        _ => {
-            Err(format!("Unknown subcommand: {}", subcommand))
-        }
+        _ => Err(format!("Unknown subcommand: {}", subcommand)),
     }
 }
 
@@ -116,7 +120,7 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
             assigned_commenter: None,
         });
     }
-    
+
     let mut operation: Option<DebugOperation> = None;
     let mut json = false;
     let mut verbose = false;
@@ -181,8 +185,8 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                 if i + 1 >= args.len() {
                     return Err("tasks requires a list_id argument".to_string());
                 }
-                operation = Some(DebugOperation::Tasks { 
-                    list_id: args[i + 1].clone() 
+                operation = Some(DebugOperation::Tasks {
+                    list_id: args[i + 1].clone(),
                 });
                 i += 1; // Skip next arg
             }
@@ -193,8 +197,8 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                 if i + 1 >= args.len() {
                     return Err("docs requires a query argument".to_string());
                 }
-                operation = Some(DebugOperation::Docs { 
-                    query: args[i + 1].clone() 
+                operation = Some(DebugOperation::Docs {
+                    query: args[i + 1].clone(),
                 });
                 i += 1; // Skip next arg
             }
@@ -212,7 +216,7 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                     return Err("spaces requires a workspace_id argument".to_string());
                 }
                 operation = Some(DebugOperation::Spaces {
-                    workspace_id: args[i + 1].clone()
+                    workspace_id: args[i + 1].clone(),
                 });
                 i += 1; // Skip next arg
             }
@@ -224,7 +228,7 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                     return Err("folders requires a space_id argument".to_string());
                 }
                 operation = Some(DebugOperation::Folders {
-                    space_id: args[i + 1].clone()
+                    space_id: args[i + 1].clone(),
                 });
                 i += 1; // Skip next arg
             }
@@ -254,7 +258,7 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                     return Err("task requires a task_id argument".to_string());
                 }
                 operation = Some(DebugOperation::Task {
-                    task_id: args[i + 1].clone()
+                    task_id: args[i + 1].clone(),
                 });
                 i += 1; // Skip next arg
             }
@@ -266,7 +270,7 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                     return Err("explore requires a workspace_id argument".to_string());
                 }
                 operation = Some(DebugOperation::Explore {
-                    workspace_id: args[i + 1].clone()
+                    workspace_id: args[i + 1].clone(),
                 });
                 i += 1; // Skip next arg
             }
@@ -278,7 +282,7 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                     return Err("comments requires a task_id argument".to_string());
                 }
                 operation = Some(DebugOperation::Comments {
-                    task_id: args[i + 1].clone()
+                    task_id: args[i + 1].clone(),
                 });
                 i += 1; // Skip next arg
             }
@@ -290,7 +294,7 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                     return Err("create-comment requires a task_id argument".to_string());
                 }
                 operation = Some(DebugOperation::CreateComment {
-                    task_id: args[i + 1].clone()
+                    task_id: args[i + 1].clone(),
                 });
                 i += 1;
             }
@@ -302,7 +306,7 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                     return Err("create-reply requires a comment_id argument".to_string());
                 }
                 operation = Some(DebugOperation::CreateReply {
-                    comment_id: args[i + 1].clone()
+                    comment_id: args[i + 1].clone(),
                 });
                 i += 1;
             }
@@ -314,7 +318,7 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                     return Err("update-comment requires a comment_id argument".to_string());
                 }
                 operation = Some(DebugOperation::UpdateComment {
-                    comment_id: args[i + 1].clone()
+                    comment_id: args[i + 1].clone(),
                 });
                 i += 1;
             }
@@ -332,12 +336,14 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
         }
         i += 1;
     }
-    
+
     let op = operation.unwrap_or(DebugOperation::Help);
 
     // Validate comment operation arguments
     match &op {
-        DebugOperation::CreateComment { .. } | DebugOperation::CreateReply { .. } | DebugOperation::UpdateComment { .. } => {
+        DebugOperation::CreateComment { .. }
+        | DebugOperation::CreateReply { .. }
+        | DebugOperation::UpdateComment { .. } => {
             if text.is_none() {
                 return Err("--text is required for this operation".to_string());
             }
@@ -375,7 +381,9 @@ pub fn print_usage() {
     eprintln!("    auth-status             Check authentication status");
     eprintln!("    spaces <workspace_id>   List spaces in a workspace");
     eprintln!("    folders <space_id>      List folders in a space");
-    eprintln!("    lists <id>              List lists in a folder (use --in-space for space lists)");
+    eprintln!(
+        "    lists <id>              List lists in a folder (use --in-space for space lists)"
+    );
     eprintln!("    task <task_id>          Get a single task");
     eprintln!("    comments <task_id>      Get comments for a task");
     eprintln!("    explore <workspace_id>  Explore full hierarchy (spaces->folders->lists->tasks)");
@@ -387,7 +395,9 @@ pub fn print_usage() {
     eprintln!("    --json                  Output in JSON format");
     eprintln!("    --verbose, -v           Enable verbose logging");
     eprintln!("    --token <token>         Override stored token (for testing)");
-    eprintln!("    --in-space              Use with 'lists' to list space lists instead of folder lists");
+    eprintln!(
+        "    --in-space              Use with 'lists' to list space lists instead of folder lists"
+    );
     eprintln!("    --text <text>           Comment text (for create/update operations)");
     eprintln!("    --parent-id <id>        Parent comment ID (for threaded comments)");
     eprintln!("    --assignee <user_id>    Assign comment to user");

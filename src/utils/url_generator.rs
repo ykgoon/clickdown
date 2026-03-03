@@ -169,7 +169,10 @@ impl UrlGenerator for ClickUpUrlGenerator {
         }
         // ClickUp space URLs use the format:
         // https://app.clickup.com/{workspace_id}/v/o/s/{space_id}
-        Ok(format!("{}/{}/v/o/s/{}", CLICKUP_BASE_URL, workspace_id, space_id))
+        Ok(format!(
+            "{}/{}/v/o/s/{}",
+            CLICKUP_BASE_URL, workspace_id, space_id
+        ))
     }
 
     fn folder_url(workspace_id: &str, folder_id: &str) -> UrlResult<String> {
@@ -181,7 +184,10 @@ impl UrlGenerator for ClickUpUrlGenerator {
         }
         // ClickUp folder URLs use the format:
         // https://app.clickup.com/{workspace_id}/v/o/f/{folder_id}
-        Ok(format!("{}/{}/v/o/f/{}", CLICKUP_BASE_URL, workspace_id, folder_id))
+        Ok(format!(
+            "{}/{}/v/o/f/{}",
+            CLICKUP_BASE_URL, workspace_id, folder_id
+        ))
     }
 
     fn list_url(workspace_id: &str, list_id: &str) -> UrlResult<String> {
@@ -195,7 +201,10 @@ impl UrlGenerator for ClickUpUrlGenerator {
         // https://app.clickup.com/{workspace_id}/v/l/{view}-{list_id}-{suffix}
         // where view is typically "6" (list view) and suffix is typically "1"
         // Note: This format may vary based on the workspace configuration
-        Ok(format!("{}/{}/v/l/6-{}-1", CLICKUP_BASE_URL, workspace_id, list_id))
+        Ok(format!(
+            "{}/{}/v/l/6-{}-1",
+            CLICKUP_BASE_URL, workspace_id, list_id
+        ))
     }
 
     fn task_url(_workspace_id: &str, _list_id: &str, task_id: &str) -> UrlResult<String> {
@@ -219,7 +228,10 @@ impl UrlGenerator for ClickUpUrlGenerator {
         if comment_id.is_empty() {
             return Err(UrlError::MissingComment);
         }
-        Ok(format!("{}/t/{}?comment={}", CLICKUP_BASE_URL, task_id, comment_id))
+        Ok(format!(
+            "{}/t/{}?comment={}",
+            CLICKUP_BASE_URL, task_id, comment_id
+        ))
     }
 
     fn document_url(_workspace_id: &str, doc_id: &str) -> UrlResult<String> {
@@ -311,8 +323,7 @@ mod tests {
     #[test]
     fn test_task_url_generation() {
         // Short-form URL: workspace and list params are ignored
-        let url =
-            ClickUpUrlGenerator::task_url("ws123", "list012", "task345").unwrap();
+        let url = ClickUpUrlGenerator::task_url("ws123", "list012", "task345").unwrap();
         assert_eq!(url, "https://app.clickup.com/t/task345");
     }
 
@@ -325,27 +336,14 @@ mod tests {
     #[test]
     fn test_comment_url_generation() {
         // Short-form URL with query parameter: workspace and list params are ignored
-        let url = ClickUpUrlGenerator::comment_url(
-            "ws123",
-            "list012",
-            "task345",
-            "comment678",
-        )
-        .unwrap();
-        assert_eq!(
-            url,
-            "https://app.clickup.com/t/task345?comment=comment678"
-        );
+        let url =
+            ClickUpUrlGenerator::comment_url("ws123", "list012", "task345", "comment678").unwrap();
+        assert_eq!(url, "https://app.clickup.com/t/task345?comment=comment678");
     }
 
     #[test]
     fn test_comment_url_missing_comment() {
-        let result = ClickUpUrlGenerator::comment_url(
-            "ws123",
-            "list012",
-            "task345",
-            "",
-        );
+        let result = ClickUpUrlGenerator::comment_url("ws123", "list012", "task345", "");
         assert_eq!(result, Err(UrlError::MissingComment));
     }
 
@@ -384,7 +382,10 @@ mod tests {
 
     #[test]
     fn test_url_error_display() {
-        assert_eq!(UrlError::MissingWorkspace.to_string(), "missing workspace ID");
+        assert_eq!(
+            UrlError::MissingWorkspace.to_string(),
+            "missing workspace ID"
+        );
         assert_eq!(UrlError::MissingList.to_string(), "missing list ID");
         assert_eq!(UrlError::MissingTask.to_string(), "missing task ID");
         assert_eq!(UrlError::MissingComment.to_string(), "missing comment ID");

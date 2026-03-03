@@ -28,10 +28,10 @@
 //! The error message will include the field path (via `serde_path_to_error`) to help
 //! identify which field caused the failure.
 
-use serde::{Deserialize, Serialize};
 use crate::utils::deserializers::{
-    null_to_empty_string, flexible_string, null_to_false, flexible_timestamp, null_to_default_id,
+    flexible_string, flexible_timestamp, null_to_default_id, null_to_empty_string, null_to_false,
 };
+use serde::{Deserialize, Serialize};
 
 /// A ClickUp Comment
 ///
@@ -64,10 +64,18 @@ pub struct Comment {
     #[serde(default, deserialize_with = "flexible_string")]
     pub id: String,
     /// Full comment content (empty string if null)
-    #[serde(default, deserialize_with = "null_to_empty_string", rename = "comment_text")]
+    #[serde(
+        default,
+        deserialize_with = "null_to_empty_string",
+        rename = "comment_text"
+    )]
     pub text: String,
     /// Truncated preview text (empty string if null)
-    #[serde(default, deserialize_with = "null_to_empty_string", rename = "text_preview")]
+    #[serde(
+        default,
+        deserialize_with = "null_to_empty_string",
+        rename = "text_preview"
+    )]
     pub text_preview: String,
     /// Comment author (None if null or missing)
     #[serde(default, rename = "user")]
@@ -76,7 +84,11 @@ pub struct Comment {
     #[serde(default, rename = "date", deserialize_with = "flexible_timestamp")]
     pub created_at: Option<i64>,
     /// Last update timestamp in milliseconds since epoch (None if null/missing)
-    #[serde(default, rename = "date_updated", deserialize_with = "flexible_timestamp")]
+    #[serde(
+        default,
+        rename = "date_updated",
+        deserialize_with = "flexible_timestamp"
+    )]
     pub updated_at: Option<i64>,
     /// User assigned to this comment (None if null/missing)
     #[serde(default, rename = "assignee")]
@@ -426,8 +438,14 @@ mod tests {
         let err = result.unwrap_err();
         // Error should mention the type issue (float not matching int/string variants)
         let err_msg = err.to_string().to_lowercase();
-        assert!(err_msg.contains("invalid") || err_msg.contains("type") || err_msg.contains("variant") || err_msg.contains("timestampvalue"),
-                "Error should indicate the problem: {}", err);
+        assert!(
+            err_msg.contains("invalid")
+                || err_msg.contains("type")
+                || err_msg.contains("variant")
+                || err_msg.contains("timestampvalue"),
+            "Error should indicate the problem: {}",
+            err
+        );
     }
 
     #[test]

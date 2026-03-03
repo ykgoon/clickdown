@@ -1,14 +1,14 @@
 //! Task list widget
 
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Style, Modifier},
-    widgets::{Block, Borders, List, ListItem},
-    text::{Line, Span},
-};
 use crate::models::Task;
 use crate::tui::helpers::SelectableList;
+use ratatui::{
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem},
+    Frame,
+};
 
 /// Task list state
 #[derive(Debug, Clone)]
@@ -93,31 +93,54 @@ fn get_priority_indicator(priority: &Option<crate::models::Priority>) -> &'stati
 }
 
 pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect) {
-    let items: Vec<ListItem> = state.tasks().iter().map(|task| {
-        let status_color = get_status_color(&task.status);
-        let priority = get_priority_indicator(&task.priority);
+    let items: Vec<ListItem> = state
+        .tasks()
+        .iter()
+        .map(|task| {
+            let status_color = get_status_color(&task.status);
+            let priority = get_priority_indicator(&task.priority);
 
-        let status_str = task.status.as_ref()
-            .map(|s| s.status.chars().next().unwrap_or(' ').to_uppercase().to_string())
-            .unwrap_or_else(|| "-".to_string());
+            let status_str = task
+                .status
+                .as_ref()
+                .map(|s| {
+                    s.status
+                        .chars()
+                        .next()
+                        .unwrap_or(' ')
+                        .to_uppercase()
+                        .to_string()
+                })
+                .unwrap_or_else(|| "-".to_string());
 
-        ListItem::new(Line::from(vec![
-            Span::styled(format!("[{}] ", priority), Style::default().fg(Color::Yellow)),
-            Span::styled(status_str, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
-            Span::raw(" "),
-            Span::raw(task.name.as_str()),
-        ]))
-    }).collect();
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    format!("[{}] ", priority),
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::styled(
+                    status_str,
+                    Style::default()
+                        .fg(status_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" "),
+                Span::raw(task.name.as_str()),
+            ]))
+        })
+        .collect();
 
     let list = List::new(items)
-        .block(Block::default()
-            .title(" Tasks ")
-            .borders(Borders::ALL)
-            .style(Style::default().bg(Color::Black)))
+        .block(
+            Block::default()
+                .title(" Tasks ")
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::Black)),
+        )
         .highlight_style(
             Style::default()
                 .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▸ ");
 

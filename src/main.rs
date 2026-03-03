@@ -1,12 +1,12 @@
 //! ClickDown - A TUI ClickUp client
 
 mod api;
-mod models;
 mod cache;
-mod config;
-mod tui;
 mod cli;
 mod commands;
+mod config;
+mod models;
+mod tui;
 mod utils;
 
 use anyhow::Result;

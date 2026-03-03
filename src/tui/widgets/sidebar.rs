@@ -1,21 +1,36 @@
 //! Sidebar widget for workspace hierarchy navigation
 
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Style, Modifier},
-    widgets::{Block, Borders, List, ListItem},
-    text::{Line, Span},
-};
 use crate::tui::helpers::SelectableList;
+use ratatui::{
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem},
+    Frame,
+};
 
 /// Sidebar item types
 #[derive(Debug, Clone)]
 pub enum SidebarItem {
-    Workspace { name: String, id: String },
-    Space { name: String, id: String, indent: usize },
-    Folder { name: String, id: String, indent: usize },
-    List { name: String, id: String, indent: usize },
+    Workspace {
+        name: String,
+        id: String,
+    },
+    Space {
+        name: String,
+        id: String,
+        indent: usize,
+    },
+    Folder {
+        name: String,
+        id: String,
+        indent: usize,
+    },
+    List {
+        name: String,
+        id: String,
+        indent: usize,
+    },
 }
 
 impl SidebarItem {
@@ -98,37 +113,44 @@ impl Default for SidebarState {
 
 /// Render the sidebar
 pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
-    let items: Vec<ListItem> = state.items().iter().map(|item| {
-        let (prefix, content) = match item {
-            SidebarItem::Workspace { name, .. } => {
-                ("", Span::styled(name, Style::default().add_modifier(Modifier::BOLD)))
-            }
-            SidebarItem::Space { name, .. } => {
-                ("  ", Span::raw(name.as_str()))
-            }
-            SidebarItem::Folder { name, .. } => {
-                ("    ", Span::raw(name.as_str()))
-            }
-            SidebarItem::List { name, .. } => {
-                ("      ", Span::styled(name, Style::default().fg(Color::Cyan)))
-            }
-        };
+    let items: Vec<ListItem> = state
+        .items()
+        .iter()
+        .map(|item| {
+            let (type_label, name, name_style) = match item {
+                SidebarItem::Workspace { name, .. } => (
+                    "WS",
+                    name.as_str(),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+                SidebarItem::Space { name, .. } => ("SP", name.as_str(), Style::default()),
+                SidebarItem::Folder { name, .. } => ("FL", name.as_str(), Style::default()),
+                SidebarItem::List { name, .. } => {
+                    ("LI", name.as_str(), Style::default().fg(Color::Cyan))
+                }
+            };
 
-        ListItem::new(Line::from(vec![
-            Span::raw(prefix),
-            content,
-        ]))
-    }).collect();
+            let line = Line::from(vec![
+                Span::styled(type_label, Style::default().fg(Color::DarkGray)),
+                Span::raw(" "),
+                Span::styled(name, name_style),
+            ]);
+
+            ListItem::new(line)
+        })
+        .collect();
 
     let sidebar = List::new(items)
-        .block(Block::default()
-            .title(" Navigation ")
-            .borders(Borders::ALL)
-            .style(Style::default().bg(Color::Black)))
+        .block(
+            Block::default()
+                .title(" Navigation ")
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::Black)),
+        )
         .highlight_style(
             Style::default()
                 .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▸ ");
 
@@ -148,9 +170,18 @@ mod tests {
     fn test_select_by_id_finds_matching_item() {
         let mut state = SidebarState::new();
         *state.items_mut() = vec![
-            SidebarItem::Workspace { name: "WS1".to_string(), id: "ws-1".to_string() },
-            SidebarItem::Workspace { name: "WS2".to_string(), id: "ws-2".to_string() },
-            SidebarItem::Workspace { name: "WS3".to_string(), id: "ws-3".to_string() },
+            SidebarItem::Workspace {
+                name: "WS1".to_string(),
+                id: "ws-1".to_string(),
+            },
+            SidebarItem::Workspace {
+                name: "WS2".to_string(),
+                id: "ws-2".to_string(),
+            },
+            SidebarItem::Workspace {
+                name: "WS3".to_string(),
+                id: "ws-3".to_string(),
+            },
         ];
 
         let found = state.select_by_id("ws-2");
@@ -163,14 +194,24 @@ mod tests {
     fn test_select_by_id_returns_false_for_non_existent_id() {
         let mut state = SidebarState::new();
         *state.items_mut() = vec![
-            SidebarItem::Workspace { name: "WS1".to_string(), id: "ws-1".to_string() },
-            SidebarItem::Workspace { name: "WS2".to_string(), id: "ws-2".to_string() },
+            SidebarItem::Workspace {
+                name: "WS1".to_string(),
+                id: "ws-1".to_string(),
+            },
+            SidebarItem::Workspace {
+                name: "WS2".to_string(),
+                id: "ws-2".to_string(),
+            },
         ];
 
         let found = state.select_by_id("ws-nonexistent");
 
         assert!(!found, "Should not find non-existent ID");
-        assert_eq!(state.state().selected(), None, "Should not change selection");
+        assert_eq!(
+            state.state().selected(),
+            None,
+            "Should not change selection"
+        );
     }
 
     #[test]
@@ -184,16 +225,31 @@ mod tests {
 
     #[test]
     fn test_sidebar_item_id() {
-        let workspace = SidebarItem::Workspace { name: "Test".to_string(), id: "ws-123".to_string() };
+        let workspace = SidebarItem::Workspace {
+            name: "Test".to_string(),
+            id: "ws-123".to_string(),
+        };
         assert_eq!(workspace.id(), "ws-123");
 
-        let space = SidebarItem::Space { name: "Test".to_string(), id: "sp-456".to_string(), indent: 1 };
+        let space = SidebarItem::Space {
+            name: "Test".to_string(),
+            id: "sp-456".to_string(),
+            indent: 1,
+        };
         assert_eq!(space.id(), "sp-456");
 
-        let folder = SidebarItem::Folder { name: "Test".to_string(), id: "fd-789".to_string(), indent: 2 };
+        let folder = SidebarItem::Folder {
+            name: "Test".to_string(),
+            id: "fd-789".to_string(),
+            indent: 2,
+        };
         assert_eq!(folder.id(), "fd-789");
 
-        let list = SidebarItem::List { name: "Test".to_string(), id: "lt-abc".to_string(), indent: 3 };
+        let list = SidebarItem::List {
+            name: "Test".to_string(),
+            id: "lt-abc".to_string(),
+            indent: 3,
+        };
         assert_eq!(list.id(), "lt-abc");
     }
 }

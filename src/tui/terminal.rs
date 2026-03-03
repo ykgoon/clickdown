@@ -1,28 +1,28 @@
 //! Terminal initialization and management
 
-use std::io;
+use anyhow::Result;
 use crossterm::{
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen, Clear, ClearType},
+    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
-use ratatui::{Terminal, backend::CrosstermBackend, Frame};
-use anyhow::Result;
+use ratatui::{backend::CrosstermBackend, Frame, Terminal};
+use std::io;
 
 /// Initialize the terminal for TUI rendering
 pub fn init() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     // Enter alternate screen
     io::stdout().execute(EnterAlternateScreen)?;
-    
+
     // Enter raw mode for direct input capture
     terminal::enable_raw_mode()?;
-    
+
     // Create backend and terminal
     let backend = CrosstermBackend::new(io::stdout());
     let terminal = Terminal::new(backend)?;
-    
+
     // Clear the screen
     io::stdout().execute(Clear(ClearType::All))?;
-    
+
     Ok(terminal)
 }
 
@@ -30,13 +30,13 @@ pub fn init() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
 pub fn restore() -> Result<()> {
     // Leave alternate screen
     io::stdout().execute(LeaveAlternateScreen)?;
-    
+
     // Disable raw mode
     terminal::disable_raw_mode()?;
-    
+
     // Clear the screen
     io::stdout().execute(Clear(ClearType::All))?;
-    
+
     Ok(())
 }
 

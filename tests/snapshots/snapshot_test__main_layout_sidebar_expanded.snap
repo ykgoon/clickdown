@@ -3,10 +3,10 @@ source: tests/snapshot_test.rs
 expression: snapshot
 ---
 ┌ Navigation ──────────────────────────────────────────────────────────────────┐
-│Engineering                                                                   │
-│  Backend                                                                     │
-│    API                                                                       │
-│      Sprint Tasks                                                            │
+│WS Engineering                                                                │
+│SP Backend                                                                    │
+│FL API                                                                        │
+│LI Sprint Tasks                                                               │
 │                                                                              │
 │                                                                              │
 │                                                                              │

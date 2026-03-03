@@ -58,9 +58,7 @@ where
     match opt {
         None => Ok(None),
         Some(TimestampValue::Int(v)) => Ok(Some(v)),
-        Some(TimestampValue::String(s)) => {
-            s.parse::<i64>().map(Some).map_err(de::Error::custom)
-        }
+        Some(TimestampValue::String(s)) => s.parse::<i64>().map(Some).map_err(de::Error::custom),
     }
 }
 
@@ -80,9 +78,7 @@ where
     match opt {
         None => Ok(None),
         Some(IntValue::Int(v)) => Ok(Some(v)),
-        Some(IntValue::String(s)) => {
-            s.parse::<i32>().map(Some).map_err(de::Error::custom)
-        }
+        Some(IntValue::String(s)) => s.parse::<i32>().map(Some).map_err(de::Error::custom),
     }
 }
 
@@ -102,9 +98,7 @@ where
     match opt {
         None => Ok(None),
         Some(I64Value::Int(v)) => Ok(Some(v)),
-        Some(I64Value::String(s)) => {
-            s.parse::<i64>().map(Some).map_err(de::Error::custom)
-        }
+        Some(I64Value::String(s)) => s.parse::<i64>().map(Some).map_err(de::Error::custom),
     }
 }
 

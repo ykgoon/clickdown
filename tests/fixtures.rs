@@ -1,10 +1,10 @@
 //! Test fixtures for ClickDown tests
 
-use clickdown::models::workspace::{Workspace, Space, Folder, List};
-use clickdown::models::task::Task;
-use clickdown::models::document::Document;
-use clickdown::models::CommentUser;
 use clickdown::models::comment::Comment;
+use clickdown::models::document::Document;
+use clickdown::models::task::Task;
+use clickdown::models::workspace::{Folder, List, Space, Workspace};
+use clickdown::models::CommentUser;
 
 /// Create a test workspace
 pub fn test_workspace() -> Workspace {

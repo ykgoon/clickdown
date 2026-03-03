@@ -1,13 +1,13 @@
 //! Document view widget
 
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use ratatui::{
-    Frame,
     layout::Rect,
     style::{Color, Style},
-    widgets::{Block, Borders, Paragraph},
     text::Line,
+    widgets::{Block, Borders, Paragraph},
+    Frame,
 };
-use pulldown_cmark::{Parser, Event, Tag, TagEnd};
 
 /// Document state
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ impl Default for DocumentState {
 fn markdown_to_text(md: &str) -> String {
     let parser = Parser::new(md);
     let mut result = String::new();
-    
+
     for event in parser {
         match event {
             Event::Text(text) => result.push_str(&text),
@@ -48,7 +48,7 @@ fn markdown_to_text(md: &str) -> String {
             _ => {}
         }
     }
-    
+
     result
 }
 
@@ -57,22 +57,21 @@ pub fn render_document(frame: &mut Frame, state: &DocumentState, area: Rect) {
         .title(format!(" {} ", state.title))
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black));
-    
+
     frame.render_widget(block, area);
-    
+
     let inner_area = Rect::new(
         area.x + 1,
         area.y + 1,
         area.width.saturating_sub(2),
         area.height.saturating_sub(2),
     );
-    
+
     let text = markdown_to_text(&state.content);
     let lines: Vec<Line> = text.lines().map(|l| Line::from(l.to_string())).collect();
-    
-    let paragraph = Paragraph::new(lines)
-        .style(Style::default().fg(Color::White));
-    
+
+    let paragraph = Paragraph::new(lines).style(Style::default().fg(Color::White));
+
     frame.render_widget(paragraph, inner_area);
 }
 

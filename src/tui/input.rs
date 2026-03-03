@@ -1,8 +1,8 @@
 //! Input event handling for TUI
 
-use crossterm::event::{self, Event, KeyEvent, KeyCode, KeyModifiers};
-use std::time::Duration;
 use anyhow::Result;
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use std::time::Duration;
 
 /// Represents a TUI input event
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ pub fn poll(timeout: Duration) -> Result<bool> {
 /// Read the next event
 pub fn read() -> Result<InputEvent> {
     let event = event::read()?;
-    
+
     match event {
         Event::Key(key) => Ok(InputEvent::Key(key)),
         Event::Resize(width, height) => Ok(InputEvent::Resize(width, height)),

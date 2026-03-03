@@ -1,11 +1,11 @@
 //! Authentication widget
 
 use ratatui::{
-    Frame,
-    layout::{Rect, Constraint, Direction, Layout},
-    style::{Color, Style, Modifier},
-    widgets::{Block, Borders, Paragraph, Clear},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph},
+    Frame,
 };
 
 /// Authentication state
@@ -26,19 +26,19 @@ impl AuthState {
             loading: false,
         }
     }
-    
+
     pub fn add_char(&mut self, c: char) {
         self.token_input.insert(self.cursor_pos, c);
         self.cursor_pos += 1;
     }
-    
+
     pub fn remove_char(&mut self) {
         if self.cursor_pos > 0 {
             self.cursor_pos -= 1;
             self.token_input.remove(self.cursor_pos);
         }
     }
-    
+
     pub fn clear(&mut self) {
         self.token_input.clear();
         self.cursor_pos = 0;
@@ -55,16 +55,16 @@ impl Default for AuthState {
 pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
     // Center the auth box
     let auth_area = centered_rect(60, 40, area);
-    
+
     frame.render_widget(Clear, auth_area);
-    
+
     let block = Block::default()
         .title(" Authentication ")
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Blue));
-    
+
     frame.render_widget(block, auth_area);
-    
+
     let inner = Layout::default()
         .direction(Direction::Vertical)
         .margin(2)
@@ -77,17 +77,17 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
             Constraint::Min(1),
         ])
         .split(auth_area);
-    
+
     // Title
     let title = Paragraph::new("Enter your ClickUp API Token")
         .style(Style::default().add_modifier(Modifier::BOLD));
     frame.render_widget(title, inner[0]);
-    
+
     // Help text
     let help = Paragraph::new("Get your token from ClickUp Settings → Apps → ClickUp API")
         .style(Style::default().fg(Color::DarkGray));
     frame.render_widget(help, inner[1]);
-    
+
     // Token input (partially masked: first 4 chars visible, rest masked)
     let input_display = if state.loading {
         "Loading...".to_string()
@@ -104,7 +104,7 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
         for i in 0..=token_chars.len() {
             // Add cursor indicator at cursor position
             if i == state.cursor_pos {
-                display.push('█');  // Block cursor for better visibility
+                display.push('█'); // Block cursor for better visibility
             }
             // Add character or bullet
             if i < token_chars.len() {
@@ -124,19 +124,21 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
     };
 
     // Use bright white for better visibility
-    let input = Paragraph::new(format!("Token: {}", input_display))
-        .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+    let input = Paragraph::new(format!("Token: {}", input_display)).style(
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    );
     frame.render_widget(input, inner[2]);
-    
+
     // Show token length for debugging
     let token_len_info = Paragraph::new(format!("({} characters)", state.token_input.len()))
         .style(Style::default().fg(Color::Gray));
     frame.render_widget(token_len_info, inner[3]);
-    
+
     // Error message
     if let Some(ref error) = state.error {
-        let error_para = Paragraph::new(error.as_str())
-            .style(Style::default().fg(Color::Red));
+        let error_para = Paragraph::new(error.as_str()).style(Style::default().fg(Color::Red));
         frame.render_widget(error_para, inner[4]);
     }
 
@@ -156,7 +158,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             Constraint::Percentage((100 - percent_y) / 2),
         ])
         .split(area);
-    
+
     Layout::default()
         .direction(Direction::Horizontal)
         .constraints([

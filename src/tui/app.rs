@@ -1,32 +1,36 @@
 //! Main TUI application
 
-use std::sync::Arc;
-use std::time::Duration;
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::{Frame, prelude::Rect, layout::{Layout, Direction, Constraint}};
+use ratatui::{
+    layout::{Constraint, Direction, Layout},
+    prelude::Rect,
+    Frame,
+};
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
-use crate::api::{ClickUpApi, AuthManager, ClickUpClient};
+use crate::api::{AuthManager, ClickUpApi, ClickUpClient};
 use crate::cache::CacheManager;
 use crate::config::ConfigManager;
-use crate::models::{Workspace, ClickUpSpace, Folder, List, Task, Document, Comment, CreateCommentRequest, UpdateCommentRequest, SessionState};
-use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlError, UrlGenerator};
+use crate::models::{
+    ClickUpSpace, Comment, CreateCommentRequest, Document, Folder, List, SessionState, Task,
+    UpdateCommentRequest, Workspace,
+};
 use crate::tui::widgets::SidebarItem;
+use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlError, UrlGenerator};
 
+use super::input::{is_enter, is_escape, is_quit, InputEvent};
+use super::layout::{generate_screen_title, split_task_detail, TuiLayout};
 use super::terminal;
-use super::layout::{TuiLayout, generate_screen_title, split_task_detail};
-use super::input::{InputEvent, is_quit, is_enter, is_escape};
 use super::widgets::{
-    SidebarState, render_sidebar, get_sidebar_hints,
-    TaskListState, render_task_list, get_task_list_hints,
-    TaskDetailState, render_task_detail, get_task_detail_hints,
-    AuthState, render_auth, get_auth_hints,
-    DocumentState, render_document, get_document_hints,
-    DialogState, DialogType, render_dialog, get_dialog_hints,
-    HelpState, render_help, get_help_hints,
-    render_comments,
+    get_auth_hints, get_dialog_hints, get_document_hints, get_help_hints, get_sidebar_hints,
+    get_task_detail_hints, get_task_list_hints, render_auth, render_comments, render_dialog,
+    render_document, render_help, render_sidebar, render_task_detail, render_task_list, AuthState,
+    DialogState, DialogType, DocumentState, HelpState, SidebarState, TaskDetailState,
+    TaskListState,
 };
 
 /// Application screens
@@ -270,19 +274,19 @@ impl TuiApp {
 
         Ok(app)
     }
-    
+
     /// Run the TUI application
     pub fn run(&mut self) -> Result<()> {
         let mut terminal = terminal::init()?;
         let mut last_render = std::time::Instant::now();
         let render_interval = Duration::from_millis(33); // ~30 FPS
-        
+
         let result = self.run_loop(&mut terminal, &mut last_render, render_interval);
-        
+
         terminal::restore()?;
         result
     }
-    
+
     fn run_loop(
         &mut self,
         terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
@@ -326,7 +330,7 @@ impl TuiApp {
             while let Ok(msg) = rx.try_recv() {
                 messages.push(msg);
             }
-            
+
             // Now process messages without holding the borrow
             for msg in messages {
                 match msg {
@@ -336,46 +340,65 @@ impl TuiApp {
                             Ok(workspaces) => {
                                 self.workspaces = workspaces.clone();
                                 // Populate sidebar with workspaces
-                                *self.sidebar.items_mut() = self.workspaces.iter()
+                                *self.sidebar.items_mut() = self
+                                    .workspaces
+                                    .iter()
                                     .map(|w| SidebarItem::Workspace {
                                         name: w.name.clone(),
-                                        id: w.id.clone()
+                                        id: w.id.clone(),
                                     })
                                     .collect();
-                                
+
                                 // Check if we're restoring a session
                                 if self.restoring_session {
                                     // Try to select the restored workspace
                                     if let Some(restored_id) = self.restored_workspace_id.clone() {
                                         if self.sidebar.select_by_id(&restored_id) {
                                             // Found the workspace, load its spaces
-                                            let workspace_name = self.workspaces.iter()
+                                            let workspace_name = self
+                                                .workspaces
+                                                .iter()
                                                 .find(|w| w.id == restored_id)
                                                 .map(|w| w.name.clone())
                                                 .unwrap_or_default();
                                             self.load_spaces(restored_id.clone());
                                             self.screen = Screen::Spaces;
-                                            self.screen_title = generate_screen_title(&workspace_name);
+                                            self.screen_title =
+                                                generate_screen_title(&workspace_name);
                                         } else {
                                             // Workspace not found, fallback to Workspaces screen
                                             self.restoring_session = false;
                                             self.screen = Screen::Workspaces;
                                             self.screen_title = generate_screen_title("Workspaces");
-                                            self.status = "Saved workspace not found, showing workspaces".to_string();
+                                            self.status =
+                                                "Saved workspace not found, showing workspaces"
+                                                    .to_string();
                                             tracing::warn!("Restored workspace {} not found, falling back to Workspaces", restored_id);
                                         }
                                     } else {
                                         // No workspace ID saved, stay at Workspaces
                                         self.restoring_session = false;
                                         self.sidebar.select_first();
-                                        self.status = format!("Loaded {} workspace(s)", self.workspaces.len());
+                                        self.status = format!(
+                                            "Loaded {} workspace(s)",
+                                            self.workspaces.len()
+                                        );
                                     }
                                 } else {
                                     // Normal behavior (not restoring)
-                                    self.sidebar.select_first();
-                                    self.status = format!("Loaded {} workspace(s)", self.workspaces.len());
+                                    // Check if we have a current_workspace_id from navigation context
+                                    if let Some(ref workspace_id) = self.current_workspace_id {
+                                        if !self.sidebar.select_by_id(workspace_id) {
+                                            // Workspace not found, fallback to first
+                                            self.sidebar.select_first();
+                                        }
+                                    } else {
+                                        self.sidebar.select_first();
+                                    }
+                                    self.status =
+                                        format!("Loaded {} workspace(s)", self.workspaces.len());
                                 }
-                                
+
                                 self.state = AppState::Main;
                                 // Clear any previous error state
                                 self.error = None;
@@ -396,21 +419,25 @@ impl TuiApp {
                             Ok(spaces) => {
                                 self.spaces = spaces.clone();
                                 // Populate sidebar with spaces
-                                *self.sidebar.items_mut() = self.spaces.iter()
+                                *self.sidebar.items_mut() = self
+                                    .spaces
+                                    .iter()
                                     .map(|s| SidebarItem::Space {
                                         name: s.name.clone(),
                                         id: s.id.clone(),
                                         indent: 1,
                                     })
                                     .collect();
-                                
+
                                 // Check if we're restoring a session
                                 if self.restoring_session {
                                     // Try to select the restored space
                                     if let Some(restored_id) = self.restored_space_id.clone() {
                                         if self.sidebar.select_by_id(&restored_id) {
                                             // Found the space, load its folders
-                                            let space_name = self.spaces.iter()
+                                            let space_name = self
+                                                .spaces
+                                                .iter()
                                                 .find(|s| s.id == restored_id)
                                                 .map(|s| s.name.clone())
                                                 .unwrap_or_default();
@@ -422,21 +449,31 @@ impl TuiApp {
                                             self.restoring_session = false;
                                             self.screen = Screen::Spaces;
                                             self.screen_title = generate_screen_title("Spaces");
-                                            self.status = "Saved space not found, showing spaces".to_string();
+                                            self.status =
+                                                "Saved space not found, showing spaces".to_string();
                                             tracing::warn!("Restored space {} not found, falling back to Spaces", restored_id);
                                         }
                                     } else {
                                         // No space ID saved, stay at Spaces
                                         self.restoring_session = false;
                                         self.sidebar.select_first();
-                                        self.status = format!("Loaded {} space(s)", self.spaces.len());
+                                        self.status =
+                                            format!("Loaded {} space(s)", self.spaces.len());
                                     }
                                 } else {
                                     // Normal behavior (not restoring)
-                                    self.sidebar.select_first();
+                                    // Check if we have a current_space_id from navigation context
+                                    if let Some(ref space_id) = self.current_space_id {
+                                        if !self.sidebar.select_by_id(space_id) {
+                                            // Space not found, fallback to first
+                                            self.sidebar.select_first();
+                                        }
+                                    } else {
+                                        self.sidebar.select_first();
+                                    }
                                     self.status = format!("Loaded {} space(s)", self.spaces.len());
                                 }
-                                
+
                                 // Clear any previous error state
                                 self.error = None;
                             }
@@ -456,21 +493,25 @@ impl TuiApp {
                             Ok(folders) => {
                                 self.folders = folders.clone();
                                 // Populate sidebar with folders
-                                *self.sidebar.items_mut() = self.folders.iter()
+                                *self.sidebar.items_mut() = self
+                                    .folders
+                                    .iter()
                                     .map(|f| SidebarItem::Folder {
                                         name: f.name.clone(),
                                         id: f.id.clone(),
                                         indent: 2,
                                     })
                                     .collect();
-                                
+
                                 // Check if we're restoring a session
                                 if self.restoring_session {
                                     // Try to select the restored folder
                                     if let Some(restored_id) = self.restored_folder_id.clone() {
                                         if self.sidebar.select_by_id(&restored_id) {
                                             // Found the folder, load its lists
-                                            let folder_name = self.folders.iter()
+                                            let folder_name = self
+                                                .folders
+                                                .iter()
                                                 .find(|f| f.id == restored_id)
                                                 .map(|f| f.name.clone())
                                                 .unwrap_or_default();
@@ -482,21 +523,32 @@ impl TuiApp {
                                             self.restoring_session = false;
                                             self.screen = Screen::Folders;
                                             self.screen_title = generate_screen_title("Folders");
-                                            self.status = "Saved folder not found, showing folders".to_string();
+                                            self.status = "Saved folder not found, showing folders"
+                                                .to_string();
                                             tracing::warn!("Restored folder {} not found, falling back to Folders", restored_id);
                                         }
                                     } else {
                                         // No folder ID saved, stay at Folders
                                         self.restoring_session = false;
                                         self.sidebar.select_first();
-                                        self.status = format!("Loaded {} folder(s)", self.folders.len());
+                                        self.status =
+                                            format!("Loaded {} folder(s)", self.folders.len());
                                     }
                                 } else {
                                     // Normal behavior (not restoring)
-                                    self.sidebar.select_first();
-                                    self.status = format!("Loaded {} folder(s)", self.folders.len());
+                                    // Check if we have a current_folder_id from navigation context
+                                    if let Some(ref folder_id) = self.current_folder_id {
+                                        if !self.sidebar.select_by_id(folder_id) {
+                                            // Folder not found, fallback to first
+                                            self.sidebar.select_first();
+                                        }
+                                    } else {
+                                        self.sidebar.select_first();
+                                    }
+                                    self.status =
+                                        format!("Loaded {} folder(s)", self.folders.len());
                                 }
-                                
+
                                 // Clear any previous error state
                                 self.error = None;
                             }
@@ -516,47 +568,67 @@ impl TuiApp {
                             Ok(lists) => {
                                 self.lists = lists.clone();
                                 // Populate sidebar with lists
-                                *self.sidebar.items_mut() = self.lists.iter()
+                                *self.sidebar.items_mut() = self
+                                    .lists
+                                    .iter()
                                     .map(|l| SidebarItem::List {
                                         name: l.name.clone(),
                                         id: l.id.clone(),
                                         indent: 3,
                                     })
                                     .collect();
-                                
+
                                 // Check if we're restoring a session
                                 if self.restoring_session {
                                     // Try to select the restored list
                                     if let Some(restored_id) = self.restored_list_id.clone() {
                                         if self.sidebar.select_by_id(&restored_id) {
                                             // Found the list, load its tasks
-                                            let list_name = self.lists.iter()
+                                            let list_name = self
+                                                .lists
+                                                .iter()
                                                 .find(|l| l.id == restored_id)
                                                 .map(|l| l.name.clone())
                                                 .unwrap_or_default();
                                             self.load_tasks(restored_id.clone());
                                             self.screen = Screen::Tasks;
-                                            self.screen_title = generate_screen_title(&format!("Tasks: {}", list_name));
+                                            self.screen_title = generate_screen_title(&format!(
+                                                "Tasks: {}",
+                                                list_name
+                                            ));
                                         } else {
                                             // List not found, fallback to Lists screen
                                             self.restoring_session = false;
                                             self.screen = Screen::Lists;
                                             self.screen_title = generate_screen_title("Lists");
-                                            self.status = "Saved list not found, showing lists".to_string();
-                                            tracing::warn!("Restored list {} not found, falling back to Lists", restored_id);
+                                            self.status =
+                                                "Saved list not found, showing lists".to_string();
+                                            tracing::warn!(
+                                                "Restored list {} not found, falling back to Lists",
+                                                restored_id
+                                            );
                                         }
                                     } else {
                                         // No list ID saved, stay at Lists
                                         self.restoring_session = false;
                                         self.sidebar.select_first();
-                                        self.status = format!("Loaded {} list(s)", self.lists.len());
+                                        self.status =
+                                            format!("Loaded {} list(s)", self.lists.len());
                                     }
                                 } else {
                                     // Normal behavior (not restoring)
-                                    self.sidebar.select_first();
+                                    // Check if we have a current_list_id from navigation context
+                                    if let Some(ref list_id) = self.current_list_id {
+                                        if !self.sidebar.select_by_id(list_id) {
+                                            // List not found, fallback to first
+                                            self.sidebar.select_first();
+                                        }
+                                    } else {
+                                        self.sidebar.select_first();
+                                    }
                                     self.status = format!("Loaded {} list(s)", self.lists.len());
                                 }
-                                
+
                                 // Clear any previous error state
                                 self.error = None;
                             }
@@ -585,7 +657,12 @@ impl TuiApp {
                                     // Try to select the restored task
                                     if let Some(ref restored_id) = self.restored_task_id {
                                         // Find the task in the list
-                                        if let Some(task_idx) = self.task_list.tasks().iter().position(|t| &t.id == restored_id) {
+                                        if let Some(task_idx) = self
+                                            .task_list
+                                            .tasks()
+                                            .iter()
+                                            .position(|t| &t.id == restored_id)
+                                        {
                                             // Found the task, select it
                                             self.task_list.select(Some(task_idx));
 
@@ -593,27 +670,38 @@ impl TuiApp {
                                             // We need to check the original saved screen type
                                             // For now, stay at Tasks view - user can navigate to task detail
                                             self.restoring_session = false;
-                                            self.status = format!("Restored to Tasks view - {} task(s) loaded", self.task_list.tasks().len());
+                                            self.status = format!(
+                                                "Restored to Tasks view - {} task(s) loaded",
+                                                self.task_list.tasks().len()
+                                            );
                                             tracing::info!("Session restore complete: tasks loaded, task {} selected", restored_id);
                                         } else {
                                             // Task not found, stay at Tasks screen
                                             self.restoring_session = false;
                                             self.task_list.select_first();
-                                            self.status = "Saved task not found, showing tasks".to_string();
-                                            tracing::warn!("Restored task {} not found, falling back to Tasks", restored_id);
+                                            self.status =
+                                                "Saved task not found, showing tasks".to_string();
+                                            tracing::warn!(
+                                                "Restored task {} not found, falling back to Tasks",
+                                                restored_id
+                                            );
                                         }
                                     } else {
                                         // No task ID saved, stay at Tasks
                                         self.restoring_session = false;
                                         self.task_list.select_first();
-                                        self.status = format!("Loaded {} task(s)", self.task_list.tasks().len());
+                                        self.status = format!(
+                                            "Loaded {} task(s)",
+                                            self.task_list.tasks().len()
+                                        );
                                     }
                                 } else {
                                     // Normal behavior (not restoring)
                                     self.task_list.select_first();
-                                    self.status = format!("Loaded {} task(s)", self.task_list.tasks().len());
+                                    self.status =
+                                        format!("Loaded {} task(s)", self.task_list.tasks().len());
                                 }
-                                
+
                                 // Clear any previous error state
                                 self.error = None;
                             }
@@ -636,11 +724,13 @@ impl TuiApp {
                             Ok(comments) => {
                                 tracing::debug!("Loaded {} comments", comments.len());
                                 for (i, comment) in comments.iter().enumerate() {
-                                    tracing::debug!("Comment {}: id={}, parent_id={:?}, author={:?}",
+                                    tracing::debug!(
+                                        "Comment {}: id={}, parent_id={:?}, author={:?}",
                                         i,
                                         comment.id,
                                         comment.parent_id,
-                                        comment.commenter.as_ref().map(|c| &c.username));
+                                        comment.commenter.as_ref().map(|c| &c.username)
+                                    );
                                 }
                                 self.comments = comments;
                                 self.comment_selected_index = 0;
@@ -668,10 +758,15 @@ impl TuiApp {
                                 };
                             }
                             Err(e) => {
-                                self.error = Some(format!("Failed to create {}: {}", 
-                                    if is_reply { "reply" } else { "comment" }, e));
-                                self.status = format!("Failed to create {}", 
-                                    if is_reply { "reply" } else { "comment" });
+                                self.error = Some(format!(
+                                    "Failed to create {}: {}",
+                                    if is_reply { "reply" } else { "comment" },
+                                    e
+                                ));
+                                self.status = format!(
+                                    "Failed to create {}",
+                                    if is_reply { "reply" } else { "comment" }
+                                );
                             }
                         }
                     }
@@ -679,7 +774,9 @@ impl TuiApp {
                         self.loading = false;
                         match result {
                             Ok(comment) => {
-                                if let Some(idx) = self.comments.iter().position(|c| c.id == comment.id) {
+                                if let Some(idx) =
+                                    self.comments.iter().position(|c| c.id == comment.id)
+                                {
                                     self.comments[idx] = comment;
                                 }
                                 self.comment_new_text.clear();
@@ -696,13 +793,13 @@ impl TuiApp {
             }
         }
     }
-    
+
     fn handle_input(&mut self) -> Result<Option<InputEvent>> {
         use crossterm::event;
-        
+
         if event::poll(Duration::from_millis(16))? {
             let evt = event::read()?;
-            
+
             // Check for quit (Ctrl+Q)
             if let event::Event::Key(key) = &evt {
                 if is_quit(*key) {
@@ -710,7 +807,7 @@ impl TuiApp {
                     return Ok(Some(InputEvent::None));
                 }
             }
-            
+
             // Handle dialog input
             if self.dialog.is_visible() {
                 if let event::Event::Key(key) = evt {
@@ -743,13 +840,13 @@ impl TuiApp {
                     }
                 }
             }
-            
+
             // Handle help overlay
             if self.help.visible {
                 self.help.hide();
                 return Ok(Some(InputEvent::None));
             }
-            
+
             // Convert to InputEvent
             match evt {
                 event::Event::Key(key) => Ok(Some(InputEvent::Key(key))),
@@ -760,7 +857,7 @@ impl TuiApp {
             Ok(None)
         }
     }
-    
+
     fn update(&mut self, event: InputEvent) {
         // When help is visible, any key closes it
         if self.help.visible {
@@ -796,7 +893,7 @@ impl TuiApp {
             Screen::Document => self.update_document(event),
         }
     }
-    
+
     fn update_auth(&mut self, event: InputEvent) {
         if let InputEvent::Key(key) = event {
             match key.code {
@@ -819,7 +916,8 @@ impl TuiApp {
                                     self.status = "Pasted from clipboard".to_string();
                                 }
                                 Err(_) => {
-                                    self.status = "Paste failed: could not read clipboard".to_string();
+                                    self.status =
+                                        "Paste failed: could not read clipboard".to_string();
                                 }
                             }
                         }
@@ -838,7 +936,7 @@ impl TuiApp {
             }
         }
     }
-    
+
     fn update_navigation(&mut self, event: InputEvent) {
         if let InputEvent::Key(key) = event {
             match key.code {
@@ -861,7 +959,7 @@ impl TuiApp {
             }
         }
     }
-    
+
     fn update_tasks(&mut self, event: InputEvent) {
         if let InputEvent::Key(key) = event {
             match key.code {
@@ -906,7 +1004,7 @@ impl TuiApp {
             }
         }
     }
-    
+
     fn update_task_detail(&mut self, event: InputEvent) {
         if let InputEvent::Key(key) = event {
             // Handle comment editing input
@@ -921,7 +1019,10 @@ impl TuiApp {
                                     let text = self.comment_new_text.clone();
                                     // Validate text is not empty or whitespace-only
                                     if text.trim().is_empty() {
-                                        self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+                                        self.status = if matches!(
+                                            self.comment_view_mode,
+                                            CommentViewMode::InThread { .. }
+                                        ) {
                                             "Reply cannot be empty".to_string()
                                         } else {
                                             "Comment cannot be empty".to_string()
@@ -932,9 +1033,9 @@ impl TuiApp {
 
                                     // Determine parent_id based on view mode
                                     let parent_id = match &self.comment_view_mode {
-                                        CommentViewMode::InThread { parent_comment_id, .. } => {
-                                            Some(parent_comment_id.clone())
-                                        }
+                                        CommentViewMode::InThread {
+                                            parent_comment_id, ..
+                                        } => Some(parent_comment_id.clone()),
                                         CommentViewMode::TopLevel => None,
                                     };
 
@@ -959,7 +1060,10 @@ impl TuiApp {
                                 let text = self.comment_new_text.clone();
                                 // Validate text is not empty or whitespace-only
                                 if text.trim().is_empty() {
-                                    self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+                                    self.status = if matches!(
+                                        self.comment_view_mode,
+                                        CommentViewMode::InThread { .. }
+                                    ) {
                                         "Reply cannot be empty".to_string()
                                     } else {
                                         "Comment cannot be empty".to_string()
@@ -970,9 +1074,9 @@ impl TuiApp {
 
                                 // Determine parent_id based on view mode
                                 let parent_id = match &self.comment_view_mode {
-                                    CommentViewMode::InThread { parent_comment_id, .. } => {
-                                        Some(parent_comment_id.clone())
-                                    }
+                                    CommentViewMode::InThread {
+                                        parent_comment_id, ..
+                                    } => Some(parent_comment_id.clone()),
                                     CommentViewMode::TopLevel => None,
                                 };
 
@@ -985,11 +1089,12 @@ impl TuiApp {
                         // Cancel editing
                         self.comment_new_text.clear();
                         self.comment_editing_index = None;
-                        self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
-                            "Reply cancelled".to_string()
-                        } else {
-                            "Comment editing cancelled".to_string()
-                        };
+                        self.status =
+                            if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+                                "Reply cancelled".to_string()
+                            } else {
+                                "Comment editing cancelled".to_string()
+                            };
                         return;
                     }
                     KeyCode::Char(c) => {
@@ -1015,7 +1120,9 @@ impl TuiApp {
                         self.comment_selected_index = self.comment_previous_selection.unwrap_or(0);
                         self.comment_previous_selection = None;
                         self.status = "Back to top-level comments".to_string();
-                    } else if self.comment_editing_index.is_some() || !self.comment_new_text.is_empty() {
+                    } else if self.comment_editing_index.is_some()
+                        || !self.comment_new_text.is_empty()
+                    {
                         // Cancel comment editing
                         self.comment_new_text.clear();
                         self.comment_editing_index = None;
@@ -1071,7 +1178,9 @@ impl TuiApp {
                 }
                 KeyCode::Char('e') if self.comment_focus => {
                     // Edit selected comment (only in top-level view)
-                    if !self.comments.is_empty() && self.comment_selected_index < self.comments.len() {
+                    if !self.comments.is_empty()
+                        && self.comment_selected_index < self.comments.len()
+                    {
                         // Check if user owns the comment
                         let comment = &self.comments[self.comment_selected_index];
                         // For now, allow editing any comment (will add ownership check later)
@@ -1083,18 +1192,22 @@ impl TuiApp {
                 KeyCode::Enter if self.comment_focus => {
                     // Enter thread view when on a top-level comment
                     if matches!(self.comment_view_mode, CommentViewMode::TopLevel) {
-                        if !self.comments.is_empty() && self.comment_selected_index < self.comments.len() {
+                        if !self.comments.is_empty()
+                            && self.comment_selected_index < self.comments.len()
+                        {
                             let comment = &self.comments[self.comment_selected_index];
                             // Only enter thread if this is a top-level comment
                             if comment.parent_id.is_none() {
                                 // Store current selection for when we exit
                                 self.comment_previous_selection = Some(self.comment_selected_index);
-                                
+
                                 // Get author name for breadcrumb
-                                let author = comment.commenter.as_ref()
+                                let author = comment
+                                    .commenter
+                                    .as_ref()
                                     .map(|c| c.username.clone())
                                     .unwrap_or_else(|| "Unknown".to_string());
-                                
+
                                 // Switch to thread view
                                 self.comment_view_mode = CommentViewMode::InThread {
                                     parent_comment_id: comment.id.clone(),
@@ -1121,7 +1234,9 @@ impl TuiApp {
                         self.comment_editing_index = Some(usize::MAX);
 
                         let author = match &self.comment_view_mode {
-                            CommentViewMode::InThread { parent_author, .. } => parent_author.clone(),
+                            CommentViewMode::InThread { parent_author, .. } => {
+                                parent_author.clone()
+                            }
                             _ => "Unknown".to_string(),
                         };
 
@@ -1134,7 +1249,7 @@ impl TuiApp {
             }
         }
     }
-    
+
     fn update_document(&mut self, event: InputEvent) {
         if let InputEvent::Key(key) = event {
             match key.code {
@@ -1151,7 +1266,7 @@ impl TuiApp {
             }
         }
     }
-    
+
     fn navigate_into(&mut self) {
         // Navigate based on current screen and selection
         // Clone the selected item to avoid borrow checker issues
@@ -1199,41 +1314,159 @@ impl TuiApp {
             _ => {}
         }
     }
-    
+
     fn navigate_back(&mut self) {
         match self.screen {
-            Screen::Auth => {} // Can't go back from auth
+            Screen::Auth => {}       // Can't go back from auth
             Screen::Workspaces => {} // Can't go back from workspaces
             Screen::Spaces => {
+                // Navigate back to Workspaces
                 self.current_space_id = None;
                 self.current_folder_id = None;
                 self.current_list_id = None;
+
+                // Repopulate sidebar with workspaces
+                *self.sidebar.items_mut() = self
+                    .workspaces
+                    .iter()
+                    .map(|w| SidebarItem::Workspace {
+                        name: w.name.clone(),
+                        id: w.id.clone(),
+                    })
+                    .collect();
+
+                // Restore selection using current_workspace_id
+                if let Some(ref workspace_id) = self.current_workspace_id {
+                    if !self.sidebar.select_by_id(workspace_id) {
+                        // Workspace not found (e.g., was deleted), fallback to first
+                        self.sidebar.select_first();
+                        self.status = "Saved workspace not found, showing workspaces".to_string();
+                    }
+                } else {
+                    self.sidebar.select_first();
+                }
+
                 self.screen = Screen::Workspaces;
                 self.screen_title = generate_screen_title("Workspaces");
             }
             Screen::Folders => {
+                // Navigate back to Spaces
                 self.current_folder_id = None;
                 self.current_list_id = None;
+
+                // Repopulate sidebar with spaces from current workspace
+                *self.sidebar.items_mut() = self
+                    .spaces
+                    .iter()
+                    .map(|s| SidebarItem::Space {
+                        name: s.name.clone(),
+                        id: s.id.clone(),
+                        indent: 1,
+                    })
+                    .collect();
+
+                // Restore selection using current_space_id
+                if let Some(ref space_id) = self.current_space_id {
+                    if !self.sidebar.select_by_id(space_id) {
+                        // Space not found, fallback to first
+                        self.sidebar.select_first();
+                        self.status = "Saved space not found, showing spaces".to_string();
+                    }
+                } else {
+                    self.sidebar.select_first();
+                }
+
                 self.screen = Screen::Spaces;
-                if let Some(space) = self.spaces.first() {
-                    self.screen_title = generate_screen_title(&space.name);
+                // Update title to show workspace name
+                if let Some(ref workspace_id) = self.current_workspace_id {
+                    if let Some(workspace) = self.workspaces.iter().find(|w| &w.id == workspace_id)
+                    {
+                        self.screen_title = generate_screen_title(&workspace.name);
+                    } else {
+                        self.screen_title = generate_screen_title("Workspaces");
+                    }
+                } else {
+                    self.screen_title = generate_screen_title("Workspaces");
                 }
             }
             Screen::Lists => {
+                // Navigate back to Folders
                 self.current_list_id = None;
+
+                // Repopulate sidebar with folders from current space
+                *self.sidebar.items_mut() = self
+                    .folders
+                    .iter()
+                    .map(|f| SidebarItem::Folder {
+                        name: f.name.clone(),
+                        id: f.id.clone(),
+                        indent: 2,
+                    })
+                    .collect();
+
+                // Restore selection using current_folder_id
+                if let Some(ref folder_id) = self.current_folder_id {
+                    if !self.sidebar.select_by_id(folder_id) {
+                        // Folder not found, fallback to first
+                        self.sidebar.select_first();
+                        self.status = "Saved folder not found, showing folders".to_string();
+                    }
+                } else {
+                    self.sidebar.select_first();
+                }
+
                 self.screen = Screen::Folders;
-                if let Some(folder) = self.folders.first() {
-                    self.screen_title = generate_screen_title(&folder.name);
+                // Update title to show space name
+                if let Some(ref space_id) = self.current_space_id {
+                    if let Some(space) = self.spaces.iter().find(|s| &s.id == space_id) {
+                        self.screen_title = generate_screen_title(&space.name);
+                    } else {
+                        self.screen_title = generate_screen_title("Spaces");
+                    }
+                } else {
+                    self.screen_title = generate_screen_title("Spaces");
                 }
             }
             Screen::Tasks => {
+                // Navigate back to Lists
                 self.current_list_id = None;
+
+                // Repopulate sidebar with lists from current folder
+                *self.sidebar.items_mut() = self
+                    .lists
+                    .iter()
+                    .map(|l| SidebarItem::List {
+                        name: l.name.clone(),
+                        id: l.id.clone(),
+                        indent: 3,
+                    })
+                    .collect();
+
+                // Restore selection using current_list_id
+                if let Some(ref list_id) = self.current_list_id {
+                    if !self.sidebar.select_by_id(list_id) {
+                        // List not found, fallback to first
+                        self.sidebar.select_first();
+                        self.status = "Saved list not found, showing lists".to_string();
+                    }
+                } else {
+                    self.sidebar.select_first();
+                }
+
                 self.screen = Screen::Lists;
-                if let Some(list) = self.lists.first() {
-                    self.screen_title = generate_screen_title(&list.name);
+                // Update title to show folder name
+                if let Some(ref folder_id) = self.current_folder_id {
+                    if let Some(folder) = self.folders.iter().find(|f| &f.id == folder_id) {
+                        self.screen_title = generate_screen_title(&folder.name);
+                    } else {
+                        self.screen_title = generate_screen_title("Folders");
+                    }
+                } else {
+                    self.screen_title = generate_screen_title("Folders");
                 }
             }
             Screen::TaskDetail => {
+                // Navigate back to Tasks
                 self.screen = Screen::Tasks;
                 if let Some(list) = self.lists.first() {
                     self.screen_title = generate_screen_title(&format!("Tasks: {}", list.name));
@@ -1245,7 +1478,7 @@ impl TuiApp {
             }
         }
     }
-    
+
     fn authenticate(&mut self) {
         let token = self.auth_state.token_input.clone();
         if token.is_empty() {
@@ -1260,7 +1493,7 @@ impl TuiApp {
 
         // Create the API client with the token
         let client = Arc::new(ClickUpClient::new(token.clone()));
-        
+
         // Save the token
         if let Err(e) = self.auth.save_token(&token) {
             self.auth_state.error = Some(format!("Failed to save token: {}", e));
@@ -1292,11 +1525,11 @@ impl TuiApp {
         self.screen_title = generate_screen_title("Workspaces");
         self.status = "Authenticated! Loading workspaces...".to_string();
     }
-    
+
     fn load_workspaces(&mut self) {
         self.loading = true;
         self.status = "Loading workspaces...".to_string();
-        
+
         let client = match &self.client {
             Some(c) => c.clone(),
             None => {
@@ -1320,7 +1553,7 @@ impl TuiApp {
     fn load_spaces(&mut self, workspace_id: String) {
         self.loading = true;
         self.status = "Loading spaces...".to_string();
-        
+
         let client = match &self.client {
             Some(c) => c.clone(),
             None => {
@@ -1344,7 +1577,7 @@ impl TuiApp {
     fn load_folders(&mut self, space_id: String) {
         self.loading = true;
         self.status = "Loading folders...".to_string();
-        
+
         let client = match &self.client {
             Some(c) => c.clone(),
             None => {
@@ -1368,7 +1601,7 @@ impl TuiApp {
     fn load_lists(&mut self, folder_id: String) {
         self.loading = true;
         self.status = "Loading lists...".to_string();
-        
+
         let client = match &self.client {
             Some(c) => c.clone(),
             None => {
@@ -1433,12 +1666,12 @@ impl TuiApp {
         tokio::spawn(async move {
             // First, fetch top-level comments
             let top_level_result = client.get_task_comments(&task_id).await;
-            
+
             match top_level_result {
                 Ok(top_level_comments) => {
                     // For each top-level comment, fetch its replies
                     let mut all_comments = top_level_comments;
-                    
+
                     // Collect all reply fetches
                     let mut reply_futures = Vec::new();
                     for comment in &all_comments {
@@ -1449,10 +1682,10 @@ impl TuiApp {
                             (comment_id, result)
                         });
                     }
-                    
+
                     // Wait for all replies to be fetched
                     let reply_results = futures::future::join_all(reply_futures).await;
-                    
+
                     // Add replies to the comments list with parent_id set
                     for (parent_id, reply_result) in reply_results {
                         if let Ok(replies) = reply_result {
@@ -1462,7 +1695,7 @@ impl TuiApp {
                             }
                         }
                     }
-                    
+
                     let msg = AppMessage::CommentsLoaded(Ok(all_comments));
                     let _ = tx.send(msg).await;
                 }
@@ -1505,7 +1738,9 @@ impl TuiApp {
         tokio::spawn(async move {
             // Use different endpoint based on whether this is a reply
             let result = if let Some(ref parent_comment_id) = parent_id {
-                client.create_comment_reply(parent_comment_id, &request).await
+                client
+                    .create_comment_reply(parent_comment_id, &request)
+                    .await
             } else {
                 client.create_comment(&task_id, &request).await
             };
@@ -1548,7 +1783,7 @@ impl TuiApp {
             let _ = tx.send(msg).await;
         });
     }
-    
+
     fn update_screen_title(&mut self) {
         self.screen_title = match &self.screen {
             Screen::Auth => generate_screen_title("Authentication"),
@@ -1597,8 +1832,11 @@ impl TuiApp {
             }
         };
     }
-    
-    fn render(&mut self, terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>) -> Result<()> {
+
+    fn render(
+        &mut self,
+        terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
+    ) -> Result<()> {
         // Auto-clear URL copy status after 3 seconds
         if let Some(status_time) = self.url_copy_status_time {
             if status_time.elapsed() > std::time::Duration::from_secs(3) {
@@ -1610,16 +1848,16 @@ impl TuiApp {
         terminal.draw(|frame: &mut Frame| {
             let area = frame.area();
             let layout = TuiLayout::new(area);
-            
+
             // Render title bar
             layout.render_title(frame, &self.screen_title);
-            
+
             // Check if terminal is too small
             if layout.too_small {
                 layout.render_too_small_warning(frame);
                 return;
             }
-            
+
             // Render content area
             if self.sidebar.visible {
                 let (sidebar_area, content_area) = layout.split_content(25);
@@ -1627,7 +1865,7 @@ impl TuiApp {
             } else {
                 self.render_main_content(frame, layout.content_area);
             }
-            
+
             // Render dialog if visible
             render_dialog(frame, &self.dialog, area);
 
@@ -1649,11 +1887,16 @@ impl TuiApp {
             };
             layout.render_status(frame, &status, hints);
         })?;
-        
+
         Ok(())
     }
-    
-    fn render_sidebar_content(&mut self, frame: &mut Frame, sidebar_area: Rect, content_area: Rect) {
+
+    fn render_sidebar_content(
+        &mut self,
+        frame: &mut Frame,
+        sidebar_area: Rect,
+        content_area: Rect,
+    ) {
         // Render sidebar
         render_sidebar(frame, &self.sidebar, sidebar_area);
 
@@ -1689,7 +1932,7 @@ impl TuiApp {
             }
         }
     }
-    
+
     fn render_main_content(&mut self, frame: &mut Frame, area: Rect) {
         match self.screen {
             Screen::Auth => render_auth(frame, &self.auth_state, area),
@@ -1721,7 +1964,7 @@ impl TuiApp {
             }
         }
     }
-    
+
     fn get_hints(&self) -> &'static str {
         if self.dialog.is_visible() {
             get_dialog_hints()
@@ -1731,7 +1974,9 @@ impl TuiApp {
         } else {
             match self.screen {
                 Screen::Auth => "Enter: Connect | Esc: Cancel | ? - Help",
-                Screen::Tasks => "j/k: Navigate | Enter: View | n: New | e: Edit | d: Delete | ? - Help",
+                Screen::Tasks => {
+                    "j/k: Navigate | Enter: View | n: New | e: Edit | d: Delete | ? - Help"
+                }
                 Screen::TaskDetail => {
                     // Show different hints based on comment view mode
                     if self.comment_focus {
@@ -1752,7 +1997,7 @@ impl TuiApp {
     /// Copy URL for the current context to clipboard
     fn copy_url(&mut self) {
         tracing::debug!("copy_url called, screen: {:?}", self.screen);
-        
+
         // Helper to get ID from sidebar item
         fn get_sidebar_id(item: &SidebarItem) -> &str {
             match item {
@@ -1829,7 +2074,10 @@ impl TuiApp {
             }
             Screen::TaskDetail => {
                 // Check if comment focus is active and a comment is selected
-                if self.comment_focus && !self.comments.is_empty() && self.comment_selected_index < self.comments.len() {
+                if self.comment_focus
+                    && !self.comments.is_empty()
+                    && self.comment_selected_index < self.comments.len()
+                {
                     // Copy selected comment URL
                     let comment = &self.comments[self.comment_selected_index];
                     if let Some(task) = &self.task_detail.task {
@@ -1964,7 +2212,10 @@ impl TuiApp {
         match target_screen {
             Screen::Auth => {
                 // Auth screen doesn't need fallback - always valid but shouldn't be restored
-                (Screen::Workspaces, Some("Session cleared, showing workspaces".to_string()))
+                (
+                    Screen::Workspaces,
+                    Some("Session cleared, showing workspaces".to_string()),
+                )
             }
             Screen::Document => {
                 if saved_state.document_id.is_some() {
@@ -1972,42 +2223,60 @@ impl TuiApp {
                     return (Screen::Document, None);
                 }
                 // Fall back to Tasks
-                (Screen::Tasks, Some("Saved document not found, showing tasks".to_string()))
+                (
+                    Screen::Tasks,
+                    Some("Saved document not found, showing tasks".to_string()),
+                )
             }
             Screen::TaskDetail => {
                 if saved_state.task_id.is_some() && saved_state.list_id.is_some() {
                     return (Screen::TaskDetail, None);
                 }
                 // Fall back to Tasks
-                (Screen::Tasks, Some("Saved task not found, showing tasks".to_string()))
+                (
+                    Screen::Tasks,
+                    Some("Saved task not found, showing tasks".to_string()),
+                )
             }
             Screen::Tasks => {
                 if saved_state.list_id.is_some() {
                     return (Screen::Tasks, None);
                 }
                 // Fall back to Lists
-                (Screen::Lists, Some("Saved list not found, showing lists".to_string()))
+                (
+                    Screen::Lists,
+                    Some("Saved list not found, showing lists".to_string()),
+                )
             }
             Screen::Lists => {
                 if saved_state.folder_id.is_some() || saved_state.space_id.is_some() {
                     return (Screen::Lists, None);
                 }
                 // Fall back to Folders
-                (Screen::Folders, Some("Saved folder not found, showing folders".to_string()))
+                (
+                    Screen::Folders,
+                    Some("Saved folder not found, showing folders".to_string()),
+                )
             }
             Screen::Folders => {
                 if saved_state.space_id.is_some() {
                     return (Screen::Folders, None);
                 }
                 // Fall back to Spaces
-                (Screen::Spaces, Some("Saved space not found, showing spaces".to_string()))
+                (
+                    Screen::Spaces,
+                    Some("Saved space not found, showing spaces".to_string()),
+                )
             }
             Screen::Spaces => {
                 if saved_state.workspace_id.is_some() {
                     return (Screen::Spaces, None);
                 }
                 // Fall back to Workspaces
-                (Screen::Workspaces, Some("Saved workspace not found, showing workspaces".to_string()))
+                (
+                    Screen::Workspaces,
+                    Some("Saved workspace not found, showing workspaces".to_string()),
+                )
             }
             Screen::Workspaces => {
                 // Always valid

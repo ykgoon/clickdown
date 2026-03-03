@@ -1,7 +1,7 @@
 //! Workspace, Space, Folder, and List models
 
-use serde::{Deserialize, Serialize};
 use crate::models::Priority;
+use serde::{Deserialize, Serialize};
 
 /// A ClickUp Workspace (also called Team in the API)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

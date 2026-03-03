@@ -1,7 +1,7 @@
 //! Document models
 
+use crate::models::{ClickUpFolderReference as FolderReference, ClickUpSpace as SpaceReference};
 use serde::{Deserialize, Serialize};
-use crate::models::{ClickUpSpace as SpaceReference, ClickUpFolderReference as FolderReference};
 
 /// A ClickUp Document
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,12 +86,12 @@ impl DocumentFilters {
     /// Convert filters to query parameters
     pub fn to_query_string(&self) -> String {
         use crate::utils::QueryParams;
-        
+
         let mut params = QueryParams::new();
         params.add_opt_encoded("query", self.query.as_deref());
         params.add_opt("space_id", self.space_id.as_ref());
         params.add_opt("folder_id", self.folder_id.as_ref());
-        
+
         params.to_query_string()
     }
 }

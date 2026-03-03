@@ -1,9 +1,8 @@
 //! Trait definition for ClickUp API client to enable mocking
 
 use crate::models::{
-    Workspace, ClickUpSpace, Folder, List, Task, TaskFilters,
-    CreateTaskRequest, UpdateTaskRequest, Document, Page, DocumentFilters,
-    Comment, CreateCommentRequest, UpdateCommentRequest,
+    ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
+    Folder, List, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest, Workspace,
 };
 use anyhow::Result;
 
@@ -45,11 +44,8 @@ pub trait ClickUpApi: Send + Sync {
     ) -> Result<Vec<List>>;
 
     /// Get all lists in a space (folderless lists)
-    async fn get_lists_in_space(
-        &self,
-        space_id: &str,
-        archived: Option<bool>,
-    ) -> Result<Vec<List>>;
+    async fn get_lists_in_space(&self, space_id: &str, archived: Option<bool>)
+        -> Result<Vec<List>>;
 
     // ==================== Tasks ====================
 
@@ -88,11 +84,23 @@ pub trait ClickUpApi: Send + Sync {
     async fn get_comment_replies(&self, comment_id: &str) -> Result<Vec<Comment>>;
 
     /// Create a new comment on a task (top-level)
-    async fn create_comment(&self, task_id: &str, comment: &CreateCommentRequest) -> Result<Comment>;
+    async fn create_comment(
+        &self,
+        task_id: &str,
+        comment: &CreateCommentRequest,
+    ) -> Result<Comment>;
 
     /// Create a reply to an existing comment (threaded)
-    async fn create_comment_reply(&self, parent_comment_id: &str, comment: &CreateCommentRequest) -> Result<Comment>;
+    async fn create_comment_reply(
+        &self,
+        parent_comment_id: &str,
+        comment: &CreateCommentRequest,
+    ) -> Result<Comment>;
 
     /// Update a comment
-    async fn update_comment(&self, comment_id: &str, comment: &UpdateCommentRequest) -> Result<Comment>;
+    async fn update_comment(
+        &self,
+        comment_id: &str,
+        comment: &UpdateCommentRequest,
+    ) -> Result<Comment>;
 }

@@ -26,19 +26,16 @@ impl AuthManager {
     /// Save the API token
     pub fn save_token(&self, token: &str) -> Result<()> {
         // Create config directory if it doesn't exist
-        std::fs::create_dir_all(&self.config_dir)
-            .context("Failed to create config directory")?;
+        std::fs::create_dir_all(&self.config_dir).context("Failed to create config directory")?;
 
         // Write token to file
-        std::fs::write(self.token_path(), token)
-            .context("Failed to save token")?;
+        std::fs::write(self.token_path(), token).context("Failed to save token")?;
 
         // Set restrictive permissions on Unix systems
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(self.token_path())?
-                .permissions();
+            let mut perms = std::fs::metadata(self.token_path())?.permissions();
             perms.set_mode(0o600);
             std::fs::set_permissions(self.token_path(), perms)?;
         }
@@ -54,8 +51,7 @@ impl AuthManager {
             return Ok(None);
         }
 
-        let token = std::fs::read_to_string(&token_path)
-            .context("Failed to read token file")?;
+        let token = std::fs::read_to_string(&token_path).context("Failed to read token file")?;
 
         Ok(Some(token.trim().to_string()))
     }
@@ -65,8 +61,7 @@ impl AuthManager {
         let token_path = self.token_path();
 
         if token_path.exists() {
-            std::fs::remove_file(&token_path)
-                .context("Failed to remove token file")?;
+            std::fs::remove_file(&token_path).context("Failed to remove token file")?;
         }
 
         Ok(())

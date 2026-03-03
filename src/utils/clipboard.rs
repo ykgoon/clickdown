@@ -56,11 +56,9 @@ impl ClipboardService {
     /// - `ClipboardError::CopyFailed` if the copy operation failed
     pub fn copy_text(&mut self, text: &str) -> ClipboardResult<()> {
         match &mut self.clipboard {
-            Some(clipboard) => {
-                clipboard
-                    .set_text(text)
-                    .map_err(|e| ClipboardError::CopyFailed(e.to_string()))
-            }
+            Some(clipboard) => clipboard
+                .set_text(text)
+                .map_err(|e| ClipboardError::CopyFailed(e.to_string())),
             None => Err(ClipboardError::Unavailable(
                 "clipboard not initialized".to_string(),
             )),
@@ -114,7 +112,7 @@ mod tests {
     fn test_copy_text_graceful_failure() {
         let mut service = ClipboardService::new();
         let result = service.copy_text("test text");
-        
+
         // In headless environments, this should return Unavailable
         // In environments with clipboard, this should succeed
         // We just verify the result type is correct

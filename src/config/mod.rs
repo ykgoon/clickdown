@@ -62,11 +62,21 @@ pub enum Theme {
     Light,
 }
 
-fn default_window_width() -> u32 { 1200 }
-fn default_window_height() -> u32 { 800 }
-fn default_sidebar_width() -> u32 { 280 }
-fn default_detail_width() -> u32 { 400 }
-fn default_font_size() -> f32 { 14.0 }
+fn default_window_width() -> u32 {
+    1200
+}
+fn default_window_height() -> u32 {
+    800
+}
+fn default_sidebar_width() -> u32 {
+    280
+}
+fn default_detail_width() -> u32 {
+    400
+}
+fn default_font_size() -> f32 {
+    14.0
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -97,8 +107,7 @@ impl ConfigManager {
         let config_path = config_dir.join("config.toml");
 
         // Create config directory if needed
-        std::fs::create_dir_all(&config_dir)
-            .context("Failed to create config directory")?;
+        std::fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
 
         // Load or create config
         let config = if config_path.exists() {
@@ -107,25 +116,24 @@ impl ConfigManager {
             Config::default()
         };
 
-        Ok(Self { config_path, config })
+        Ok(Self {
+            config_path,
+            config,
+        })
     }
 
     /// Load configuration from file
     fn load_config(path: &PathBuf) -> Result<Config> {
-        let content = std::fs::read_to_string(path)
-            .context("Failed to read config file")?;
+        let content = std::fs::read_to_string(path).context("Failed to read config file")?;
 
-        toml::from_str(&content)
-            .context("Failed to parse config file")
+        toml::from_str(&content).context("Failed to parse config file")
     }
 
     /// Save configuration to file
     pub fn save(&self) -> Result<()> {
-        let content = toml::to_string_pretty(&self.config)
-            .context("Failed to serialize config")?;
+        let content = toml::to_string_pretty(&self.config).context("Failed to serialize config")?;
 
-        std::fs::write(&self.config_path, content)
-            .context("Failed to write config file")?;
+        std::fs::write(&self.config_path, content).context("Failed to write config file")?;
 
         Ok(())
     }
@@ -169,8 +177,7 @@ impl ConfigManager {
             .context("Failed to get cache directory")?
             .join("clickdown");
 
-        std::fs::create_dir_all(&cache_dir)
-            .context("Failed to create cache directory")?;
+        std::fs::create_dir_all(&cache_dir).context("Failed to create cache directory")?;
 
         Ok(cache_dir)
     }

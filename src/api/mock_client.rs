@@ -2,11 +2,10 @@
 
 use crate::api::client_trait::ClickUpApi;
 use crate::models::{
-    Workspace, ClickUpSpace, Folder, List, Task, TaskFilters,
-    CreateTaskRequest, UpdateTaskRequest, Document, Page, DocumentFilters,
-    Comment, CreateCommentRequest, UpdateCommentRequest,
+    ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
+    Folder, List, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest, Workspace,
 };
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 /// Helper function to return configured response or default empty vec
 fn return_vec_response<T: Clone>(configured: &Option<Result<Vec<T>>>) -> Result<Vec<T>> {
@@ -224,7 +223,10 @@ impl ClickUpApi for MockClickUpClient {
 
     async fn get_space(&self, _space_id: &str) -> Result<ClickUpSpace> {
         match &self.spaces_response {
-            Some(Ok(spaces)) => spaces.first().cloned().ok_or_else(|| anyhow!("Space not found")),
+            Some(Ok(spaces)) => spaces
+                .first()
+                .cloned()
+                .ok_or_else(|| anyhow!("Space not found")),
             Some(Err(e)) => Err(anyhow!(e.to_string())),
             None => Err(anyhow!("No spaces configured")),
         }
@@ -288,26 +290,45 @@ impl ClickUpApi for MockClickUpClient {
 
     async fn get_comment_replies(&self, comment_id: &str) -> Result<Vec<Comment>> {
         match &self.comment_replies_response {
-            Some(map) => {
-                match map.get(comment_id) {
-                    Some(Ok(replies)) => Ok(replies.clone()),
-                    Some(Err(e)) => Err(anyhow!(e.to_string())),
-                    None => Ok(vec![]),
-                }
-            }
+            Some(map) => match map.get(comment_id) {
+                Some(Ok(replies)) => Ok(replies.clone()),
+                Some(Err(e)) => Err(anyhow!(e.to_string())),
+                None => Ok(vec![]),
+            },
             None => Ok(vec![]),
         }
     }
 
-    async fn create_comment(&self, _task_id: &str, _comment: &CreateCommentRequest) -> Result<Comment> {
-        return_response(&self.create_comment_response, "Create comment not configured")
+    async fn create_comment(
+        &self,
+        _task_id: &str,
+        _comment: &CreateCommentRequest,
+    ) -> Result<Comment> {
+        return_response(
+            &self.create_comment_response,
+            "Create comment not configured",
+        )
     }
 
-    async fn create_comment_reply(&self, _parent_comment_id: &str, _comment: &CreateCommentRequest) -> Result<Comment> {
-        return_response(&self.create_comment_reply_response, "Create comment reply not configured")
+    async fn create_comment_reply(
+        &self,
+        _parent_comment_id: &str,
+        _comment: &CreateCommentRequest,
+    ) -> Result<Comment> {
+        return_response(
+            &self.create_comment_reply_response,
+            "Create comment reply not configured",
+        )
     }
 
-    async fn update_comment(&self, _comment_id: &str, _comment: &UpdateCommentRequest) -> Result<Comment> {
-        return_response(&self.update_comment_response, "Update comment not configured")
+    async fn update_comment(
+        &self,
+        _comment_id: &str,
+        _comment: &UpdateCommentRequest,
+    ) -> Result<Comment> {
+        return_response(
+            &self.update_comment_response,
+            "Update comment not configured",
+        )
     }
 }

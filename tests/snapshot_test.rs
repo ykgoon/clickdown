@@ -9,23 +9,19 @@
 
 mod fixtures;
 
-use clickdown::tui::widgets::{
-    sidebar::{SidebarState, SidebarItem, render_sidebar},
-    task_list::{TaskListState, render_task_list},
-    task_detail::{TaskDetailState, render_task_detail},
-    auth::{AuthState, render_auth},
-    document::{DocumentState, render_document},
-    dialog::{DialogState, DialogType, render_dialog},
-    help::{HelpState, render_help},
-};
-use clickdown::tui::layout::{TuiLayout, generate_screen_title};
 use clickdown::models::Task;
-use ratatui::{
-    backend::TestBackend,
-    Terminal,
-    layout::Rect,
+use clickdown::tui::layout::{generate_screen_title, TuiLayout};
+use clickdown::tui::widgets::{
+    auth::{render_auth, AuthState},
+    dialog::{render_dialog, DialogState, DialogType},
+    document::{render_document, DocumentState},
+    help::{render_help, HelpState},
+    sidebar::{render_sidebar, SidebarItem, SidebarState},
+    task_detail::{render_task_detail, TaskDetailState},
+    task_list::{render_task_list, TaskListState},
 };
 use insta::assert_snapshot;
+use ratatui::{backend::TestBackend, layout::Rect, Terminal};
 
 // ============================================================================
 // Test Helpers
@@ -43,9 +39,11 @@ where
 {
     let mut terminal = create_test_terminal(width, height);
 
-    terminal.draw(|frame| {
-        render_fn(frame);
-    }).unwrap();
+    terminal
+        .draw(|frame| {
+            render_fn(frame);
+        })
+        .unwrap();
 
     // Get buffer contents - use the buffer from the draw closure
     let mut snapshot = String::new();
@@ -56,7 +54,7 @@ where
         }
         snapshot.push('\n');
     }
-    
+
     assert_snapshot!(name, snapshot);
 }
 
@@ -155,11 +153,11 @@ impl MockClipboard {
     pub fn new() -> Self {
         Self
     }
-    
+
     pub fn set_text(&mut self, _text: &str) -> Result<(), String> {
         Ok(())
     }
-    
+
     pub fn get_text(&mut self) -> Result<String, String> {
         Ok(String::new())
     }
@@ -196,7 +194,7 @@ fn test_sidebar_with_selection() {
     let mut sidebar = SidebarState::new();
     *sidebar.items_mut() = create_sidebar_items();
     sidebar.select_first();
-    
+
     assert_widget_snapshot("sidebar_with_selection", 40, 15, |frame| {
         let area = Rect::new(0, 0, 40, 15);
         render_sidebar(frame, &sidebar, area);
@@ -210,7 +208,7 @@ fn test_sidebar_with_selection() {
 #[test]
 fn test_task_list_empty() {
     let task_list = TaskListState::new();
-    
+
     assert_widget_snapshot("task_list_empty", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
         render_task_list(frame, &task_list, area);
@@ -233,7 +231,7 @@ fn test_task_list_with_selection() {
     let mut task_list = TaskListState::new();
     *task_list.tasks_mut() = create_test_tasks();
     task_list.select_first();
-    
+
     assert_widget_snapshot("task_list_with_selection", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
         render_task_list(frame, &task_list, area);
@@ -249,7 +247,7 @@ fn test_task_detail_view_mode() {
     let mut detail = TaskDetailState::new();
     let task = create_test_tasks().remove(0);
     detail.task = Some(task);
-    
+
     assert_widget_snapshot("task_detail_view", 60, 20, |frame| {
         let area = Rect::new(0, 0, 60, 20);
         render_task_detail(frame, &detail, area);
@@ -259,7 +257,7 @@ fn test_task_detail_view_mode() {
 #[test]
 fn test_task_detail_empty() {
     let detail = TaskDetailState::new();
-    
+
     assert_widget_snapshot("task_detail_empty", 60, 20, |frame| {
         let area = Rect::new(0, 0, 60, 20);
         render_task_detail(frame, &detail, area);
@@ -273,7 +271,7 @@ fn test_task_detail_empty() {
 #[test]
 fn test_auth_view_empty() {
     let auth = AuthState::new();
-    
+
     assert_widget_snapshot("auth_view_empty", 60, 20, |frame| {
         let area = Rect::new(0, 0, 60, 20);
         render_auth(frame, &auth, area);
@@ -285,7 +283,7 @@ fn test_auth_view_partial_token() {
     let mut auth = AuthState::new();
     auth.token_input = "pk_test_abc123xyz".to_string();
     auth.cursor_pos = 15;
-    
+
     assert_widget_snapshot("auth_view_partial_token", 60, 20, |frame| {
         let area = Rect::new(0, 0, 60, 20);
         render_auth(frame, &auth, area);
@@ -296,7 +294,7 @@ fn test_auth_view_partial_token() {
 fn test_auth_view_error() {
     let mut auth = AuthState::new();
     auth.error = Some("Invalid token. Please try again.".to_string());
-    
+
     assert_widget_snapshot("auth_view_error", 60, 20, |frame| {
         let area = Rect::new(0, 0, 60, 20);
         render_auth(frame, &auth, area);
@@ -310,7 +308,7 @@ fn test_auth_view_error() {
 #[test]
 fn test_document_view_empty() {
     let doc = DocumentState::new();
-    
+
     assert_widget_snapshot("document_view_empty", 60, 20, |frame| {
         let area = Rect::new(0, 0, 60, 20);
         render_document(frame, &doc, area);
@@ -322,7 +320,7 @@ fn test_document_view_with_content() {
     let mut doc = DocumentState::new();
     doc.title = "Test Document".to_string();
     doc.content = "# Test Document\n\nThis is test content.".to_string();
-    
+
     assert_widget_snapshot("document_view_with_content", 60, 20, |frame| {
         let area = Rect::new(0, 0, 60, 20);
         render_document(frame, &doc, area);
@@ -337,7 +335,7 @@ fn test_document_view_with_content() {
 fn test_help_dialog_visible() {
     let mut help = HelpState::new();
     help.visible = true;
-    
+
     assert_widget_snapshot("help_dialog_visible", 80, 24, |frame| {
         let area = Rect::new(0, 0, 80, 24);
         render_help(frame, &help, area);
@@ -348,7 +346,7 @@ fn test_help_dialog_visible() {
 fn test_dialog_quit_confirmation() {
     let mut dialog = DialogState::new();
     dialog.show(DialogType::ConfirmQuit);
-    
+
     assert_widget_snapshot("dialog_quit_confirmation", 80, 24, |frame| {
         let area = Rect::new(0, 0, 80, 24);
         render_dialog(frame, &dialog, area);
@@ -362,40 +360,58 @@ fn test_dialog_quit_confirmation() {
 #[test]
 fn test_layout_80x24() {
     let layout = TuiLayout::new(Rect::new(0, 0, 80, 24));
-    
-    assert_snapshot!("layout_80x24", format!(
-        "Title area: {}x{}\nContent area: {}x{}\nStatus area: {}x{}\nToo small: {}",
-        layout.title_area.width, layout.title_area.height,
-        layout.content_area.width, layout.content_area.height,
-        layout.status_area.width, layout.status_area.height,
-        layout.too_small
-    ));
+
+    assert_snapshot!(
+        "layout_80x24",
+        format!(
+            "Title area: {}x{}\nContent area: {}x{}\nStatus area: {}x{}\nToo small: {}",
+            layout.title_area.width,
+            layout.title_area.height,
+            layout.content_area.width,
+            layout.content_area.height,
+            layout.status_area.width,
+            layout.status_area.height,
+            layout.too_small
+        )
+    );
 }
 
 #[test]
 fn test_layout_120x30() {
     let layout = TuiLayout::new(Rect::new(0, 0, 120, 30));
-    
-    assert_snapshot!("layout_120x30", format!(
-        "Title area: {}x{}\nContent area: {}x{}\nStatus area: {}x{}\nToo small: {}",
-        layout.title_area.width, layout.title_area.height,
-        layout.content_area.width, layout.content_area.height,
-        layout.status_area.width, layout.status_area.height,
-        layout.too_small
-    ));
+
+    assert_snapshot!(
+        "layout_120x30",
+        format!(
+            "Title area: {}x{}\nContent area: {}x{}\nStatus area: {}x{}\nToo small: {}",
+            layout.title_area.width,
+            layout.title_area.height,
+            layout.content_area.width,
+            layout.content_area.height,
+            layout.status_area.width,
+            layout.status_area.height,
+            layout.too_small
+        )
+    );
 }
 
 #[test]
 fn test_layout_160x40() {
     let layout = TuiLayout::new(Rect::new(0, 0, 160, 40));
-    
-    assert_snapshot!("layout_160x40", format!(
-        "Title area: {}x{}\nContent area: {}x{}\nStatus area: {}x{}\nToo small: {}",
-        layout.title_area.width, layout.title_area.height,
-        layout.content_area.width, layout.content_area.height,
-        layout.status_area.width, layout.status_area.height,
-        layout.too_small
-    ));
+
+    assert_snapshot!(
+        "layout_160x40",
+        format!(
+            "Title area: {}x{}\nContent area: {}x{}\nStatus area: {}x{}\nToo small: {}",
+            layout.title_area.width,
+            layout.title_area.height,
+            layout.content_area.width,
+            layout.content_area.height,
+            layout.status_area.width,
+            layout.status_area.height,
+            layout.too_small
+        )
+    );
 }
 
 // ============================================================================
@@ -405,7 +421,7 @@ fn test_layout_160x40() {
 #[test]
 fn test_auth_screen_80x24() {
     let auth = AuthState::new();
-    
+
     assert_widget_snapshot("auth_screen_80x24", 80, 24, |frame| {
         let area = Rect::new(0, 0, 80, 24);
         render_auth(frame, &auth, area);
@@ -415,7 +431,7 @@ fn test_auth_screen_80x24() {
 #[test]
 fn test_auth_screen_120x30() {
     let auth = AuthState::new();
-    
+
     assert_widget_snapshot("auth_screen_120x30", 120, 30, |frame| {
         let area = Rect::new(0, 0, 120, 30);
         render_auth(frame, &auth, area);
@@ -430,7 +446,7 @@ fn test_auth_screen_120x30() {
 fn test_main_layout_sidebar_collapsed() {
     let mut sidebar = SidebarState::new();
     sidebar.visible = false;
-    
+
     assert_widget_snapshot("main_layout_sidebar_collapsed", 80, 24, |frame| {
         let area = Rect::new(0, 0, 80, 24);
         render_sidebar(frame, &sidebar, area);

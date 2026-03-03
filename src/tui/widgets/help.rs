@@ -1,11 +1,11 @@
 //! Help overlay widget
 
 use ratatui::{
-    Frame,
-    layout::{Rect, Constraint, Direction, Layout},
-    style::{Color, Style, Modifier},
-    widgets::{Block, Borders, Paragraph, Clear},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph},
+    Frame,
 };
 
 /// Help state
@@ -18,11 +18,11 @@ impl HelpState {
     pub fn new() -> Self {
         Self { visible: false }
     }
-    
+
     pub fn toggle(&mut self) {
         self.visible = !self.visible;
     }
-    
+
     pub fn hide(&mut self) {
         self.visible = false;
     }
@@ -69,14 +69,20 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         .split(help_area);
 
     let nav = Paragraph::new(vec![
-        Line::from(Span::styled("Navigation:", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Navigation:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from("  j/k or ↑/↓  - Move selection"),
         Line::from("  Enter       - Select/Open item"),
         Line::from("  Esc         - Go back/Close"),
     ]);
 
     let global = Paragraph::new(vec![
-        Line::from(Span::styled("Global:", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Global:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from("  Ctrl+Q      - Quit (saves session)"),
         Line::from("  Tab         - Toggle sidebar"),
         Line::from("  ?           - Show this help"),
@@ -84,14 +90,20 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     ]);
 
     let actions = Paragraph::new(vec![
-        Line::from(Span::styled("Actions:", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Actions:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from("  n           - Create new item"),
         Line::from("  e           - Edit selected item"),
         Line::from("  d           - Delete selected item"),
     ]);
 
     let comments = Paragraph::new(vec![
-        Line::from(Span::styled("Comments (Task Detail):", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Comments (Task Detail):",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from("  Tab         - Toggle focus (task/comments)"),
         Line::from("  j/k         - Navigate comments"),
         Line::from("  n           - New comment"),
@@ -103,13 +115,19 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     ]);
 
     let forms = Paragraph::new(vec![
-        Line::from(Span::styled("Forms:", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Forms:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from("  Ctrl+S      - Save"),
         Line::from("  Esc         - Cancel"),
     ]);
 
     let session = Paragraph::new(vec![
-        Line::from(Span::styled("Session:", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Session:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from("  Session auto-saves on exit"),
         Line::from("  Restores last view on startup"),
     ]);
@@ -121,8 +139,8 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     frame.render_widget(forms, inner[4]);
     frame.render_widget(session, inner[5]);
 
-    let close_hint = Paragraph::new("Press any key to close")
-        .style(Style::default().fg(Color::DarkGray));
+    let close_hint =
+        Paragraph::new("Press any key to close").style(Style::default().fg(Color::DarkGray));
     frame.render_widget(close_hint, inner[10]);
 }
 
@@ -140,7 +158,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             Constraint::Percentage((100 - percent_y) / 2),
         ])
         .split(area);
-    
+
     Layout::default()
         .direction(Direction::Horizontal)
         .constraints([

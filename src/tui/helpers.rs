@@ -227,7 +227,7 @@ mod tests {
         let mut list = SelectableList::new(vec!["a", "b", "c"]);
         assert!(list.select_by(|&x| x == "b"));
         assert_eq!(list.selected(), Some(&"b"));
-        
+
         assert!(!list.select_by(|&x| x == "z"));
     }
 

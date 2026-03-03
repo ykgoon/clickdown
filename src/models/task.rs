@@ -1,9 +1,10 @@
 //! Task models
 
-use serde::{Deserialize, Serialize};
 use crate::utils::deserializers::{
-    null_to_empty_vec, null_to_false, flexible_timestamp, flexible_int, flexible_i64, flexible_resolved,
+    flexible_i64, flexible_int, flexible_resolved, flexible_timestamp, null_to_empty_vec,
+    null_to_false,
 };
+use serde::{Deserialize, Serialize};
 
 /// Flexible description type that can be either a plain string or an object
 /// with HTML/markdown content (ClickUp API can return both formats)
@@ -28,12 +29,16 @@ impl TaskDescription {
     pub fn as_text(&self) -> String {
         match self {
             TaskDescription::Plain(s) => s.clone(),
-            TaskDescription::Rich { markdown, text, html, .. } => {
-                markdown.clone()
-                    .or_else(|| text.clone())
-                    .or_else(|| html.clone())
-                    .unwrap_or_default()
-            }
+            TaskDescription::Rich {
+                markdown,
+                text,
+                html,
+                ..
+            } => markdown
+                .clone()
+                .or_else(|| text.clone())
+                .or_else(|| html.clone())
+                .unwrap_or_default(),
         }
     }
 }
@@ -83,11 +88,23 @@ pub struct Task {
     pub orderindex: Option<String>,
     #[serde(default)]
     pub content: Option<TaskContent>,
-    #[serde(default, rename = "date_created", deserialize_with = "flexible_timestamp")]
+    #[serde(
+        default,
+        rename = "date_created",
+        deserialize_with = "flexible_timestamp"
+    )]
     pub created_at: Option<i64>,
-    #[serde(default, rename = "date_updated", deserialize_with = "flexible_timestamp")]
+    #[serde(
+        default,
+        rename = "date_updated",
+        deserialize_with = "flexible_timestamp"
+    )]
     pub updated_at: Option<i64>,
-    #[serde(default, rename = "date_closed", deserialize_with = "flexible_timestamp")]
+    #[serde(
+        default,
+        rename = "date_closed",
+        deserialize_with = "flexible_timestamp"
+    )]
     pub closed_at: Option<i64>,
     #[serde(default, rename = "date_done", deserialize_with = "flexible_timestamp")]
     pub done_at: Option<i64>,
@@ -97,7 +114,11 @@ pub struct Task {
     pub creator: Option<User>,
     #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub assignees: Vec<User>,
-    #[serde(default, deserialize_with = "null_to_empty_vec", rename = "group_assignees")]
+    #[serde(
+        default,
+        deserialize_with = "null_to_empty_vec",
+        rename = "group_assignees"
+    )]
     pub group_assignees: Vec<User>,
     #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub watchers: Vec<User>,
@@ -123,7 +144,11 @@ pub struct Task {
     pub attachments: Vec<Attachment>,
     #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub dependencies: Vec<TaskDependencyRef>,
-    #[serde(default, deserialize_with = "null_to_empty_vec", rename = "linked_tasks")]
+    #[serde(
+        default,
+        deserialize_with = "null_to_empty_vec",
+        rename = "linked_tasks"
+    )]
     pub linked_tasks: Vec<LinkedTask>,
     #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub locations: Vec<serde_json::Value>,
@@ -334,7 +359,11 @@ pub struct CustomField {
     pub value_richtext: Option<serde_json::Value>,
     #[serde(default)]
     pub type_config: Option<serde_json::Value>,
-    #[serde(default, rename = "date_created", deserialize_with = "flexible_timestamp")]
+    #[serde(
+        default,
+        rename = "date_created",
+        deserialize_with = "flexible_timestamp"
+    )]
     pub date_created: Option<i64>,
     #[serde(default, rename = "hide_from_guests")]
     pub hide_from_guests: Option<bool>,
@@ -447,7 +476,7 @@ impl TaskFilters {
     /// Convert filters to query parameters
     pub fn to_query_string(&self) -> String {
         use crate::utils::QueryParams;
-        
+
         let mut params = QueryParams::new();
         params.add_opt("archived", self.archived);
         params.add_opt("page", self.page);
@@ -456,8 +485,11 @@ impl TaskFilters {
         params.add_opt("subtasks", self.subtasks);
         params.add_all("statuses", &self.statuses);
         params.add_all_ints("assignees", &self.assignees);
-        params.add_opt("include_markdown_description", self.include_markdown_description);
-        
+        params.add_opt(
+            "include_markdown_description",
+            self.include_markdown_description,
+        );
+
         params.to_query_string()
     }
 }
@@ -531,30 +563,29 @@ pub fn get_status_group_priority(status_group: Option<&str>) -> StatusGroupPrior
 /// - updated_at: higher value = more recent (sorted descending within group)
 ///   Tasks without updated_at get i64::MIN to sort last within their group
 fn get_task_sort_key(task: &Task) -> (StatusGroupPriority, i64) {
-    let status_priority = get_status_group_priority(
-        task.status.as_ref().and_then(|s| s.status_group.as_deref())
-    );
-    
+    let status_priority =
+        get_status_group_priority(task.status.as_ref().and_then(|s| s.status_group.as_deref()));
+
     // Use updated_at for recency sorting within status group
     // Tasks without updated_at get MIN value to sort last
     let updated_at = task.updated_at.unwrap_or(i64::MIN);
-    
+
     (status_priority, updated_at)
 }
 
 /// Sort tasks by status priority and recency
-/// 
+///
 /// Sorting rules:
 /// 1. Group by status: in-progress → to-do → done → fallback
 /// 2. Within each group, sort by updated_at descending (most recent first)
 /// 3. Tasks without updated_at are placed last within their status group
-/// 
+///
 /// This function sorts in-place and returns the sorted vector for convenience.
 pub fn sort_tasks(mut tasks: Vec<Task>) -> Vec<Task> {
     tasks.sort_by(|a, b| {
         let (priority_a, updated_a) = get_task_sort_key(a);
         let (priority_b, updated_b) = get_task_sort_key(b);
-        
+
         // First sort by status group priority (ascending - lower priority value first)
         match priority_a.cmp(&priority_b) {
             std::cmp::Ordering::Equal => {
@@ -564,7 +595,7 @@ pub fn sort_tasks(mut tasks: Vec<Task>) -> Vec<Task> {
             other => other,
         }
     });
-    
+
     tasks
 }
 
@@ -632,18 +663,45 @@ mod tests {
 
     #[test]
     fn test_status_group_priority_mapping() {
-        assert_eq!(get_status_group_priority(Some("in_progress")), StatusGroupPriority::InProgress);
-        assert_eq!(get_status_group_priority(Some("IN_PROGRESS")), StatusGroupPriority::InProgress);
-        assert_eq!(get_status_group_priority(Some("in progress")), StatusGroupPriority::InProgress);
-        
-        assert_eq!(get_status_group_priority(Some("todo")), StatusGroupPriority::ToDo);
-        assert_eq!(get_status_group_priority(Some("to_do")), StatusGroupPriority::ToDo);
-        
-        assert_eq!(get_status_group_priority(Some("done")), StatusGroupPriority::Done);
-        assert_eq!(get_status_group_priority(Some("complete")), StatusGroupPriority::Done);
-        
-        assert_eq!(get_status_group_priority(Some("unknown")), StatusGroupPriority::Fallback);
-        assert_eq!(get_status_group_priority(None), StatusGroupPriority::Fallback);
+        assert_eq!(
+            get_status_group_priority(Some("in_progress")),
+            StatusGroupPriority::InProgress
+        );
+        assert_eq!(
+            get_status_group_priority(Some("IN_PROGRESS")),
+            StatusGroupPriority::InProgress
+        );
+        assert_eq!(
+            get_status_group_priority(Some("in progress")),
+            StatusGroupPriority::InProgress
+        );
+
+        assert_eq!(
+            get_status_group_priority(Some("todo")),
+            StatusGroupPriority::ToDo
+        );
+        assert_eq!(
+            get_status_group_priority(Some("to_do")),
+            StatusGroupPriority::ToDo
+        );
+
+        assert_eq!(
+            get_status_group_priority(Some("done")),
+            StatusGroupPriority::Done
+        );
+        assert_eq!(
+            get_status_group_priority(Some("complete")),
+            StatusGroupPriority::Done
+        );
+
+        assert_eq!(
+            get_status_group_priority(Some("unknown")),
+            StatusGroupPriority::Fallback
+        );
+        assert_eq!(
+            get_status_group_priority(None),
+            StatusGroupPriority::Fallback
+        );
     }
 
     #[test]
@@ -711,9 +769,11 @@ mod tests {
 
     #[test]
     fn test_sort_tasks_single_task() {
-        let tasks = vec![
-            create_task_with_status_and_updated_at("single", Some("in_progress"), Some(1000)),
-        ];
+        let tasks = vec![create_task_with_status_and_updated_at(
+            "single",
+            Some("in_progress"),
+            Some(1000),
+        )];
         let sorted = sort_tasks(tasks);
         assert_eq!(sorted.len(), 1);
         assert_eq!(sorted[0].id, "single");

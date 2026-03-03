@@ -41,7 +41,8 @@ impl QueryParams {
     /// Add a string parameter with URL encoding if the value is Some
     pub fn add_opt_encoded(&mut self, key: &str, value: Option<&str>) -> &mut Self {
         if let Some(v) = value {
-            self.params.push(format!("{}={}", key, urlencoding::encode(v)));
+            self.params
+                .push(format!("{}={}", key, urlencoding::encode(v)));
         }
         self
     }
@@ -98,7 +99,7 @@ mod tests {
         let mut params = QueryParams::new();
         params.add_opt("archived", Some(true));
         params.add_opt("page", Some(2));
-        
+
         assert!(!params.is_empty());
         assert_eq!(params.to_query_string(), "?archived=true&page=2");
     }
@@ -107,7 +108,7 @@ mod tests {
     fn test_add_opt_none() {
         let mut params = QueryParams::new();
         params.add_opt("archived", None::<bool>);
-        
+
         assert!(params.is_empty());
         assert_eq!(params.to_query_string(), "");
     }
@@ -116,7 +117,7 @@ mod tests {
     fn test_add_opt_encoded() {
         let mut params = QueryParams::new();
         params.add_opt_encoded("query", Some("hello world"));
-        
+
         assert!(params.to_query_string().contains("query="));
         assert!(params.to_query_string().contains("hello%20world"));
     }
@@ -125,7 +126,7 @@ mod tests {
     fn test_add_opt_encoded_none() {
         let mut params = QueryParams::new();
         params.add_opt_encoded("query", None);
-        
+
         assert!(params.is_empty());
     }
 
@@ -133,7 +134,7 @@ mod tests {
     fn test_add_all() {
         let mut params = QueryParams::new();
         params.add_all("statuses", &["todo", "in progress"]);
-        
+
         assert_eq!(
             params.to_query_string(),
             "?statuses[]=todo&statuses[]=in progress"
@@ -144,7 +145,7 @@ mod tests {
     fn test_add_all_empty() {
         let mut params = QueryParams::new();
         params.add_all("statuses", &[] as &[&str]);
-        
+
         assert!(params.is_empty());
     }
 
@@ -152,7 +153,7 @@ mod tests {
     fn test_add_all_ints() {
         let mut params = QueryParams::new();
         params.add_all_ints("assignees", &[123, 456]);
-        
+
         assert_eq!(params.to_query_string(), "?assignees[]=123&assignees[]=456");
     }
 
@@ -164,7 +165,7 @@ mod tests {
         params.add_opt_encoded("query", Some("test search"));
         params.add_all("statuses", &["todo"]);
         params.add_all_ints("assignees", &[789]);
-        
+
         let query = params.to_query_string();
         assert!(query.contains("archived=false"));
         assert!(query.contains("page=1"));
@@ -178,7 +179,7 @@ mod tests {
         let mut params = QueryParams::new();
         params.add_opt("a", Some(1));
         params.add_opt("b", Some(2));
-        
+
         assert_eq!(params.to_string(), "a=1&b=2");
     }
 }

@@ -4,8 +4,8 @@
 
 use std::sync::Arc;
 
-use crate::api::{ClickUpApi, ClickUpClient, AuthManager};
-use crate::cli::args::{DebugCommand, DebugOperation, exit_codes};
+use crate::api::{AuthManager, ClickUpApi, ClickUpClient};
+use crate::cli::args::{exit_codes, DebugCommand, DebugOperation};
 use crate::commands::DebugOperations;
 
 /// Run the CLI with the given arguments
@@ -81,16 +81,14 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 debug_ops.search_docs(query).await
             }
         }
-        DebugOperation::AuthStatus => {
-            match debug_ops.check_auth_status().await {
-                Ok(true) => return exit_codes::SUCCESS,
-                Ok(false) => return exit_codes::AUTH_ERROR,
-                Err(e) => {
-                    eprintln!("Error checking auth status: {}", e);
-                    return exit_codes::GENERAL_ERROR;
-                }
+        DebugOperation::AuthStatus => match debug_ops.check_auth_status().await {
+            Ok(true) => return exit_codes::SUCCESS,
+            Ok(false) => return exit_codes::AUTH_ERROR,
+            Err(e) => {
+                eprintln!("Error checking auth status: {}", e);
+                return exit_codes::GENERAL_ERROR;
             }
-        }
+        },
         DebugOperation::Spaces { ref workspace_id } => {
             if command.json {
                 debug_ops.list_spaces_json(workspace_id).await
@@ -135,29 +133,49 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
         DebugOperation::CreateComment { ref task_id } => {
             let text = command.text.as_deref().unwrap_or("");
             let parent_id = command.parent_id.as_deref();
-            let assignee = command.assignee.as_ref().and_then(|s| s.parse::<i64>().ok());
-            let assigned_commenter = command.assigned_commenter.as_ref().and_then(|s| s.parse::<i64>().ok());
-            
+            let assignee = command
+                .assignee
+                .as_ref()
+                .and_then(|s| s.parse::<i64>().ok());
+            let assigned_commenter = command
+                .assigned_commenter
+                .as_ref()
+                .and_then(|s| s.parse::<i64>().ok());
+
             if command.json {
-                debug_ops.create_comment_json(task_id, text, parent_id, assignee, assigned_commenter).await
+                debug_ops
+                    .create_comment_json(task_id, text, parent_id, assignee, assigned_commenter)
+                    .await
             } else {
-                debug_ops.create_comment(task_id, text, parent_id, assignee, assigned_commenter).await
+                debug_ops
+                    .create_comment(task_id, text, parent_id, assignee, assigned_commenter)
+                    .await
             }
         }
         DebugOperation::CreateReply { ref comment_id } => {
             let text = command.text.as_deref().unwrap_or("");
-            let assignee = command.assignee.as_ref().and_then(|s| s.parse::<i64>().ok());
-            let assigned_commenter = command.assigned_commenter.as_ref().and_then(|s| s.parse::<i64>().ok());
-            
+            let assignee = command
+                .assignee
+                .as_ref()
+                .and_then(|s| s.parse::<i64>().ok());
+            let assigned_commenter = command
+                .assigned_commenter
+                .as_ref()
+                .and_then(|s| s.parse::<i64>().ok());
+
             if command.json {
-                debug_ops.create_reply_json(comment_id, text, assignee, assigned_commenter).await
+                debug_ops
+                    .create_reply_json(comment_id, text, assignee, assigned_commenter)
+                    .await
             } else {
-                debug_ops.create_reply(comment_id, text, assignee, assigned_commenter).await
+                debug_ops
+                    .create_reply(comment_id, text, assignee, assigned_commenter)
+                    .await
             }
         }
         DebugOperation::UpdateComment { ref comment_id } => {
             let text = command.text.as_deref().unwrap_or("");
-            
+
             if command.json {
                 debug_ops.update_comment_json(comment_id, text).await
             } else {
@@ -175,19 +193,20 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
         Ok(()) => exit_codes::SUCCESS,
         Err(e) => {
             let err_msg = e.to_string();
-            
+
             // Determine exit code based on error type
-            let exit_code = if err_msg.contains("authentication") 
+            let exit_code = if err_msg.contains("authentication")
                 || err_msg.contains("unauthorized")
                 || err_msg.contains("401")
-                || err_msg.contains("403") {
+                || err_msg.contains("403")
+            {
                 exit_codes::AUTH_ERROR
             } else if err_msg.contains("network")
                 || err_msg.contains("connection")
-                || err_msg.contains("timeout") {
+                || err_msg.contains("timeout")
+            {
                 exit_codes::NETWORK_ERROR
-            } else if err_msg.contains("not found")
-                || err_msg.contains("404") {
+            } else if err_msg.contains("not found") || err_msg.contains("404") {
                 exit_codes::GENERAL_ERROR
             } else {
                 exit_codes::GENERAL_ERROR

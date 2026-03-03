@@ -86,7 +86,11 @@ fn test_task_with_unexpected_nested_object() {
 
     let task: Result<Task, _> = serde_json::from_str(json);
     // Should still parse, ignoring unknown fields
-    assert!(task.is_ok(), "Task with unexpected nested object should still parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with unexpected nested object should still parse: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -99,7 +103,11 @@ fn test_task_with_unicode_in_name() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Task with unicode should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with unicode should parse: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert_eq!(task.name, "Test Task 日本語 🚀 émojis");
 }
@@ -107,16 +115,23 @@ fn test_task_with_unicode_in_name() {
 #[test]
 fn test_task_with_extremely_long_string() {
     let long_desc = "A".repeat(100000);
-    let json = format!(r#"
+    let json = format!(
+        r#"
     {{
         "id": "task-1",
         "name": "Test",
         "description": "{}"
     }}
-    "#, long_desc);
+    "#,
+        long_desc
+    );
 
     let task: Result<Task, _> = serde_json::from_str(&json);
-    assert!(task.is_ok(), "Task with very long string should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with very long string should parse: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -124,7 +139,10 @@ fn test_task_with_empty_object() {
     let json = r#"{}"#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_err(), "Empty object should fail (missing required fields)");
+    assert!(
+        task.is_err(),
+        "Empty object should fail (missing required fields)"
+    );
 }
 
 // ============================================================================
@@ -144,7 +162,10 @@ fn test_task_status_as_string_instead_of_object() {
 
     let task: Result<Task, _> = serde_json::from_str(json);
     // This should fail because status type doesn't match
-    assert!(task.is_err(), "Task with string status should fail to parse");
+    assert!(
+        task.is_err(),
+        "Task with string status should fail to parse"
+    );
 }
 
 #[test]
@@ -159,7 +180,10 @@ fn test_task_with_array_where_object_expected() {
 
     let task: Result<Task, _> = serde_json::from_str(json);
     // creator should be object, not array
-    assert!(task.is_err(), "Task with array for creator should fail to parse");
+    assert!(
+        task.is_err(),
+        "Task with array for creator should fail to parse"
+    );
 }
 
 #[test]
@@ -177,7 +201,10 @@ fn test_task_with_string_where_number_expected() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_err(), "Task with string for user id should fail to parse");
+    assert!(
+        task.is_err(),
+        "Task with string for user id should fail to parse"
+    );
 }
 
 // ============================================================================
@@ -209,7 +236,11 @@ fn test_task_with_all_optional_fields_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Task with all null optional fields should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with all null optional fields should parse: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -228,7 +259,11 @@ fn test_task_with_camelcase_field_names() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Task with camelCase fields should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with camelCase fields should parse: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert_eq!(task.time_estimate, Some(3600000));
     assert_eq!(task.time_spent, Some(1800000));
@@ -250,9 +285,16 @@ fn test_task_with_profile_picture_camelcase() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Task with profilePicture should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with profilePicture should parse: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
-    assert_eq!(task.creator.unwrap().profile_picture, Some("https://example.com/pic.jpg".to_string()));
+    assert_eq!(
+        task.creator.unwrap().profile_picture,
+        Some("https://example.com/pic.jpg".to_string())
+    );
 }
 
 #[test]
@@ -271,7 +313,11 @@ fn test_task_status_with_type_field() {
     "##;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Task with status type should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with status type should parse: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert_eq!(task.status.unwrap().type_field, Some("custom".to_string()));
 }
@@ -295,7 +341,11 @@ fn test_custom_field_with_type_field() {
     "##;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Task with custom field type should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with custom field type should parse: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert_eq!(task.custom_fields[0].type_field, Some("date".to_string()));
 }
@@ -313,7 +363,11 @@ fn test_tasks_response_with_null_tasks() {
     "#;
 
     let response: Result<TasksResponse, _> = serde_json::from_str(json);
-    assert!(response.is_ok(), "TasksResponse with null tasks should parse: {:?}", response.err());
+    assert!(
+        response.is_ok(),
+        "TasksResponse with null tasks should parse: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert!(response.tasks.is_empty());
 }
@@ -323,7 +377,11 @@ fn test_tasks_response_with_missing_tasks_field() {
     let json = r#"{}"#;
 
     let response: Result<TasksResponse, _> = serde_json::from_str(json);
-    assert!(response.is_ok(), "TasksResponse without tasks field should parse: {:?}", response.err());
+    assert!(
+        response.is_ok(),
+        "TasksResponse without tasks field should parse: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert!(response.tasks.is_empty());
 }
@@ -347,7 +405,10 @@ fn test_tasks_response_with_malformed_task_in_array() {
 
     let response: Result<TasksResponse, _> = serde_json::from_str(json);
     // Should fail because second task is missing required name field
-    assert!(response.is_err(), "TasksResponse with malformed task should fail");
+    assert!(
+        response.is_err(),
+        "TasksResponse with malformed task should fail"
+    );
 }
 
 // ============================================================================
@@ -442,12 +503,19 @@ fn test_task_with_real_api_response_format() {
     "##;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Real API response format should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Real API response format should parse: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert_eq!(task.id, "86d20qjkb");
     assert_eq!(task.name, "Test Task");
     assert!(task.status.is_some());
-    assert_eq!(task.status.as_ref().unwrap().id, Some("sc901610671319_6vzAiFuB".to_string()));
+    assert_eq!(
+        task.status.as_ref().unwrap().id,
+        Some("sc901610671319_6vzAiFuB".to_string())
+    );
 }
 
 #[test]
@@ -464,7 +532,11 @@ fn test_task_with_string_timestamp_values() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Task with string timestamps should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with string timestamps should parse: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert_eq!(task.created_at, Some(1234567890));
     assert_eq!(task.updated_at, Some(1234567891));
@@ -485,7 +557,11 @@ fn test_task_with_numeric_timestamp_values() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Task with numeric timestamps should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with numeric timestamps should parse: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert_eq!(task.created_at, Some(1234567890));
     assert_eq!(task.updated_at, Some(1234567891));
@@ -506,7 +582,11 @@ fn test_task_with_mixed_timestamp_types() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Task with mixed timestamp types should parse: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Task with mixed timestamp types should parse: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert_eq!(task.created_at, Some(1234567890));
     assert_eq!(task.updated_at, Some(1234567891));
@@ -528,10 +608,13 @@ fn test_error_message_contains_field_name() {
     let task: Result<Task, _> = serde_json::from_str(json);
     let err = task.unwrap_err();
     let err_msg = err.to_string().to_lowercase();
-    
+
     // Error should mention the missing field
-    assert!(err_msg.contains("name") || err_msg.contains("missing"), 
-            "Error message should indicate missing field: {}", err);
+    assert!(
+        err_msg.contains("name") || err_msg.contains("missing"),
+        "Error message should indicate missing field: {}",
+        err
+    );
 }
 
 #[test]
@@ -546,8 +629,11 @@ fn test_error_message_for_type_mismatch() {
     let task: Result<Task, _> = serde_json::from_str(json);
     let err = task.unwrap_err();
     let err_msg = err.to_string().to_lowercase();
-    
+
     // Error should indicate type problem
-    assert!(err_msg.contains("invalid") || err_msg.contains("type") || err_msg.contains("expected"),
-            "Error message should indicate type mismatch: {}", err);
+    assert!(
+        err_msg.contains("invalid") || err_msg.contains("type") || err_msg.contains("expected"),
+        "Error message should indicate type mismatch: {}",
+        err
+    );
 }

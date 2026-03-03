@@ -4,13 +4,13 @@
 //! including API client, models, caching, configuration, and TUI components.
 
 pub mod api;
-pub mod models;
 pub mod cache;
-pub mod config;
-pub mod tui;
 pub mod cli;
 pub mod commands;
+pub mod config;
+pub mod models;
+pub mod tui;
 pub mod utils;
 
+pub use api::{AuthManager, ClickUpApi, ClickUpClient, MockClickUpClient};
 pub use tui::app::TuiApp;
-pub use api::{ClickUpClient, AuthManager, ClickUpApi, MockClickUpClient};

@@ -21,7 +21,11 @@ fn test_task_description_as_plain_string() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with plain string description: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with plain string description: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert!(task.description.is_some());
 }
@@ -42,7 +46,11 @@ fn test_task_description_as_object() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with object description: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with object description: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert!(task.description.is_some());
 }
@@ -58,7 +66,11 @@ fn test_task_description_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null description: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null description: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert!(task.description.is_none());
 }
@@ -73,7 +85,11 @@ fn test_task_description_missing() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with missing description: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with missing description: {:?}",
+        task.err()
+    );
     let task = task.unwrap();
     assert!(task.description.is_none());
 }
@@ -93,7 +109,11 @@ fn test_task_content_as_plain_string() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with plain string content: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with plain string content: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -110,7 +130,11 @@ fn test_task_content_as_object() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with object content: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with object content: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -124,7 +148,11 @@ fn test_task_content_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null content: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null content: {:?}",
+        task.err()
+    );
 }
 
 // ============================================================================
@@ -146,7 +174,11 @@ fn test_task_status_as_object() {
     "##;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with status object: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with status object: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -160,7 +192,11 @@ fn test_task_status_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null status: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null status: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -173,7 +209,11 @@ fn test_task_status_missing() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with missing status: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with missing status: {:?}",
+        task.err()
+    );
 }
 
 // ============================================================================
@@ -194,7 +234,11 @@ fn test_task_priority_as_object() {
     "##;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with priority object: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with priority object: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -208,7 +252,11 @@ fn test_task_priority_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null priority: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null priority: {:?}",
+        task.err()
+    );
 }
 
 // ============================================================================
@@ -232,7 +280,11 @@ fn test_task_assignees_as_array() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with assignees array: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with assignees array: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -246,7 +298,11 @@ fn test_task_assignees_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null assignees: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null assignees: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -259,7 +315,11 @@ fn test_task_assignees_missing() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with missing assignees: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with missing assignees: {:?}",
+        task.err()
+    );
 }
 
 // ============================================================================
@@ -277,7 +337,11 @@ fn test_task_time_estimate_as_integer() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with integer timeEstimate: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with integer timeEstimate: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -291,7 +355,11 @@ fn test_task_time_estimate_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null timeEstimate: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null timeEstimate: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -305,7 +373,11 @@ fn test_task_time_spent_as_integer() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with integer timeSpent: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with integer timeSpent: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -319,7 +391,11 @@ fn test_task_time_spent_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null timeSpent: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null timeSpent: {:?}",
+        task.err()
+    );
 }
 
 // ============================================================================
@@ -343,7 +419,11 @@ fn test_task_checklists_as_array() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with checklists array: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with checklists array: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -357,7 +437,11 @@ fn test_task_checklists_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null checklists: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null checklists: {:?}",
+        task.err()
+    );
 }
 
 // ============================================================================
@@ -382,7 +466,11 @@ fn test_task_custom_fields_as_array() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with custom_fields array: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with custom_fields array: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -396,7 +484,11 @@ fn test_task_custom_fields_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null custom_fields: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null custom_fields: {:?}",
+        task.err()
+    );
 }
 
 // ============================================================================
@@ -420,7 +512,11 @@ fn test_task_tags_as_array() {
     "##;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with tags array: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with tags array: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -434,7 +530,11 @@ fn test_task_tags_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null tags: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null tags: {:?}",
+        task.err()
+    );
 }
 
 // ============================================================================
@@ -458,7 +558,11 @@ fn test_task_attachments_as_array() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with attachments array: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with attachments array: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -472,7 +576,11 @@ fn test_task_attachments_as_null() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with null attachments: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with null attachments: {:?}",
+        task.err()
+    );
 }
 
 // ============================================================================
@@ -517,7 +625,11 @@ fn test_task_minimal_real_world() {
     "##;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse real-world task: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse real-world task: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -550,7 +662,11 @@ fn test_task_with_null_values_real_world() {
     "#;
 
     let task: Result<Task, _> = serde_json::from_str(json);
-    assert!(task.is_ok(), "Failed to parse task with many null values: {:?}", task.err());
+    assert!(
+        task.is_ok(),
+        "Failed to parse task with many null values: {:?}",
+        task.err()
+    );
 }
 
 #[test]
@@ -582,7 +698,11 @@ fn test_tasks_response_array() {
     "#;
 
     let response: Result<TasksResponse, _> = serde_json::from_str(json);
-    assert!(response.is_ok(), "Failed to parse TasksResponse: {:?}", response.err());
+    assert!(
+        response.is_ok(),
+        "Failed to parse TasksResponse: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.tasks.len(), 3);
 }
@@ -606,7 +726,11 @@ fn test_task_timestamp_as_string_now_works() {
     "#;
 
     let result: Result<Task, _> = serde_json::from_str(json);
-    assert!(result.is_ok(), "Should now handle string timestamps: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should now handle string timestamps: {:?}",
+        result.err()
+    );
     let task = result.unwrap();
     assert_eq!(task.created_at, Some(1709251200000));
     assert_eq!(task.due_date, Some(1709424000000));
@@ -624,7 +748,11 @@ fn test_task_points_as_string_now_works() {
     "#;
 
     let result: Result<Task, _> = serde_json::from_str(json);
-    assert!(result.is_ok(), "Should now handle string points: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should now handle string points: {:?}",
+        result.err()
+    );
     let task = result.unwrap();
     assert_eq!(task.points, Some(5));
 }
@@ -641,7 +769,11 @@ fn test_task_time_estimate_as_string_now_works() {
     "#;
 
     let result: Result<Task, _> = serde_json::from_str(json);
-    assert!(result.is_ok(), "Should now handle string timeEstimate: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should now handle string timeEstimate: {:?}",
+        result.err()
+    );
     let task = result.unwrap();
     assert_eq!(task.time_estimate, Some(3600000));
 }
@@ -652,7 +784,11 @@ fn test_tasks_response_null_tasks_now_works() {
     let json = r#"{"tasks": null}"#;
 
     let result: Result<TasksResponse, _> = serde_json::from_str(json);
-    assert!(result.is_ok(), "Should now handle null tasks field: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should now handle null tasks field: {:?}",
+        result.err()
+    );
     let response = result.unwrap();
     assert_eq!(response.tasks.len(), 0);
 }
@@ -663,7 +799,11 @@ fn test_tasks_response_missing_tasks_now_works() {
     let json = r#"{}"#;
 
     let result: Result<TasksResponse, _> = serde_json::from_str(json);
-    assert!(result.is_ok(), "Should now handle missing tasks field: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should now handle missing tasks field: {:?}",
+        result.err()
+    );
     let response = result.unwrap();
     assert_eq!(response.tasks.len(), 0);
 }
@@ -683,7 +823,10 @@ fn test_task_status_as_string_still_fails() {
     let result: Result<Task, _> = serde_json::from_str(json);
     // This still fails because status should be an object with metadata
     // If the API actually returns this format, we'd need to add a flexible status deserializer
-    assert!(result.is_err(), "Status as string still fails (expected - status should be object)");
+    assert!(
+        result.is_err(),
+        "Status as string still fails (expected - status should be object)"
+    );
 }
 
 #[test]
@@ -701,5 +844,8 @@ fn test_task_assignees_as_single_object_still_fails() {
     let result: Result<Task, _> = serde_json::from_str(json);
     // This still fails because assignees should be an array
     // If the API actually returns this format, we'd need a flexible assignees deserializer
-    assert!(result.is_err(), "Single object assignees still fails (expected - should be array)");
+    assert!(
+        result.is_err(),
+        "Single object assignees still fails (expected - should be array)"
+    );
 }

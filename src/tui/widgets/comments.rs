@@ -1,16 +1,16 @@
 //! Comment list and form widgets
 
+use crate::models::Comment;
+use crate::tui::app::CommentViewMode;
+use crate::tui::layout::ScrollState;
 use chrono::{DateTime, Local};
 use ratatui::{
-    Frame,
-    layout::{Rect, Constraint, Direction, Layout},
-    style::{Color, Style, Modifier},
-    widgets::{Block, Borders, Paragraph},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
+    Frame,
 };
-use crate::models::Comment;
-use crate::tui::layout::ScrollState;
-use crate::tui::app::CommentViewMode;
 
 /// Comment panel state with scroll tracking
 #[derive(Debug, Clone)]
@@ -58,7 +58,7 @@ impl CommentPanelState {
     /// Auto-scroll to keep selected comment visible
     pub fn auto_scroll_to_selected(&mut self, visible_range: (usize, usize)) {
         let (visible_start, visible_end) = visible_range;
-        
+
         if self.selected_index < visible_start {
             // Selected comment is above visible area - scroll up
             self.scroll.scroll_to(self.selected_index);
@@ -114,8 +114,7 @@ pub fn render_comments(
             } else {
                 &format!("{} comments", comments.len())
             };
-            let paragraph = Paragraph::new(msg)
-                .style(Style::default().fg(Color::DarkGray));
+            let paragraph = Paragraph::new(msg).style(Style::default().fg(Color::DarkGray));
             frame.render_widget(paragraph, area);
         }
         return;
@@ -134,8 +133,8 @@ pub fn render_comments(
 
     let constraints = if has_input {
         vec![
-            Constraint::Percentage(70),  // Comments list
-            Constraint::Percentage(30),  // Input form
+            Constraint::Percentage(70), // Comments list
+            Constraint::Percentage(30), // Input form
         ]
     } else {
         vec![Constraint::Percentage(100)]
@@ -177,14 +176,16 @@ pub fn render_comments(
             Style::default().fg(Color::DarkGray)
         };
 
-        let input = Paragraph::new(input_text)
-            .style(input_style)
-            .block(
-                Block::default()
-                    .title(edit_label)
-                    .borders(Borders::ALL)
-                    .style(Style::default().fg(if comment_focus { Color::Yellow } else { Color::DarkGray })),
-            );
+        let input = Paragraph::new(input_text).style(input_style).block(
+            Block::default()
+                .title(edit_label)
+                .borders(Borders::ALL)
+                .style(Style::default().fg(if comment_focus {
+                    Color::Yellow
+                } else {
+                    Color::DarkGray
+                })),
+        );
 
         frame.render_widget(input, chunks[1]);
     }
@@ -209,22 +210,34 @@ fn render_comment_list(
     let filtered_comments: Vec<(usize, &Comment)> = match view_mode {
         CommentViewMode::TopLevel => {
             // Show only top-level comments (no parent_id)
-            let result: Vec<(usize, &Comment)> = comments.iter()
+            let result: Vec<(usize, &Comment)> = comments
+                .iter()
                 .enumerate()
                 .filter(|(_, c)| {
                     let is_top_level = c.parent_id.is_none();
-                    tracing::debug!("Comment {} ({}): parent_id={:?}, is_top_level={}", 
-                        c.id, c.text.chars().take(20).collect::<String>(), c.parent_id, is_top_level);
+                    tracing::debug!(
+                        "Comment {} ({}): parent_id={:?}, is_top_level={}",
+                        c.id,
+                        c.text.chars().take(20).collect::<String>(),
+                        c.parent_id,
+                        is_top_level
+                    );
                     is_top_level
                 })
                 .collect();
-            tracing::info!("TopLevel view: showing {} of {} comments", result.len(), comments.len());
+            tracing::info!(
+                "TopLevel view: showing {} of {} comments",
+                result.len(),
+                comments.len()
+            );
             result
         }
-        CommentViewMode::InThread { parent_comment_id, .. } => {
+        CommentViewMode::InThread {
+            parent_comment_id, ..
+        } => {
             // Show parent comment first, then all replies
             let mut result: Vec<(usize, &Comment)> = Vec::new();
-            
+
             // Find and add parent comment first
             for (i, comment) in comments.iter().enumerate() {
                 if comment.id == *parent_comment_id {
@@ -233,17 +246,24 @@ fn render_comment_list(
                     break;
                 }
             }
-            
+
             // Add all replies (comments with this parent_id)
             for (i, comment) in comments.iter().enumerate() {
                 if comment.parent_id.as_ref() == Some(parent_comment_id) {
-                    tracing::debug!("Found reply: {} -> parent={}", comment.id, parent_comment_id);
+                    tracing::debug!(
+                        "Found reply: {} -> parent={}",
+                        comment.id,
+                        parent_comment_id
+                    );
                     result.push((i, comment));
                 }
             }
-            
-            tracing::info!("InThread view: showing {} comments (1 parent + {} replies)", 
-                result.len(), result.len().saturating_sub(1));
+
+            tracing::info!(
+                "InThread view: showing {} comments (1 parent + {} replies)",
+                result.len(),
+                result.len().saturating_sub(1)
+            );
             result
         }
     };
@@ -253,8 +273,7 @@ fn render_comment_list(
             CommentViewMode::TopLevel => "No comments yet. Press 'n' to add one.",
             CommentViewMode::InThread { .. } => "No replies yet. Press 'r' to reply.",
         };
-        let paragraph = Paragraph::new(empty_msg)
-            .style(Style::default().fg(Color::DarkGray));
+        let paragraph = Paragraph::new(empty_msg).style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     }
@@ -267,17 +286,18 @@ fn render_comment_list(
     let mut display_indices: Vec<usize> = Vec::new(); // Maps display position to original index
 
     // Pre-calculate reply counts for top-level comments (for task 3.3)
-    let reply_counts: std::collections::HashMap<&str, usize> = if matches!(view_mode, CommentViewMode::TopLevel) {
-        let mut counts = std::collections::HashMap::new();
-        for comment in comments.iter() {
-            if let Some(parent_id) = &comment.parent_id {
-                *counts.entry(parent_id.as_str()).or_insert(0) += 1;
+    let reply_counts: std::collections::HashMap<&str, usize> =
+        if matches!(view_mode, CommentViewMode::TopLevel) {
+            let mut counts = std::collections::HashMap::new();
+            for comment in comments.iter() {
+                if let Some(parent_id) = &comment.parent_id {
+                    *counts.entry(parent_id.as_str()).or_insert(0) += 1;
+                }
             }
-        }
-        counts
-    } else {
-        std::collections::HashMap::new()
-    };
+            counts
+        } else {
+            std::collections::HashMap::new()
+        };
 
     // Track if we're rendering the parent comment in thread view (for task 3.4)
     let mut is_first_comment_in_thread = true;
@@ -294,15 +314,19 @@ fn render_comment_list(
         display_indices.push(*orig_idx);
 
         // In thread view, identify the parent comment (first comment in the filtered list)
-        let is_parent_in_thread = matches!(view_mode, CommentViewMode::InThread { .. }) && is_first_comment_in_thread;
+        let is_parent_in_thread =
+            matches!(view_mode, CommentViewMode::InThread { .. }) && is_first_comment_in_thread;
         is_first_comment_in_thread = false;
 
         // Format author and date
-        let author = comment.commenter.as_ref()
+        let author = comment
+            .commenter
+            .as_ref()
             .map(|c| c.username.as_str())
             .unwrap_or("Anonymous");
 
-        let date_str = comment.created_at
+        let date_str = comment
+            .created_at
             .map(|ts| format_timestamp(ts))
             .unwrap_or_else(|| "Unknown date".to_string());
 
@@ -314,13 +338,17 @@ fn render_comment_list(
 
         // Check if this comment is selected by comparing with the stored selected_index
         let is_selected = *orig_idx == selected_index;
-        
+
         // Task 3.4: Parent comment in thread view gets distinct styling
         let header_style = if is_parent_in_thread {
             // Parent comment: bold white with underline
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if is_selected && comment_focus {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Cyan)
         };
@@ -336,7 +364,11 @@ fn render_comment_list(
             if let Some(reply_count) = reply_counts.get(comment.id.as_str()) {
                 if *reply_count > 0 {
                     header_spans.push(Span::styled(
-                        format!(" • {} repl{}", reply_count, if *reply_count == 1 { "y" } else { "ies" }),
+                        format!(
+                            " • {} repl{}",
+                            reply_count,
+                            if *reply_count == 1 { "y" } else { "ies" }
+                        ),
                         Style::default().fg(Color::DarkGray),
                     ));
                 }
@@ -347,7 +379,9 @@ fn render_comment_list(
         if is_parent_in_thread {
             header_spans.push(Span::styled(
                 " • Parent comment",
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             ));
         }
 
@@ -365,15 +399,19 @@ fn render_comment_list(
         };
 
         // Task 3.6: Add visual thread indicator for replies (not parent)
-        let is_reply_in_thread = matches!(view_mode, CommentViewMode::InThread { .. }) && !is_parent_in_thread;
-        
+        let is_reply_in_thread =
+            matches!(view_mode, CommentViewMode::InThread { .. }) && !is_parent_in_thread;
+
         // Wrap text to fit available width
         let wrapped_content = wrap_text(&comment.text, available_width);
         for line in wrapped_content {
             if is_reply_in_thread {
                 // Add vertical line indicator for replies (thread line)
                 let indented_line = format!("│ {}", line);
-                all_comment_lines.push((*orig_idx, Line::from(Span::styled(indented_line, content_style))));
+                all_comment_lines.push((
+                    *orig_idx,
+                    Line::from(Span::styled(indented_line, content_style)),
+                ));
             } else {
                 all_comment_lines.push((*orig_idx, Line::from(Span::styled(line, content_style))));
             }
@@ -385,27 +423,28 @@ fn render_comment_list(
 
     let total_lines = all_comment_lines.len();
     let available_height = area.height as usize;
-    
+
     // Calculate visible range based on scroll position
     // For simplicity, we'll scroll by comment index, not line index
     let mut scroll_offset = 0;
-    
+
     // Find the line index where the selected comment starts
-    let selected_line_start = all_comment_lines.iter()
+    let selected_line_start = all_comment_lines
+        .iter()
         .position(|(idx, _)| *idx == selected_index)
         .unwrap_or(0);
-    
+
     // Calculate visible range
     let visible_start = scroll_offset;
     let visible_end = (scroll_offset + available_height).min(total_lines);
-    
+
     // Auto-scroll: adjust scroll_offset if selected comment is outside visible range
     if selected_line_start < visible_start {
         scroll_offset = selected_line_start;
     } else if selected_line_start >= visible_end {
         scroll_offset = (selected_line_start + 1).saturating_sub(available_height);
     }
-    
+
     // Get visible lines
     let visible_lines: Vec<Line> = all_comment_lines
         .iter()
@@ -419,12 +458,7 @@ fn render_comment_list(
 
     // Render scroll indicator if content exceeds visible area
     if total_lines > available_height {
-        crate::tui::layout::render_scroll_indicator(
-            frame,
-            area,
-            total_lines,
-            scroll_offset,
-        );
+        crate::tui::layout::render_scroll_indicator(frame, area, total_lines, scroll_offset);
     }
 }
 
@@ -432,7 +466,7 @@ fn render_comment_list(
 fn format_timestamp(ts: i64) -> String {
     // Convert milliseconds to seconds for chrono
     let secs = ts / 1000;
-    
+
     // Try to convert to DateTime
     match DateTime::from_timestamp(secs, 0) {
         Some(dt) => {
@@ -448,7 +482,7 @@ fn format_timestamp(ts: i64) -> String {
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current_line = String::new();
-    
+
     for word in text.split_whitespace() {
         if current_line.is_empty() {
             current_line = word.to_string();
@@ -460,22 +494,22 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
             current_line = word.to_string();
         }
     }
-    
+
     if !current_line.is_empty() {
         lines.push(current_line);
     }
-    
+
     if lines.is_empty() {
         lines.push(String::new());
     }
-    
+
     lines
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_wrap_text() {
         let text = "This is a test comment with multiple words";
@@ -486,14 +520,14 @@ mod tests {
             assert!(line.len() <= 15);
         }
     }
-    
+
     #[test]
     fn test_wrap_text_empty() {
         let wrapped = wrap_text("", 10);
         assert_eq!(wrapped.len(), 1);
         assert!(wrapped[0].is_empty());
     }
-    
+
     #[test]
     fn test_format_timestamp() {
         // Test with a known timestamp: 1234567890000 ms = Feb 13, 2009
@@ -539,9 +573,21 @@ mod tests {
     fn test_comment_panel_state_select_next() {
         let mut state = CommentPanelState::new();
         let comments = vec![
-            Comment { id: "1".to_string(), text: "Comment 1".to_string(), ..test_comment() },
-            Comment { id: "2".to_string(), text: "Comment 2".to_string(), ..test_comment() },
-            Comment { id: "3".to_string(), text: "Comment 3".to_string(), ..test_comment() },
+            Comment {
+                id: "1".to_string(),
+                text: "Comment 1".to_string(),
+                ..test_comment()
+            },
+            Comment {
+                id: "2".to_string(),
+                text: "Comment 2".to_string(),
+                ..test_comment()
+            },
+            Comment {
+                id: "3".to_string(),
+                text: "Comment 3".to_string(),
+                ..test_comment()
+            },
         ];
 
         state.select_next(&comments);

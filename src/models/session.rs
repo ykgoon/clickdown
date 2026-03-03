@@ -29,7 +29,7 @@ pub struct SessionState {
 
 impl SessionState {
     /// Create a new SessionState from the current TuiApp state
-    /// 
+    ///
     /// This captures the current navigation context for later restoration.
     pub fn from_app(
         screen: &crate::tui::app::Screen,

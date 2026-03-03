@@ -2,10 +2,10 @@
 //!
 //! Implements the actual data-fetching operations for debug commands.
 
-use std::sync::Arc;
-use crate::api::{ClickUpApi, AuthManager};
-use crate::models::task::TaskFilters;
+use crate::api::{AuthManager, ClickUpApi};
 use crate::models::document::DocumentFilters;
+use crate::models::task::TaskFilters;
+use std::sync::Arc;
 
 /// Exit codes for CLI operations
 pub mod exit_codes {
@@ -27,8 +27,16 @@ pub struct DebugOperations {
 
 impl DebugOperations {
     /// Create a new DebugOperations instance
-    pub fn new(api: Arc<dyn ClickUpApi>, auth: AuthManager, token_override: Option<String>) -> Self {
-        Self { api, auth, token_override }
+    pub fn new(
+        api: Arc<dyn ClickUpApi>,
+        auth: AuthManager,
+        token_override: Option<String>,
+    ) -> Self {
+        Self {
+            api,
+            auth,
+            token_override,
+        }
     }
 
     /// Get the API client, using override token if provided
@@ -77,12 +85,19 @@ impl DebugOperations {
         }
 
         for task in &tasks {
-            let status = task.status.as_ref().map(|s| s.status.as_str()).unwrap_or("unknown");
+            let status = task
+                .status
+                .as_ref()
+                .map(|s| s.status.as_str())
+                .unwrap_or("unknown");
             let priority = match &task.priority {
                 Some(p) => format!("{:?}", p),
                 None => "none".to_string(),
             };
-            println!("{} - {} [status: {}, priority: {}]", task.id, task.name, status, priority);
+            println!(
+                "{} - {} [status: {}, priority: {}]",
+                task.id, task.name, status, priority
+            );
         }
 
         Ok(())
@@ -172,7 +187,10 @@ impl DebugOperations {
     }
 
     /// List spaces as JSON
-    pub async fn list_spaces_json(&self, workspace_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn list_spaces_json(
+        &self,
+        workspace_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let spaces = api.get_spaces(workspace_id).await?;
 
@@ -201,7 +219,10 @@ impl DebugOperations {
     }
 
     /// List folders as JSON
-    pub async fn list_folders_json(&self, space_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn list_folders_json(
+        &self,
+        space_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let folders = api.get_folders(space_id).await?;
 
@@ -212,7 +233,10 @@ impl DebugOperations {
     }
 
     /// List lists in a folder
-    pub async fn list_lists_in_folder(&self, folder_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn list_lists_in_folder(
+        &self,
+        folder_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let lists = api.get_lists_in_folder(folder_id, None).await?;
 
@@ -230,7 +254,10 @@ impl DebugOperations {
     }
 
     /// List lists in a space (folderless)
-    pub async fn list_lists_in_space(&self, space_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn list_lists_in_space(
+        &self,
+        space_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let lists = api.get_lists_in_space(space_id, None).await?;
 
@@ -248,7 +275,11 @@ impl DebugOperations {
     }
 
     /// List lists as JSON (from folder)
-    pub async fn list_lists_json(&self, folder_id: &str, in_space: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn list_lists_json(
+        &self,
+        folder_id: &str,
+        in_space: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let lists = if in_space {
             api.get_lists_in_space(folder_id, None).await?
@@ -274,7 +305,10 @@ impl DebugOperations {
     }
 
     /// Explore full hierarchy: workspace -> spaces -> folders -> lists -> tasks
-    pub async fn explore_hierarchy(&self, workspace_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn explore_hierarchy(
+        &self,
+        workspace_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
 
         println!("=== Exploring Workspace: {} ===\n", workspace_id);
@@ -338,15 +372,19 @@ impl DebugOperations {
 
         println!("Comments for task {}:\n", task_id);
         for (i, comment) in comments.iter().enumerate() {
-            let author = comment.commenter.as_ref()
+            let author = comment
+                .commenter
+                .as_ref()
                 .map(|c| c.username.as_str())
                 .unwrap_or("Anonymous");
-            
-            let date_str = comment.created_at
+
+            let date_str = comment
+                .created_at
                 .map(|ts| format_timestamp(ts))
                 .unwrap_or_else(|| "Unknown date".to_string());
 
-            let edited = if comment.updated_at.is_some() && comment.updated_at != comment.created_at {
+            let edited = if comment.updated_at.is_some() && comment.updated_at != comment.created_at
+            {
                 " (edited)"
             } else {
                 ""
@@ -391,7 +429,8 @@ impl DebugOperations {
         };
 
         let comment = if parent_id.is_some() {
-            api.create_comment_reply(parent_id.unwrap(), &request).await?
+            api.create_comment_reply(parent_id.unwrap(), &request)
+                .await?
         } else {
             api.create_comment(task_id, &request).await?
         };
@@ -426,7 +465,8 @@ impl DebugOperations {
         };
 
         let comment = if parent_id.is_some() {
-            api.create_comment_reply(parent_id.unwrap(), &request).await?
+            api.create_comment_reply(parent_id.unwrap(), &request)
+                .await?
         } else {
             api.create_comment(task_id, &request).await?
         };
@@ -446,7 +486,8 @@ impl DebugOperations {
         assigned_commenter: Option<i64>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // create_reply is a convenience wrapper that calls create_comment with parent_id set
-        self.create_comment("", text, Some(comment_id), assignee, assigned_commenter).await
+        self.create_comment("", text, Some(comment_id), assignee, assigned_commenter)
+            .await
     }
 
     /// Create a reply to an existing comment (JSON format)
@@ -458,7 +499,8 @@ impl DebugOperations {
         assigned_commenter: Option<i64>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // create_reply_json is a convenience wrapper
-        self.create_comment_json("", text, Some(comment_id), assignee, assigned_commenter).await
+        self.create_comment_json("", text, Some(comment_id), assignee, assigned_commenter)
+            .await
     }
 
     /// Update an existing comment (human-readable format)
@@ -513,7 +555,7 @@ impl DebugOperations {
 /// Format a Unix timestamp (milliseconds) to a readable date string
 fn format_timestamp(ts: i64) -> String {
     use chrono::{DateTime, Local};
-    
+
     let secs = ts / 1000;
     match DateTime::from_timestamp(secs, 0) {
         Some(dt) => {
