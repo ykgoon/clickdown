@@ -428,9 +428,8 @@ impl DebugOperations {
             parent_id: parent_id.map(String::from),
         };
 
-        let comment = if parent_id.is_some() {
-            api.create_comment_reply(parent_id.unwrap(), &request)
-                .await?
+        let comment = if let Some(id) = parent_id {
+            api.create_comment_reply(id, &request).await?
         } else {
             api.create_comment(task_id, &request).await?
         };
@@ -464,9 +463,8 @@ impl DebugOperations {
             parent_id: parent_id.map(String::from),
         };
 
-        let comment = if parent_id.is_some() {
-            api.create_comment_reply(parent_id.unwrap(), &request)
-                .await?
+        let comment = if let Some(id) = parent_id {
+            api.create_comment_reply(id, &request).await?
         } else {
             api.create_comment(task_id, &request).await?
         };
@@ -546,6 +544,56 @@ impl DebugOperations {
         let comment = api.update_comment(comment_id, &request).await?;
 
         let json = serde_json::to_string_pretty(&comment)?;
+        println!("{}", json);
+
+        Ok(())
+    }
+
+    /// Get notifications for a workspace (human-readable format)
+    pub async fn get_notifications(
+        &self,
+        workspace_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let notifications = api.get_notifications(workspace_id).await?;
+
+        if notifications.is_empty() {
+            println!("No notifications found for workspace {}.", workspace_id);
+            return Ok(());
+        }
+
+        println!("Notifications for workspace {}:\n", workspace_id);
+        for (i, notif) in notifications.iter().enumerate() {
+            let date_str = notif
+                .created_at
+                .map(|ts| format_timestamp(ts))
+                .unwrap_or_else(|| "Unknown date".to_string());
+
+            let read_status = if notif.read_at.is_some() {
+                "[read]"
+            } else {
+                "[unread]"
+            };
+
+            println!("[{}] {} {} - {}", i + 1, read_status, date_str, notif.title);
+            if !notif.description.is_empty() {
+                println!("    {}", notif.description);
+            }
+            println!();
+        }
+
+        Ok(())
+    }
+
+    /// Get notifications for a workspace as JSON
+    pub async fn get_notifications_json(
+        &self,
+        workspace_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let notifications = api.get_notifications(workspace_id).await?;
+
+        let json = serde_json::to_string_pretty(&notifications)?;
         println!("{}", json);
 
         Ok(())

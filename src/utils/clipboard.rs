@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_clipboard_service_creation() {
-        let service = ClipboardService::new();
+        let _service = ClipboardService::new();
         // Service should be created even if clipboard is unavailable
         // The clipboard field may be None in headless environments
     }

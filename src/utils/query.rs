@@ -10,7 +10,7 @@
 /// # Example
 ///
 /// ```
-/// use crate::utils::QueryParams;
+/// use clickdown::utils::QueryParams;
 ///
 /// let mut params = QueryParams::new();
 /// params.add_opt("archived", Some(true));

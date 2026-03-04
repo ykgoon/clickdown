@@ -2,6 +2,7 @@
 
 pub mod comment;
 pub mod document;
+pub mod notification;
 pub mod session;
 pub mod task;
 pub mod workspace;
@@ -13,6 +14,7 @@ pub use comment::{
 pub use document::{
     Document, DocumentFilters, DocumentPagesResponse, DocumentsResponse, Page, PageResponse,
 };
+pub use notification::{Notification, NotificationsResponse};
 pub use session::SessionState;
 pub use task::*;
 pub use workspace::{

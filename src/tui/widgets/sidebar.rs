@@ -12,6 +12,7 @@ use ratatui::{
 /// Sidebar item types
 #[derive(Debug, Clone)]
 pub enum SidebarItem {
+    Inbox,
     Workspace {
         name: String,
         id: String,
@@ -37,6 +38,7 @@ impl SidebarItem {
     /// Get the ID of this sidebar item
     pub fn id(&self) -> &str {
         match self {
+            SidebarItem::Inbox => "inbox",
             SidebarItem::Workspace { id, .. } => id,
             SidebarItem::Space { id, .. } => id,
             SidebarItem::Folder { id, .. } => id,
@@ -118,6 +120,13 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
         .iter()
         .map(|item| {
             let (type_label, name, name_style) = match item {
+                SidebarItem::Inbox => (
+                    "📬",
+                    "Inbox",
+                    Style::default()
+                        .add_modifier(Modifier::BOLD)
+                        .fg(Color::Yellow),
+                ),
                 SidebarItem::Workspace { name, .. } => (
                     "WS",
                     name.as_str(),

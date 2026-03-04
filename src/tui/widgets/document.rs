@@ -1,6 +1,6 @@
 //! Document view widget
 
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, Parser, TagEnd};
 use ratatui::{
     layout::Rect,
     style::{Color, Style},
@@ -24,6 +24,16 @@ impl DocumentState {
             content: String::new(),
             scroll_offset: 0,
         }
+    }
+
+    /// Scroll down by one line
+    pub fn scroll_down(&mut self) {
+        self.scroll_offset = self.scroll_offset.saturating_add(1);
+    }
+
+    /// Scroll up by one line
+    pub fn scroll_up(&mut self) {
+        self.scroll_offset = self.scroll_offset.saturating_sub(1);
     }
 }
 

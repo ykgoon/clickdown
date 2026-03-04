@@ -182,6 +182,13 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 debug_ops.update_comment(comment_id, text).await
             }
         }
+        DebugOperation::Notifications { ref workspace_id } => {
+            if command.json {
+                debug_ops.get_notifications_json(workspace_id).await
+            } else {
+                debug_ops.get_notifications(workspace_id).await
+            }
+        }
         DebugOperation::Help => {
             // Already handled above
             return exit_codes::SUCCESS;

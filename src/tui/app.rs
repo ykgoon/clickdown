@@ -3,11 +3,8 @@
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::{
-    layout::{Constraint, Direction, Layout},
-    prelude::Rect,
-    Frame,
-};
+use ratatui::prelude::Rect;
+use ratatui::Frame;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -20,17 +17,16 @@ use crate::models::{
     UpdateCommentRequest, Workspace,
 };
 use crate::tui::widgets::SidebarItem;
-use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlError, UrlGenerator};
+use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlGenerator};
 
-use super::input::{is_enter, is_escape, is_quit, InputEvent};
+use super::input::{is_quit, InputEvent};
 use super::layout::{generate_screen_title, split_task_detail, TuiLayout};
 use super::terminal;
 use super::widgets::{
-    get_auth_hints, get_dialog_hints, get_document_hints, get_help_hints, get_sidebar_hints,
-    get_task_detail_hints, get_task_list_hints, render_auth, render_comments, render_dialog,
-    render_document, render_help, render_sidebar, render_task_detail, render_task_list, AuthState,
-    DialogState, DialogType, DocumentState, HelpState, SidebarState, TaskDetailState,
-    TaskListState,
+    get_dialog_hints, render_auth, render_comments, render_dialog, render_document, render_help,
+    render_inbox_list, render_notification_detail, render_sidebar, render_task_detail,
+    render_task_list, AuthState, DialogState, DialogType, DocumentState, HelpState, InboxListState,
+    SidebarState, TaskDetailState, TaskListState,
 };
 
 /// Application screens
@@ -44,6 +40,7 @@ pub enum Screen {
     Tasks,
     TaskDetail,
     Document,
+    Inbox,
 }
 
 /// Comment view mode for threaded comments
@@ -69,6 +66,7 @@ pub enum AppMessage {
     CommentsLoaded(Result<Vec<Comment>, String>),
     CommentCreated(Result<Comment, String>, bool), // bool = is_reply
     CommentUpdated(Result<Comment, String>),
+    NotificationsLoaded(Result<Vec<crate::models::Notification>, String>),
 }
 
 /// Main TUI application state
@@ -132,6 +130,7 @@ pub struct TuiApp {
     tasks: Vec<Task>,
     documents: Vec<Document>,
     comments: Vec<Comment>,
+    notifications: Vec<crate::models::Notification>,
 
     /// Comment UI state
     comment_selected_index: usize,
@@ -142,6 +141,13 @@ pub struct TuiApp {
     /// Comment thread navigation state
     comment_view_mode: CommentViewMode,
     comment_previous_selection: Option<usize>, // Store selection when entering thread
+
+    /// Inbox UI state
+    inbox_selected_index: usize,
+    inbox_showing_detail: bool,
+    inbox_loading: bool,
+    inbox_error: Option<String>,
+    inbox_list: InboxListState,
 
     /// Async message receiver
     message_rx: Option<mpsc::Receiver<AppMessage>>,
@@ -231,12 +237,18 @@ impl TuiApp {
             tasks: Vec::new(),
             documents: Vec::new(),
             comments: Vec::new(),
+            notifications: Vec::new(),
             comment_selected_index: 0,
             comment_editing_index: None,
             comment_new_text: String::new(),
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
+            inbox_selected_index: 0,
+            inbox_showing_detail: false,
+            inbox_loading: false,
+            inbox_error: None,
+            inbox_list: InboxListState::new(),
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -339,15 +351,15 @@ impl TuiApp {
                         match result {
                             Ok(workspaces) => {
                                 self.workspaces = workspaces.clone();
-                                // Populate sidebar with workspaces
-                                *self.sidebar.items_mut() = self
-                                    .workspaces
-                                    .iter()
-                                    .map(|w| SidebarItem::Workspace {
+                                // Populate sidebar with inbox at top, then workspaces
+                                let mut items = vec![SidebarItem::Inbox];
+                                items.extend(self.workspaces.iter().map(|w| {
+                                    SidebarItem::Workspace {
                                         name: w.name.clone(),
                                         id: w.id.clone(),
-                                    })
-                                    .collect();
+                                    }
+                                }));
+                                *self.sidebar.items_mut() = items;
 
                                 // Check if we're restoring a session
                                 if self.restoring_session {
@@ -789,6 +801,24 @@ impl TuiApp {
                             }
                         }
                     }
+                    AppMessage::NotificationsLoaded(result) => {
+                        self.inbox_loading = false;
+                        match result {
+                            Ok(notifications) => {
+                                self.notifications = notifications;
+                                self.inbox_list
+                                    .set_notifications(self.notifications.clone());
+                                self.status =
+                                    format!("Loaded {} notification(s)", self.notifications.len());
+                                self.inbox_error = None;
+                            }
+                            Err(e) => {
+                                self.inbox_error =
+                                    Some(format!("Failed to load notifications: {}", e));
+                                self.status = "Failed to load notifications".to_string();
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -824,7 +854,8 @@ impl TuiApp {
                                         return Ok(Some(InputEvent::Quit));
                                     }
                                     Some(DialogType::ConfirmDelete) => {
-                                        // TODO: Delete task
+                                        // Task deletion not yet implemented
+                                        self.status = "Task deletion - coming soon".to_string();
                                     }
                                     _ => {}
                                 }
@@ -891,6 +922,7 @@ impl TuiApp {
             Screen::Tasks => self.update_tasks(event),
             Screen::TaskDetail => self.update_task_detail(event),
             Screen::Document => self.update_document(event),
+            Screen::Inbox => self.update_inbox(event),
         }
     }
 
@@ -979,8 +1011,8 @@ impl TuiApp {
                     }
                 }
                 KeyCode::Char('n') => {
-                    // TODO: Create new task
-                    self.status = "Create task - not yet implemented".to_string();
+                    // Create new task - not yet implemented
+                    self.status = "Create task - coming soon".to_string();
                 }
                 KeyCode::Char('e') => {
                     if self.task_detail.task.is_some() {
@@ -1141,9 +1173,9 @@ impl TuiApp {
                     self.dialog.show(DialogType::ConfirmDelete);
                 }
                 KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    // TODO: Save task
+                    // Save task - not yet implemented
                     self.task_detail.editing = false;
-                    self.status = "Task saved".to_string();
+                    self.status = "Save task - coming soon".to_string();
                 }
                 // Comment navigation
                 KeyCode::Tab => {
@@ -1254,13 +1286,100 @@ impl TuiApp {
         if let InputEvent::Key(key) = event {
             match key.code {
                 KeyCode::Char('j') | KeyCode::Down => {
-                    // TODO: Scroll down
+                    self.document.scroll_down();
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
-                    // TODO: Scroll up
+                    self.document.scroll_up();
                 }
                 KeyCode::Esc => {
                     self.navigate_back();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn update_inbox(&mut self, event: InputEvent) {
+        if let InputEvent::Key(key) = event {
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    // Move selection down in inbox list
+                    self.inbox_list.select_next();
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    // Move selection up in inbox list
+                    self.inbox_list.select_previous();
+                }
+                KeyCode::Char('r') => {
+                    // Manual refresh - reload notifications from cache
+                    if let Some(workspace_id) = &self.current_workspace_id {
+                        match self.cache.get_unread_notifications(workspace_id, None) {
+                            Ok(notifications) => {
+                                self.notifications = notifications;
+                                self.inbox_list
+                                    .set_notifications(self.notifications.clone());
+                                self.status = format!(
+                                    "Refreshed {} notification(s)",
+                                    self.notifications.len()
+                                );
+                            }
+                            Err(e) => {
+                                self.status = format!("Failed to refresh: {}", e);
+                            }
+                        }
+                    } else {
+                        self.status = "No workspace selected".to_string();
+                    }
+                }
+                KeyCode::Char('c') => {
+                    // Clear single notification (mark as read)
+                    if let Some(notif) = self.inbox_list.selected_notification() {
+                        let notif_id = notif.id.clone();
+                        match self.cache.mark_notification_read(&notif_id) {
+                            Ok(_) => {
+                                // Remove from list
+                                self.notifications.retain(|n| n.id != notif_id);
+                                self.inbox_list
+                                    .set_notifications(self.notifications.clone());
+                                self.status = "Notification marked as read".to_string();
+                            }
+                            Err(e) => {
+                                self.status = format!("Failed to mark as read: {}", e);
+                            }
+                        }
+                    } else {
+                        self.status = "No notification selected".to_string();
+                    }
+                }
+                KeyCode::Char('C') => {
+                    // Clear all notifications (mark all as read)
+                    if let Some(workspace_id) = &self.current_workspace_id {
+                        match self.cache.mark_all_notifications_read(workspace_id) {
+                            Ok(_) => {
+                                self.notifications.clear();
+                                self.inbox_list.set_notifications(Vec::new());
+                                self.status = "All notifications marked as read".to_string();
+                            }
+                            Err(e) => {
+                                self.status = format!("Failed to mark all as read: {}", e);
+                            }
+                        }
+                    } else {
+                        self.status = "No workspace selected".to_string();
+                    }
+                }
+                KeyCode::Enter => {
+                    // Show notification detail
+                    self.inbox_showing_detail = true;
+                }
+                KeyCode::Esc => {
+                    if self.inbox_showing_detail {
+                        // Close detail view
+                        self.inbox_showing_detail = false;
+                    } else {
+                        // Navigate back
+                        self.navigate_back();
+                    }
                 }
                 _ => {}
             }
@@ -1274,7 +1393,31 @@ impl TuiApp {
 
         match &self.screen {
             Screen::Workspaces => {
-                if let Some(SidebarItem::Workspace { id, name }) = selected_item {
+                if let Some(SidebarItem::Inbox) = selected_item {
+                    // Navigate to Inbox view
+                    self.screen = Screen::Inbox;
+                    self.screen_title = generate_screen_title("Inbox");
+                    // Load notifications from cache
+                    if let Some(workspace_id) = &self.current_workspace_id {
+                        self.inbox_loading = true;
+                        match self.cache.get_unread_notifications(workspace_id, None) {
+                            Ok(notifications) => {
+                                self.notifications = notifications;
+                                self.inbox_list
+                                    .set_notifications(self.notifications.clone());
+                                self.status =
+                                    format!("Loaded {} notification(s)", self.notifications.len());
+                                self.inbox_loading = false;
+                            }
+                            Err(e) => {
+                                self.status = format!("Failed to load notifications: {}", e);
+                                self.inbox_loading = false;
+                            }
+                        }
+                    } else {
+                        self.status = "Select a workspace first to view notifications".to_string();
+                    }
+                } else if let Some(SidebarItem::Workspace { id, name }) = selected_item {
                     self.current_workspace_id = Some(id.clone());
                     self.current_space_id = None;
                     self.current_folder_id = None;
@@ -1285,7 +1428,31 @@ impl TuiApp {
                 }
             }
             Screen::Spaces => {
-                if let Some(SidebarItem::Space { id, name, .. }) = selected_item {
+                if let Some(SidebarItem::Inbox) = selected_item {
+                    // Navigate to Inbox view
+                    self.screen = Screen::Inbox;
+                    self.screen_title = generate_screen_title("Inbox");
+                    // Load notifications from cache
+                    if let Some(workspace_id) = &self.current_workspace_id {
+                        self.inbox_loading = true;
+                        match self.cache.get_unread_notifications(workspace_id, None) {
+                            Ok(notifications) => {
+                                self.notifications = notifications;
+                                self.inbox_list
+                                    .set_notifications(self.notifications.clone());
+                                self.status =
+                                    format!("Loaded {} notification(s)", self.notifications.len());
+                                self.inbox_loading = false;
+                            }
+                            Err(e) => {
+                                self.status = format!("Failed to load notifications: {}", e);
+                                self.inbox_loading = false;
+                            }
+                        }
+                    } else {
+                        self.status = "Select a workspace first to view notifications".to_string();
+                    }
+                } else if let Some(SidebarItem::Space { id, name, .. }) = selected_item {
                     self.current_space_id = Some(id.clone());
                     self.current_folder_id = None;
                     self.current_list_id = None;
@@ -1295,7 +1462,31 @@ impl TuiApp {
                 }
             }
             Screen::Folders => {
-                if let Some(SidebarItem::Folder { id, name, .. }) = selected_item {
+                if let Some(SidebarItem::Inbox) = selected_item {
+                    // Navigate to Inbox view
+                    self.screen = Screen::Inbox;
+                    self.screen_title = generate_screen_title("Inbox");
+                    // Load notifications from cache
+                    if let Some(workspace_id) = &self.current_workspace_id {
+                        self.inbox_loading = true;
+                        match self.cache.get_unread_notifications(workspace_id, None) {
+                            Ok(notifications) => {
+                                self.notifications = notifications;
+                                self.inbox_list
+                                    .set_notifications(self.notifications.clone());
+                                self.status =
+                                    format!("Loaded {} notification(s)", self.notifications.len());
+                                self.inbox_loading = false;
+                            }
+                            Err(e) => {
+                                self.status = format!("Failed to load notifications: {}", e);
+                                self.inbox_loading = false;
+                            }
+                        }
+                    } else {
+                        self.status = "Select a workspace first to view notifications".to_string();
+                    }
+                } else if let Some(SidebarItem::Folder { id, name, .. }) = selected_item {
                     self.current_folder_id = Some(id.clone());
                     self.current_list_id = None;
                     self.load_lists(id.clone());
@@ -1304,11 +1495,60 @@ impl TuiApp {
                 }
             }
             Screen::Lists => {
-                if let Some(SidebarItem::List { id, name, .. }) = selected_item {
+                if let Some(SidebarItem::Inbox) = selected_item {
+                    // Navigate to Inbox view
+                    self.screen = Screen::Inbox;
+                    self.screen_title = generate_screen_title("Inbox");
+                    // Load notifications from cache
+                    if let Some(workspace_id) = &self.current_workspace_id {
+                        self.inbox_loading = true;
+                        match self.cache.get_unread_notifications(workspace_id, None) {
+                            Ok(notifications) => {
+                                self.notifications = notifications;
+                                self.inbox_list
+                                    .set_notifications(self.notifications.clone());
+                                self.status =
+                                    format!("Loaded {} notification(s)", self.notifications.len());
+                                self.inbox_loading = false;
+                            }
+                            Err(e) => {
+                                self.status = format!("Failed to load notifications: {}", e);
+                                self.inbox_loading = false;
+                            }
+                        }
+                    } else {
+                        self.status = "Select a workspace first to view notifications".to_string();
+                    }
+                } else if let Some(SidebarItem::List { id, name, .. }) = selected_item {
                     self.current_list_id = Some(id.clone());
                     self.load_tasks(id.clone());
                     self.screen = Screen::Tasks;
                     self.screen_title = generate_screen_title(&format!("Tasks: {}", name));
+                }
+            }
+            Screen::Inbox => {
+                // Open inbox view
+                self.screen = Screen::Inbox;
+                self.screen_title = generate_screen_title("Inbox");
+                // Load notifications from cache
+                if let Some(workspace_id) = &self.current_workspace_id {
+                    self.inbox_loading = true;
+                    match self.cache.get_unread_notifications(workspace_id, None) {
+                        Ok(notifications) => {
+                            self.notifications = notifications;
+                            self.inbox_list
+                                .set_notifications(self.notifications.clone());
+                            self.status =
+                                format!("Loaded {} notification(s)", self.notifications.len());
+                            self.inbox_loading = false;
+                        }
+                        Err(e) => {
+                            self.status = format!("Failed to load notifications: {}", e);
+                            self.inbox_loading = false;
+                        }
+                    }
+                } else {
+                    self.status = "Select a workspace first to view notifications".to_string();
                 }
             }
             _ => {}
@@ -1325,15 +1565,13 @@ impl TuiApp {
                 self.current_folder_id = None;
                 self.current_list_id = None;
 
-                // Repopulate sidebar with workspaces
-                *self.sidebar.items_mut() = self
-                    .workspaces
-                    .iter()
-                    .map(|w| SidebarItem::Workspace {
-                        name: w.name.clone(),
-                        id: w.id.clone(),
-                    })
-                    .collect();
+                // Repopulate sidebar with inbox at top, then workspaces
+                let mut items = vec![SidebarItem::Inbox];
+                items.extend(self.workspaces.iter().map(|w| SidebarItem::Workspace {
+                    name: w.name.clone(),
+                    id: w.id.clone(),
+                }));
+                *self.sidebar.items_mut() = items;
 
                 // Restore selection using current_workspace_id
                 if let Some(ref workspace_id) = self.current_workspace_id {
@@ -1354,16 +1592,14 @@ impl TuiApp {
                 self.current_folder_id = None;
                 self.current_list_id = None;
 
-                // Repopulate sidebar with spaces from current workspace
-                *self.sidebar.items_mut() = self
-                    .spaces
-                    .iter()
-                    .map(|s| SidebarItem::Space {
-                        name: s.name.clone(),
-                        id: s.id.clone(),
-                        indent: 1,
-                    })
-                    .collect();
+                // Repopulate sidebar with inbox at top, then spaces
+                let mut items = vec![SidebarItem::Inbox];
+                items.extend(self.spaces.iter().map(|s| SidebarItem::Space {
+                    name: s.name.clone(),
+                    id: s.id.clone(),
+                    indent: 1,
+                }));
+                *self.sidebar.items_mut() = items;
 
                 // Restore selection using current_space_id
                 if let Some(ref space_id) = self.current_space_id {
@@ -1393,16 +1629,14 @@ impl TuiApp {
                 // Navigate back to Folders
                 self.current_list_id = None;
 
-                // Repopulate sidebar with folders from current space
-                *self.sidebar.items_mut() = self
-                    .folders
-                    .iter()
-                    .map(|f| SidebarItem::Folder {
-                        name: f.name.clone(),
-                        id: f.id.clone(),
-                        indent: 2,
-                    })
-                    .collect();
+                // Repopulate sidebar with inbox at top, then folders
+                let mut items = vec![SidebarItem::Inbox];
+                items.extend(self.folders.iter().map(|f| SidebarItem::Folder {
+                    name: f.name.clone(),
+                    id: f.id.clone(),
+                    indent: 2,
+                }));
+                *self.sidebar.items_mut() = items;
 
                 // Restore selection using current_folder_id
                 if let Some(ref folder_id) = self.current_folder_id {
@@ -1431,16 +1665,14 @@ impl TuiApp {
                 // Navigate back to Lists
                 self.current_list_id = None;
 
-                // Repopulate sidebar with lists from current folder
-                *self.sidebar.items_mut() = self
-                    .lists
-                    .iter()
-                    .map(|l| SidebarItem::List {
-                        name: l.name.clone(),
-                        id: l.id.clone(),
-                        indent: 3,
-                    })
-                    .collect();
+                // Repopulate sidebar with inbox at top, then lists
+                let mut items = vec![SidebarItem::Inbox];
+                items.extend(self.lists.iter().map(|l| SidebarItem::List {
+                    name: l.name.clone(),
+                    id: l.id.clone(),
+                    indent: 3,
+                }));
+                *self.sidebar.items_mut() = items;
 
                 // Restore selection using current_list_id
                 if let Some(ref list_id) = self.current_list_id {
@@ -1473,6 +1705,11 @@ impl TuiApp {
                 }
             }
             Screen::Document => {
+                self.screen = Screen::Tasks;
+                self.update_screen_title();
+            }
+            Screen::Inbox => {
+                // Navigate back to Tasks (or last viewed screen)
                 self.screen = Screen::Tasks;
                 self.update_screen_title();
             }
@@ -1830,6 +2067,7 @@ impl TuiApp {
                     generate_screen_title("Document")
                 }
             }
+            Screen::Inbox => generate_screen_title("Inbox"),
         };
     }
 
@@ -1924,6 +2162,31 @@ impl TuiApp {
                 );
             }
             Screen::Document => render_document(frame, &self.document, content_area),
+            Screen::Inbox => {
+                render_inbox_list(
+                    frame,
+                    content_area,
+                    &mut self.inbox_list,
+                    self.inbox_showing_detail,
+                );
+
+                // Render detail panel if showing
+                if self.inbox_showing_detail {
+                    if let Some(notif) = self.inbox_list.selected_notification() {
+                        // Create a centered popup for detail
+                        let detail_width = std::cmp::min(80, content_area.width - 4);
+                        let detail_height = std::cmp::min(20, content_area.height - 4);
+                        let detail_rect = Rect::new(
+                            (content_area.width - detail_width) / 2,
+                            (content_area.height - detail_height) / 2,
+                            detail_width,
+                            detail_height,
+                        );
+
+                        render_notification_detail(frame, detail_rect, notif);
+                    }
+                }
+            }
             _ => {
                 // For navigation screens, show placeholder
                 use ratatui::widgets::Paragraph;
@@ -1957,6 +2220,39 @@ impl TuiApp {
                 );
             }
             Screen::Document => render_document(frame, &self.document, area),
+            Screen::Inbox => {
+                // Show loading indicator if fetching
+                if self.inbox_loading {
+                    use ratatui::widgets::Paragraph;
+                    let loading = Paragraph::new("Loading notifications...")
+                        .style(ratatui::style::Style::default().fg(ratatui::style::Color::Yellow))
+                        .block(
+                            ratatui::widgets::Block::default()
+                                .title(" Inbox ")
+                                .borders(ratatui::widgets::Borders::ALL),
+                        );
+                    frame.render_widget(loading, area);
+                } else {
+                    render_inbox_list(frame, area, &mut self.inbox_list, self.inbox_showing_detail);
+
+                    // Render detail panel if showing
+                    if self.inbox_showing_detail {
+                        if let Some(notif) = self.inbox_list.selected_notification() {
+                            // Create a centered popup for detail
+                            let detail_width = std::cmp::min(80, area.width - 4);
+                            let detail_height = std::cmp::min(20, area.height - 4);
+                            let detail_rect = Rect::new(
+                                (area.width - detail_width) / 2,
+                                (area.height - detail_height) / 2,
+                                detail_width,
+                                detail_height,
+                            );
+
+                            render_notification_detail(frame, detail_rect, notif);
+                        }
+                    }
+                }
+            }
             _ => {
                 use ratatui::widgets::Paragraph;
                 let placeholder = Paragraph::new(format!("Navigate to see {}", self.screen_title));
@@ -1989,6 +2285,13 @@ impl TuiApp {
                     }
                 }
                 Screen::Document => "j/k: Scroll | Esc: Close | ? - Help",
+                Screen::Inbox => {
+                    if self.inbox_showing_detail {
+                        "Esc: Close detail | j/k: Navigate | ? - Help"
+                    } else {
+                        "j/k: Navigate | Enter: View | r: Refresh | c: Mark read | C: Mark all read | Esc: Back | ? - Help"
+                    }
+                }
                 _ => "j/k: Navigate | Enter: Select | Tab: Toggle | Ctrl+Q: Quit | ? - Help",
             }
         }
@@ -2001,6 +2304,7 @@ impl TuiApp {
         // Helper to get ID from sidebar item
         fn get_sidebar_id(item: &SidebarItem) -> &str {
             match item {
+                SidebarItem::Inbox => "inbox",
                 SidebarItem::Workspace { id, .. } => id,
                 SidebarItem::Space { id, .. } => id,
                 SidebarItem::Folder { id, .. } => id,
@@ -2104,6 +2408,10 @@ impl TuiApp {
                     self.url_copy_status = Some("No document selected".to_string());
                     return;
                 }
+            }
+            Screen::Inbox => {
+                self.url_copy_status = Some("URL copy not available for inbox".to_string());
+                return;
             }
         };
 
@@ -2281,6 +2589,16 @@ impl TuiApp {
             Screen::Workspaces => {
                 // Always valid
                 (Screen::Workspaces, None)
+            }
+            Screen::Inbox => {
+                if saved_state.workspace_id.is_some() {
+                    return (Screen::Inbox, None);
+                }
+                // Fall back to Workspaces
+                (
+                    Screen::Workspaces,
+                    Some("No workspace selected for inbox".to_string()),
+                )
             }
         }
     }

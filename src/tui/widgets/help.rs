@@ -63,6 +63,10 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
             Constraint::Length(1),
             Constraint::Length(3),
             Constraint::Length(1),
+            Constraint::Length(7),
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Length(1),
             Constraint::Length(3),
             Constraint::Min(1),
         ])
@@ -114,6 +118,19 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         Line::from("  Esc         - Cancel editing / Exit thread"),
     ]);
 
+    let inbox = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "Inbox (Notifications):",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from("  j/k         - Navigate notifications"),
+        Line::from("  Enter       - View details"),
+        Line::from("  r           - Refresh notifications"),
+        Line::from("  c           - Mark as read (clear)"),
+        Line::from("  C           - Mark all as read (clear all)"),
+        Line::from("  Esc         - Go back"),
+    ]);
+
     let forms = Paragraph::new(vec![
         Line::from(Span::styled(
             "Forms:",
@@ -136,12 +153,13 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     frame.render_widget(global, inner[1]);
     frame.render_widget(actions, inner[2]);
     frame.render_widget(comments, inner[3]);
-    frame.render_widget(forms, inner[4]);
-    frame.render_widget(session, inner[5]);
+    frame.render_widget(inbox, inner[4]);
+    frame.render_widget(forms, inner[5]);
+    frame.render_widget(session, inner[6]);
 
     let close_hint =
         Paragraph::new("Press any key to close").style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(close_hint, inner[10]);
+    frame.render_widget(close_hint, inner[14]);
 }
 
 /// Get help hint for status bar

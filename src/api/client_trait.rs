@@ -2,7 +2,8 @@
 
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
-    Folder, List, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest, Workspace,
+    Folder, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
+    Workspace,
 };
 use anyhow::Result;
 
@@ -103,4 +104,9 @@ pub trait ClickUpApi: Send + Sync {
         comment_id: &str,
         comment: &UpdateCommentRequest,
     ) -> Result<Comment>;
+
+    // ==================== Notifications ====================
+
+    /// Get notifications for a workspace
+    async fn get_notifications(&self, workspace_id: &str) -> Result<Vec<Notification>>;
 }

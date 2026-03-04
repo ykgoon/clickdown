@@ -3,7 +3,8 @@
 use crate::api::client_trait::ClickUpApi;
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
-    Folder, List, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest, Workspace,
+    Folder, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
+    Workspace,
 };
 use anyhow::{anyhow, Result};
 
@@ -77,6 +78,8 @@ pub struct MockClickUpClient {
     pub create_comment_reply_response: Option<Result<Comment>>,
     /// Override for update_comment response
     pub update_comment_response: Option<Result<Comment>>,
+    /// Override for get_notifications response
+    pub notifications_response: Option<Result<Vec<Notification>>>,
 }
 
 impl MockClickUpClient {
@@ -101,6 +104,7 @@ impl MockClickUpClient {
             create_comment_response: None,
             create_comment_reply_response: None,
             update_comment_response: None,
+            notifications_response: None,
         }
     }
     /// Set the workspaces response
@@ -207,6 +211,18 @@ impl MockClickUpClient {
     /// Set the create comment reply response
     pub fn with_create_comment_reply_response(mut self, comment: Comment) -> Self {
         self.create_comment_reply_response = Some(Ok(comment));
+        self
+    }
+
+    /// Set the notifications response
+    pub fn with_notifications(mut self, notifications: Vec<Notification>) -> Self {
+        self.notifications_response = Some(Ok(notifications));
+        self
+    }
+
+    /// Set the notifications error
+    pub fn with_notifications_error(mut self, error: String) -> Self {
+        self.notifications_response = Some(Err(anyhow!(error)));
         self
     }
 }
@@ -330,5 +346,9 @@ impl ClickUpApi for MockClickUpClient {
             &self.update_comment_response,
             "Update comment not configured",
         )
+    }
+
+    async fn get_notifications(&self, _workspace_id: &str) -> Result<Vec<Notification>> {
+        return_vec_response(&self.notifications_response)
     }
 }

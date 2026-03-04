@@ -4,7 +4,7 @@
 //! API response variations like null values, type flexibility, and missing fields.
 
 use serde::de::{self, Deserializer};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// Helper function to deserialize null as empty string
 ///

@@ -89,4 +89,9 @@ impl ApiEndpoints {
     pub fn comment_replies(comment_id: &str) -> String {
         format!("{}/comment/{}/reply", BASE_URL, comment_id)
     }
+
+    // Notification endpoints
+    pub fn notifications(workspace_id: &str) -> String {
+        format!("{}/team/{}/notifications", BASE_URL, workspace_id)
+    }
 }

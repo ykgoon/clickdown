@@ -9,13 +9,14 @@
 
 mod fixtures;
 
-use clickdown::models::Task;
+use clickdown::models::{Notification, Task};
 use clickdown::tui::layout::{generate_screen_title, TuiLayout};
 use clickdown::tui::widgets::{
     auth::{render_auth, AuthState},
     dialog::{render_dialog, DialogState, DialogType},
     document::{render_document, DocumentState},
     help::{render_help, HelpState},
+    inbox_view::{render_inbox_list, InboxListState},
     sidebar::{render_sidebar, SidebarItem, SidebarState},
     task_detail::{render_task_detail, TaskDetailState},
     task_list::{render_task_list, TaskListState},
@@ -33,9 +34,9 @@ fn create_test_terminal(width: u16, height: u16) -> Terminal<TestBackend> {
 }
 
 /// Render widget and assert snapshot
-fn assert_widget_snapshot<F>(name: &str, width: u16, height: u16, render_fn: F)
+fn assert_widget_snapshot<F>(name: &str, width: u16, height: u16, mut render_fn: F)
 where
-    F: Fn(&mut ratatui::Frame),
+    F: FnMut(&mut ratatui::Frame),
 {
     let mut terminal = create_test_terminal(width, height);
 
@@ -328,6 +329,73 @@ fn test_document_view_with_content() {
 }
 
 // ============================================================================
+// Inbox View Widget Snapshot Tests (Task 3.7)
+// ============================================================================
+
+/// Create test notifications for inbox snapshots
+fn create_test_notifications() -> Vec<Notification> {
+    vec![
+        Notification {
+            id: "notif-1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            title: "Task assigned to you".to_string(),
+            description: "You were assigned to 'Review pull request'".to_string(),
+            created_at: Some(1704067200000),
+            read_at: None,
+        },
+        Notification {
+            id: "notif-2".to_string(),
+            workspace_id: "ws-1".to_string(),
+            title: "Comment on task".to_string(),
+            description: "New comment on 'Deploy to production'".to_string(),
+            created_at: Some(1704153600000),
+            read_at: None,
+        },
+        Notification {
+            id: "notif-3".to_string(),
+            workspace_id: "ws-1".to_string(),
+            title: "Status change".to_string(),
+            description: "".to_string(),
+            created_at: Some(1704240000000),
+            read_at: Some(1704326400000),
+        },
+    ]
+}
+
+#[test]
+fn test_inbox_view_empty() {
+    let mut inbox = InboxListState::new();
+
+    assert_widget_snapshot("inbox_view_empty", 60, 15, |frame| {
+        let area = Rect::new(0, 0, 60, 15);
+        render_inbox_list(frame, area, &mut inbox, false);
+    });
+}
+
+#[test]
+fn test_inbox_view_with_notifications() {
+    let mut inbox = InboxListState::new();
+    inbox.set_notifications(create_test_notifications());
+
+    assert_widget_snapshot("inbox_view_with_notifications", 60, 15, |frame| {
+        let area = Rect::new(0, 0, 60, 15);
+        render_inbox_list(frame, area, &mut inbox, false);
+    });
+}
+
+#[test]
+fn test_inbox_view_with_selection() {
+    let mut inbox = InboxListState::new();
+    inbox.set_notifications(create_test_notifications());
+    inbox.list_state.select(Some(1));
+
+    assert_widget_snapshot("inbox_view_with_selection", 60, 15, |frame| {
+        let area = Rect::new(0, 0, 60, 15);
+        render_inbox_list(frame, area, &mut inbox, false);
+    });
+}
+
+// ============================================================================
 // Help Dialog Snapshot Tests (Task 3.6)
 // ============================================================================
 
@@ -491,6 +559,12 @@ fn test_screen_title_tasks() {
 fn test_screen_title_documents() {
     let title = generate_screen_title("Documents");
     assert_snapshot!("title_documents", title);
+}
+
+#[test]
+fn test_screen_title_inbox() {
+    let title = generate_screen_title("Inbox");
+    assert_snapshot!("title_inbox", title);
 }
 
 // ============================================================================

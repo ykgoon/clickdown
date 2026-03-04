@@ -72,6 +72,8 @@ pub enum DebugOperation {
     CreateReply { comment_id: String },
     /// Update an existing comment
     UpdateComment { comment_id: String },
+    /// Get notifications for a workspace
+    Notifications { workspace_id: String },
 }
 
 /// Parse CLI arguments from environment
@@ -322,6 +324,18 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                 });
                 i += 1;
             }
+            "notifications" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                if i + 1 >= args.len() {
+                    return Err("notifications requires a workspace_id argument".to_string());
+                }
+                operation = Some(DebugOperation::Notifications {
+                    workspace_id: args[i + 1].clone(),
+                });
+                i += 1;
+            }
             "--help" | "-h" => {
                 operation = Some(DebugOperation::Help);
             }
@@ -390,6 +404,7 @@ pub fn print_usage() {
     eprintln!("    create-comment <task_id>  Create a new comment (--text required)");
     eprintln!("    create-reply <comment_id> Create a reply to a comment (--text required)");
     eprintln!("    update-comment <comment_id> Update an existing comment (--text required)");
+    eprintln!("    notifications <workspace_id>  Get notifications for a workspace");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("    --json                  Output in JSON format");
@@ -424,12 +439,11 @@ pub fn print_usage() {
     eprintln!("    clickdown debug create-comment task123 --text \"Hello world\"");
     eprintln!("    clickdown debug create-reply comment456 --text \"Reply text\" --json");
     eprintln!("    clickdown debug update-comment comment789 --text \"Updated\" --verbose");
+    eprintln!("    clickdown debug notifications 26408409 --json");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_parse_no_args() {
         // Simulating no args would return TUI mode

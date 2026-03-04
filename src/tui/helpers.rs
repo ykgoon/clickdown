@@ -12,7 +12,7 @@ use ratatui::widgets::ListState;
 /// # Example
 ///
 /// ```no_run
-/// use crate::tui::helpers::SelectableList;
+/// use clickdown::tui::helpers::SelectableList;
 ///
 /// let mut list = SelectableList::new(vec!["Item 1", "Item 2", "Item 3"]);
 /// list.select_next();

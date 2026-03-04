@@ -12,8 +12,8 @@ use crate::models::TaskFilters;
 use crate::models::{
     ClickUpSpace as Space, Comment, CommentsResponse, CreateCommentRequest, CreateTaskRequest,
     Document, DocumentFilters, DocumentPagesResponse, DocumentsResponse, Folder, FoldersResponse,
-    List, ListsResponse, Page, PageResponse, SpacesResponse, Task, TasksResponse,
-    UpdateCommentRequest, UpdateTaskRequest, Workspace, WorkspacesResponse,
+    List, ListsResponse, Notification, NotificationsResponse, Page, PageResponse, SpacesResponse,
+    Task, TasksResponse, UpdateCommentRequest, UpdateTaskRequest, Workspace, WorkspacesResponse,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -286,6 +286,17 @@ impl ClickUpClient {
             .await?;
         Ok(response)
     }
+
+    // ==================== Notifications ====================
+
+    /// Get notifications for a workspace
+    pub async fn get_notifications(&self, workspace_id: &str) -> Result<Vec<Notification>> {
+        let url = ApiEndpoints::notifications(workspace_id);
+        let response = self
+            .execute::<NotificationsResponse>(self.request(reqwest::Method::GET, url))
+            .await?;
+        Ok(response.notifications)
+    }
 }
 
 /// Macro to generate trait implementation that delegates to inherent methods
@@ -387,6 +398,10 @@ macro_rules! impl_clickup_api {
                 comment: &UpdateCommentRequest,
             ) -> Result<Comment> {
                 self.update_comment(comment_id, comment).await
+            }
+
+            async fn get_notifications(&self, workspace_id: &str) -> Result<Vec<Notification>> {
+                self.get_notifications(workspace_id).await
             }
         }
     };
