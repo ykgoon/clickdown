@@ -46,15 +46,8 @@ pub struct Page {
 }
 
 /// User reference for documents
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: i64,
-    pub username: String,
-    #[serde(default)]
-    pub email: Option<String>,
-    #[serde(default)]
-    pub profile_picture: Option<String>,
-}
+/// Re-exported from crate::models::User for backwards compatibility
+pub use crate::models::user::User;
 
 /// API response for searching documents
 #[derive(Debug, Clone, Serialize, Deserialize)]

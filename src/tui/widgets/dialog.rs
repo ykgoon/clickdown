@@ -13,7 +13,6 @@ use ratatui::{
 pub enum DialogType {
     ConfirmDelete,
     ConfirmQuit,
-    Custom(String),
 }
 
 impl DialogType {
@@ -21,7 +20,6 @@ impl DialogType {
         match self {
             DialogType::ConfirmDelete => "Are you sure you want to delete this item?",
             DialogType::ConfirmQuit => "Are you sure you want to quit?",
-            DialogType::Custom(msg) => msg,
         }
     }
 }

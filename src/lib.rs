@@ -12,5 +12,5 @@ pub mod models;
 pub mod tui;
 pub mod utils;
 
-pub use api::{AuthManager, ClickUpApi, ClickUpClient, MockClickUpClient};
+pub use api::{AuthManager, ClickUpApi, ClickUpClient};
 pub use tui::app::TuiApp;

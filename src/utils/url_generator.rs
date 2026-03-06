@@ -244,24 +244,6 @@ impl UrlGenerator for ClickUpUrlGenerator {
 }
 
 /// Helper function to truncate URL for display
-///
-/// Truncates URLs longer than `max_length` to fit in status bar.
-/// Shows first N characters followed by "..."
-///
-/// # Arguments
-/// * `url` - The URL to truncate
-/// * `max_length` - Maximum length (default: 60)
-///
-/// # Returns
-/// Truncated URL with "..." if needed
-pub fn truncate_url(url: &str, max_length: usize) -> String {
-    if url.len() <= max_length {
-        url.to_string()
-    } else {
-        format!("{}...", &url[..max_length.saturating_sub(3)])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,26 +340,6 @@ mod tests {
     fn test_document_url_missing_doc() {
         let result = ClickUpUrlGenerator::document_url("ws123", "");
         assert_eq!(result, Err(UrlError::MissingDocument));
-    }
-
-    #[test]
-    fn test_truncate_url_short_url() {
-        let url = "https://app.clickup.com/short";
-        assert_eq!(truncate_url(url, 60), url);
-    }
-
-    #[test]
-    fn test_truncate_url_long_url() {
-        let url = "https://app.clickup.com/ws123/l/list012/t/task345/comment/comment678";
-        let truncated = truncate_url(url, 60);
-        assert_eq!(truncated.len(), 60);
-        assert!(truncated.ends_with("..."));
-    }
-
-    #[test]
-    fn test_truncate_url_exact_length() {
-        let url = "https://app.clickup.com/test";
-        assert_eq!(truncate_url(url, url.len()), url);
     }
 
     #[test]

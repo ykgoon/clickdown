@@ -92,7 +92,22 @@ fn get_priority_indicator(priority: &Option<crate::models::Priority>) -> &'stati
     }
 }
 
-pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect) {
+pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect, loading: bool) {
+    // Show loading indicator if loading
+    if loading {
+        use ratatui::widgets::Paragraph;
+        let loading_text = Paragraph::new("Loading assigned tasks...")
+            .style(Style::default().fg(Color::Yellow))
+            .block(
+                Block::default()
+                    .title(" Tasks ")
+                    .borders(Borders::ALL)
+                    .style(Style::default().bg(Color::Black)),
+            );
+        frame.render_widget(loading_text, area);
+        return;
+    }
+
     let items: Vec<ListItem> = state
         .tasks()
         .iter()

@@ -2,7 +2,6 @@
 
 use crate::models::Comment;
 use crate::tui::app::CommentViewMode;
-use crate::tui::layout::ScrollState;
 use chrono::{DateTime, Local};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -11,69 +10,6 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-
-/// Comment panel state with scroll tracking
-#[derive(Debug, Clone)]
-pub struct CommentPanelState {
-    /// Current scroll state
-    pub scroll: ScrollState,
-    /// Index of selected comment
-    pub selected_index: usize,
-    /// Index of comment being edited (if any)
-    pub editing_index: Option<usize>,
-    /// Text for new comment or edit
-    pub new_text: String,
-    /// Whether focus is on comments
-    pub has_focus: bool,
-}
-
-impl CommentPanelState {
-    pub fn new() -> Self {
-        Self {
-            scroll: ScrollState::new(),
-            selected_index: 0,
-            editing_index: None,
-            new_text: String::new(),
-            has_focus: false,
-        }
-    }
-
-    /// Select next comment with auto-scroll
-    pub fn select_next(&mut self, comments: &[Comment]) {
-        if comments.is_empty() {
-            return;
-        }
-        if self.selected_index < comments.len() - 1 {
-            self.selected_index += 1;
-        }
-    }
-
-    /// Select previous comment with auto-scroll
-    pub fn select_previous(&mut self) {
-        if self.selected_index > 0 {
-            self.selected_index -= 1;
-        }
-    }
-
-    /// Auto-scroll to keep selected comment visible
-    pub fn auto_scroll_to_selected(&mut self, visible_range: (usize, usize)) {
-        let (visible_start, visible_end) = visible_range;
-
-        if self.selected_index < visible_start {
-            // Selected comment is above visible area - scroll up
-            self.scroll.scroll_to(self.selected_index);
-        } else if self.selected_index >= visible_end {
-            // Selected comment is below visible area - scroll down
-            self.scroll.scroll_to(self.selected_index);
-        }
-    }
-}
-
-impl Default for CommentPanelState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// Render comments section with list of comments and optional form
 pub fn render_comments(
@@ -558,100 +494,5 @@ mod tests {
         let result3 = format_timestamp(-1000);
         // Even negative timestamps get converted to a date near epoch
         assert!(!result3.is_empty());
-    }
-
-    #[test]
-    fn test_comment_panel_state_new() {
-        let state = CommentPanelState::new();
-        assert_eq!(state.selected_index, 0);
-        assert_eq!(state.editing_index, None);
-        assert!(state.new_text.is_empty());
-        assert!(!state.has_focus);
-    }
-
-    #[test]
-    fn test_comment_panel_state_select_next() {
-        let mut state = CommentPanelState::new();
-        let comments = vec![
-            Comment {
-                id: "1".to_string(),
-                text: "Comment 1".to_string(),
-                ..test_comment()
-            },
-            Comment {
-                id: "2".to_string(),
-                text: "Comment 2".to_string(),
-                ..test_comment()
-            },
-            Comment {
-                id: "3".to_string(),
-                text: "Comment 3".to_string(),
-                ..test_comment()
-            },
-        ];
-
-        state.select_next(&comments);
-        assert_eq!(state.selected_index, 1);
-
-        state.select_next(&comments);
-        assert_eq!(state.selected_index, 2);
-
-        // Should not go past last comment
-        state.select_next(&comments);
-        assert_eq!(state.selected_index, 2);
-    }
-
-    #[test]
-    fn test_comment_panel_state_select_previous() {
-        let mut state = CommentPanelState::new();
-        state.selected_index = 2;
-
-        state.select_previous();
-        assert_eq!(state.selected_index, 1);
-
-        state.select_previous();
-        assert_eq!(state.selected_index, 0);
-
-        // Should not go below 0
-        state.select_previous();
-        assert_eq!(state.selected_index, 0);
-    }
-
-    #[test]
-    fn test_comment_panel_state_auto_scroll_to_selected() {
-        let mut state = CommentPanelState::new();
-        state.scroll.update(100, 20); // 100 lines, 20 visible
-
-        // Selected comment is above visible range (visible: 10-30, selected: 5)
-        state.selected_index = 5;
-        state.auto_scroll_to_selected((10, 30));
-        assert_eq!(state.scroll.offset, 5);
-
-        // Selected comment is below visible range (visible: 10-30, selected: 35)
-        state.selected_index = 35;
-        state.auto_scroll_to_selected((10, 30));
-        assert_eq!(state.scroll.offset, 35);
-
-        // Selected comment is within visible range - no scroll
-        state.selected_index = 20;
-        state.auto_scroll_to_selected((10, 30));
-        // Should not change offset if already visible (depends on implementation)
-    }
-
-    /// Helper function to create a test comment
-    fn test_comment() -> Comment {
-        Comment {
-            id: String::new(),
-            text: String::new(),
-            text_preview: String::new(),
-            commenter: None,
-            created_at: Some(1234567890000),
-            updated_at: None,
-            assigned_commenter: None,
-            assigned_by: None,
-            assigned: false,
-            reaction: String::new(),
-            parent_id: None,
-        }
     }
 }

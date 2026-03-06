@@ -118,8 +118,11 @@ fn create_test_tasks() -> Vec<Task> {
 }
 
 /// Create sidebar items for hierarchy snapshots
+/// Matches actual app behavior: AssignedTasks and Inbox at top, then workspace hierarchy
 fn create_sidebar_items() -> Vec<SidebarItem> {
     vec![
+        SidebarItem::AssignedTasks,
+        SidebarItem::Inbox,
         SidebarItem::Workspace {
             name: "Engineering".to_string(),
             id: "ws-1".to_string(),
@@ -127,17 +130,17 @@ fn create_sidebar_items() -> Vec<SidebarItem> {
         SidebarItem::Space {
             name: "Backend".to_string(),
             id: "sp-1".to_string(),
-            indent: 1,
+
         },
         SidebarItem::Folder {
             name: "API".to_string(),
             id: "fd-1".to_string(),
-            indent: 2,
+
         },
         SidebarItem::List {
             name: "Sprint Tasks".to_string(),
             id: "lst-1".to_string(),
-            indent: 3,
+
         },
     ]
 }
@@ -175,7 +178,7 @@ fn test_sidebar_empty() {
 
     assert_widget_snapshot("sidebar_empty", 40, 15, |frame| {
         let area = Rect::new(0, 0, 40, 15);
-        render_sidebar(frame, &sidebar, area);
+        render_sidebar(frame, &sidebar, area, None);
     });
 }
 
@@ -184,9 +187,10 @@ fn test_sidebar_with_items() {
     let mut sidebar = SidebarState::new();
     *sidebar.items_mut() = create_sidebar_items();
 
+    // Render with 5 assigned tasks (showing count badge)
     assert_widget_snapshot("sidebar_with_items", 40, 15, |frame| {
         let area = Rect::new(0, 0, 40, 15);
-        render_sidebar(frame, &sidebar, area);
+        render_sidebar(frame, &sidebar, area, Some(5));
     });
 }
 
@@ -196,9 +200,34 @@ fn test_sidebar_with_selection() {
     *sidebar.items_mut() = create_sidebar_items();
     sidebar.select_first();
 
+    // Render with 3 assigned tasks
     assert_widget_snapshot("sidebar_with_selection", 40, 15, |frame| {
         let area = Rect::new(0, 0, 40, 15);
-        render_sidebar(frame, &sidebar, area);
+        render_sidebar(frame, &sidebar, area, Some(3));
+    });
+}
+
+#[test]
+fn test_sidebar_with_zero_assigned() {
+    let mut sidebar = SidebarState::new();
+    *sidebar.items_mut() = create_sidebar_items();
+
+    // Render with 0 assigned tasks (should show no count or empty badge)
+    assert_widget_snapshot("sidebar_with_zero_assigned", 40, 15, |frame| {
+        let area = Rect::new(0, 0, 40, 15);
+        render_sidebar(frame, &sidebar, area, Some(0));
+    });
+}
+
+#[test]
+fn test_sidebar_with_large_assigned_count() {
+    let mut sidebar = SidebarState::new();
+    *sidebar.items_mut() = create_sidebar_items();
+
+    // Render with large count (99+)
+    assert_widget_snapshot("sidebar_with_large_assigned_count", 40, 15, |frame| {
+        let area = Rect::new(0, 0, 40, 15);
+        render_sidebar(frame, &sidebar, area, Some(99));
     });
 }
 
@@ -212,7 +241,7 @@ fn test_task_list_empty() {
 
     assert_widget_snapshot("task_list_empty", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
-        render_task_list(frame, &task_list, area);
+        render_task_list(frame, &task_list, area, false);
     });
 }
 
@@ -223,7 +252,7 @@ fn test_task_list_with_tasks() {
 
     assert_widget_snapshot("task_list_with_tasks", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
-        render_task_list(frame, &task_list, area);
+        render_task_list(frame, &task_list, area, false);
     });
 }
 
@@ -235,7 +264,134 @@ fn test_task_list_with_selection() {
 
     assert_widget_snapshot("task_list_with_selection", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
-        render_task_list(frame, &task_list, area);
+        render_task_list(frame, &task_list, area, false);
+    });
+}
+
+// ============================================================================
+// Assigned Tasks View Snapshot Tests
+// ============================================================================
+
+/// Create test tasks with assignees for "Assigned to Me" view
+fn create_assigned_test_tasks() -> Vec<Task> {
+    use clickdown::models::task::User;
+    
+    vec![
+        Task {
+            id: "assigned-task-1".to_string(),
+            name: "Review Q2 planning doc".to_string(),
+            status: Some(clickdown::models::TaskStatus {
+                id: None,
+                status: "in progress".to_string(),
+                color: Some("#5c7cfa".to_string()),
+                type_field: None,
+                orderindex: None,
+                status_group: None,
+            }),
+            priority: Some(clickdown::models::Priority {
+                priority: "high".to_string(),
+                color: Some("#ff0000".to_string()),
+            }),
+            assignees: vec![User {
+                id: 123,
+                username: "testuser".to_string(),
+                color: None,
+                email: Some("test@example.com".to_string()),
+                profile_picture: None,
+                initials: Some("TU".to_string()),
+            }],
+            ..fixtures::test_task()
+        },
+        Task {
+            id: "assigned-task-2".to_string(),
+            name: "Fix bug in task filtering".to_string(),
+            status: Some(clickdown::models::TaskStatus {
+                id: None,
+                status: "todo".to_string(),
+                color: Some("#87909e".to_string()),
+                type_field: None,
+                orderindex: None,
+                status_group: None,
+            }),
+            priority: Some(clickdown::models::Priority {
+                priority: "urgent".to_string(),
+                color: Some("#ff0000".to_string()),
+            }),
+            assignees: vec![User {
+                id: 123,
+                username: "testuser".to_string(),
+                color: None,
+                email: Some("test@example.com".to_string()),
+                profile_picture: None,
+                initials: Some("TU".to_string()),
+            }],
+            ..fixtures::test_task()
+        },
+        Task {
+            id: "assigned-task-3".to_string(),
+            name: "Update API documentation".to_string(),
+            status: Some(clickdown::models::TaskStatus {
+                id: None,
+                status: "done".to_string(),
+                color: Some("#00ff00".to_string()),
+                type_field: None,
+                orderindex: None,
+                status_group: None,
+            }),
+            priority: None,
+            assignees: vec![User {
+                id: 123,
+                username: "testuser".to_string(),
+                color: None,
+                email: Some("test@example.com".to_string()),
+                profile_picture: None,
+                initials: Some("TU".to_string()),
+            }],
+            ..fixtures::test_task()
+        },
+    ]
+}
+
+#[test]
+fn test_assigned_tasks_view_empty() {
+    let task_list = TaskListState::new();
+
+    assert_widget_snapshot("assigned_tasks_view_empty", 60, 15, |frame| {
+        let area = Rect::new(0, 0, 60, 15);
+        render_task_list(frame, &task_list, area, false);
+    });
+}
+
+#[test]
+fn test_assigned_tasks_view_with_tasks() {
+    let mut task_list = TaskListState::new();
+    *task_list.tasks_mut() = create_assigned_test_tasks();
+
+    assert_widget_snapshot("assigned_tasks_view_with_tasks", 60, 15, |frame| {
+        let area = Rect::new(0, 0, 60, 15);
+        render_task_list(frame, &task_list, area, false);
+    });
+}
+
+#[test]
+fn test_assigned_tasks_view_with_selection() {
+    let mut task_list = TaskListState::new();
+    *task_list.tasks_mut() = create_assigned_test_tasks();
+    task_list.select_first();
+
+    assert_widget_snapshot("assigned_tasks_view_with_selection", 60, 15, |frame| {
+        let area = Rect::new(0, 0, 60, 15);
+        render_task_list(frame, &task_list, area, false);
+    });
+}
+
+#[test]
+fn test_assigned_tasks_view_loading() {
+    let task_list = TaskListState::new();
+
+    assert_widget_snapshot("assigned_tasks_view_loading", 60, 15, |frame| {
+        let area = Rect::new(0, 0, 60, 15);
+        render_task_list(frame, &task_list, area, true);
     });
 }
 
@@ -517,7 +673,7 @@ fn test_main_layout_sidebar_collapsed() {
 
     assert_widget_snapshot("main_layout_sidebar_collapsed", 80, 24, |frame| {
         let area = Rect::new(0, 0, 80, 24);
-        render_sidebar(frame, &sidebar, area);
+        render_sidebar(frame, &sidebar, area, None);
     });
 }
 
@@ -529,7 +685,7 @@ fn test_main_layout_sidebar_expanded() {
 
     assert_widget_snapshot("main_layout_sidebar_expanded", 80, 24, |frame| {
         let area = Rect::new(0, 0, 80, 24);
-        render_sidebar(frame, &sidebar, area);
+        render_sidebar(frame, &sidebar, area, None);
     });
 }
 

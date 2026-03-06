@@ -6,6 +6,5 @@ pub mod query;
 pub mod url_generator;
 
 pub use clipboard::ClipboardService;
-pub use deserializers::*;
 pub use query::QueryParams;
 pub use url_generator::{ClickUpUrlGenerator, UrlGenerator};

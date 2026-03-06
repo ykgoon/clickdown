@@ -29,7 +29,7 @@
 //! identify which field caused the failure.
 
 use crate::utils::deserializers::{
-    flexible_string, flexible_timestamp, null_to_default_id, null_to_empty_string, null_to_false,
+    flexible_string, flexible_timestamp, null_to_empty_string, null_to_false,
 };
 use serde::{Deserialize, Serialize};
 
@@ -109,21 +109,8 @@ pub struct Comment {
 }
 
 /// User reference in comment context
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct User {
-    #[serde(default, deserialize_with = "null_to_default_id")]
-    pub id: i64,
-    #[serde(default, deserialize_with = "null_to_empty_string")]
-    pub username: String,
-    #[serde(default)]
-    pub color: Option<String>,
-    #[serde(default)]
-    pub email: Option<String>,
-    #[serde(default, rename = "profilePicture")]
-    pub profile_picture: Option<String>,
-    #[serde(default)]
-    pub initials: Option<String>,
-}
+/// Re-exported from crate::models::User for backwards compatibility
+pub use crate::models::user::User;
 
 /// API response for getting task comments
 #[derive(Debug, Clone, Serialize, Deserialize)]

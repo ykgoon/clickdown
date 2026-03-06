@@ -6,5 +6,3 @@ pub mod input;
 pub mod layout;
 pub mod terminal;
 pub mod widgets;
-
-pub use app::TuiApp;

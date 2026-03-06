@@ -4,11 +4,13 @@
 pub const BASE_URL: &str = "https://api.clickup.com/api/v2";
 
 /// Base URL for ClickUp OAuth
+#[allow(dead_code)]
 pub const OAUTH_BASE_URL: &str = "https://app.clickup.com/api";
 
 /// API endpoint paths
 pub struct ApiEndpoints;
 
+#[allow(dead_code)]
 impl ApiEndpoints {
     // Authentication endpoints
     pub fn oauth_token() -> String {

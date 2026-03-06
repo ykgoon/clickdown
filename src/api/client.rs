@@ -13,7 +13,7 @@ use crate::models::{
     ClickUpSpace as Space, Comment, CommentsResponse, CreateCommentRequest, CreateTaskRequest,
     Document, DocumentFilters, DocumentPagesResponse, DocumentsResponse, Folder, FoldersResponse,
     List, ListsResponse, Notification, NotificationsResponse, Page, PageResponse, SpacesResponse,
-    Task, TasksResponse, UpdateCommentRequest, UpdateTaskRequest, Workspace, WorkspacesResponse,
+    Task, TasksResponse, UpdateCommentRequest, UpdateTaskRequest, User, Workspace, WorkspacesResponse,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -89,6 +89,15 @@ impl ClickUpClient {
         Ok(response.teams)
     }
 
+    // ==================== User ====================
+
+    /// Get the current authenticated user's profile
+    pub async fn get_current_user(&self) -> Result<User> {
+        let url = format!("{}/user", crate::api::endpoints::BASE_URL);
+        self.execute::<User>(self.request(reqwest::Method::GET, url))
+            .await
+    }
+
     // ==================== Spaces ====================
 
     /// Get all spaces in a team/workspace
@@ -101,6 +110,7 @@ impl ClickUpClient {
     }
 
     /// Get a single space
+    #[allow(dead_code)]
     pub async fn get_space(&self, space_id: &str) -> Result<Space> {
         let url = ApiEndpoints::space(space_id);
         self.execute::<Space>(self.request(reqwest::Method::GET, url))
@@ -172,6 +182,7 @@ impl ClickUpClient {
     }
 
     /// Create a new task
+    #[allow(dead_code)]
     pub async fn create_task(&self, list_id: &str, task: &CreateTaskRequest) -> Result<Task> {
         let url = ApiEndpoints::tasks_in_list(list_id, "");
         self.execute::<Task>(self.request(reqwest::Method::POST, url).json(task))
@@ -179,6 +190,7 @@ impl ClickUpClient {
     }
 
     /// Update a task
+    #[allow(dead_code)]
     pub async fn update_task(&self, task_id: &str, task: &UpdateTaskRequest) -> Result<Task> {
         let url = ApiEndpoints::task(task_id);
         self.execute::<Task>(self.request(reqwest::Method::PUT, url).json(task))
@@ -186,6 +198,7 @@ impl ClickUpClient {
     }
 
     /// Delete a task
+    #[allow(dead_code)]
     pub async fn delete_task(&self, task_id: &str) -> Result<()> {
         let url = ApiEndpoints::task(task_id);
         let response = self
@@ -211,6 +224,7 @@ impl ClickUpClient {
     }
 
     /// Get all pages in a document
+    #[allow(dead_code)]
     pub async fn get_doc_pages(&self, doc_id: &str) -> Result<Vec<Page>> {
         let url = ApiEndpoints::doc_pages(doc_id);
         let response = self
@@ -220,6 +234,7 @@ impl ClickUpClient {
     }
 
     /// Get a single page
+    #[allow(dead_code)]
     pub async fn get_page(&self, page_id: &str) -> Result<Page> {
         let url = ApiEndpoints::page(page_id);
         let response = self
@@ -297,6 +312,59 @@ impl ClickUpClient {
             .await?;
         Ok(response.notifications)
     }
+
+    // ==================== Assigned Tasks ====================
+
+    /// Get all accessible lists by traversing the workspace hierarchy
+    pub async fn get_all_accessible_lists(&self) -> Result<Vec<List>> {
+        let mut all_lists = Vec::new();
+
+        // Get all workspaces
+        let workspaces = self.get_workspaces().await?;
+
+        // For each workspace, get spaces
+        for workspace in &workspaces {
+            let spaces = self.get_spaces(&workspace.id).await?;
+
+            // For each space, get folders and folderless lists
+            for space in &spaces {
+                // Get folderless lists in space
+                let space_lists = self.get_lists_in_space(&space.id, None).await?;
+                all_lists.extend(space_lists);
+
+                // Get folders in space
+                let folders = self.get_folders(&space.id).await?;
+
+                // For each folder, get lists
+                for folder in &folders {
+                    let folder_lists = self.get_lists_in_folder(&folder.id, None).await?;
+                    all_lists.extend(folder_lists);
+                }
+            }
+        }
+
+        Ok(all_lists)
+    }
+
+    /// Get tasks with a specific assignee from a list
+    pub async fn get_tasks_with_assignee(
+        &self,
+        list_id: &str,
+        user_id: i32,
+        limit: Option<i32>,
+    ) -> Result<Vec<Task>> {
+        // Use ClickUp API's assignees filter parameter
+        let mut filters = TaskFilters::default();
+        filters.assignees = vec![user_id as i64];
+        if let Some(l) = limit {
+            filters.page = Some(l as u32);
+        }
+
+        let tasks = self.get_tasks(list_id, &filters).await?;
+        // API returns only tasks assigned to the specified user
+
+        Ok(tasks)
+    }
 }
 
 /// Macro to generate trait implementation that delegates to inherent methods
@@ -306,6 +374,10 @@ macro_rules! impl_clickup_api {
         impl ClickUpApi for $struct {
             async fn get_workspaces(&self) -> Result<Vec<Workspace>> {
                 self.get_workspaces().await
+            }
+
+            async fn get_current_user(&self) -> Result<User> {
+                self.get_current_user().await
             }
 
             async fn get_spaces(&self, team_id: &str) -> Result<Vec<Space>> {
@@ -402,6 +474,19 @@ macro_rules! impl_clickup_api {
 
             async fn get_notifications(&self, workspace_id: &str) -> Result<Vec<Notification>> {
                 self.get_notifications(workspace_id).await
+            }
+
+            async fn get_all_accessible_lists(&self) -> Result<Vec<List>> {
+                self.get_all_accessible_lists().await
+            }
+
+            async fn get_tasks_with_assignee(
+                &self,
+                list_id: &str,
+                user_id: i32,
+                limit: Option<i32>,
+            ) -> Result<Vec<Task>> {
+                self.get_tasks_with_assignee(list_id, user_id, limit).await
             }
         }
     };

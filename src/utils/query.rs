@@ -55,10 +55,18 @@ impl QueryParams {
         self
     }
 
-    /// Add all values from a slice of integers as repeated parameters
-    pub fn add_all_ints(&mut self, key: &str, values: &[i64]) -> &mut Self {
-        for v in values {
-            self.params.push(format!("{}[]={}", key, v));
+    /// Add all values from a slice of integers as comma-separated parameter (e.g., assignees=123,456)
+    ///
+    /// This is used for ClickUp API parameters that expect comma-separated values
+    /// instead of repeated array parameters.
+    pub fn add_comma_separated_ints(&mut self, key: &str, values: &[i64]) -> &mut Self {
+        if !values.is_empty() {
+            let comma_separated = values
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            self.params.push(format!("{}={}", key, comma_separated));
         }
         self
     }
@@ -75,11 +83,6 @@ impl QueryParams {
         } else {
             format!("?{}", self.params.join("&"))
         }
-    }
-
-    /// Build the query string without leading "?"
-    pub fn to_string(&self) -> String {
-        self.params.join("&")
     }
 }
 
@@ -150,11 +153,28 @@ mod tests {
     }
 
     #[test]
-    fn test_add_all_ints() {
+    fn test_add_comma_separated_ints() {
         let mut params = QueryParams::new();
-        params.add_all_ints("assignees", &[123, 456]);
+        params.add_comma_separated_ints("assignees", &[123, 456, 789]);
 
-        assert_eq!(params.to_query_string(), "?assignees[]=123&assignees[]=456");
+        assert_eq!(params.to_query_string(), "?assignees=123,456,789");
+    }
+
+    #[test]
+    fn test_add_comma_separated_ints_single() {
+        let mut params = QueryParams::new();
+        params.add_comma_separated_ints("assignees", &[123]);
+
+        assert_eq!(params.to_query_string(), "?assignees=123");
+    }
+
+    #[test]
+    fn test_add_comma_separated_ints_empty() {
+        let mut params = QueryParams::new();
+        params.add_comma_separated_ints("assignees", &[]);
+
+        assert!(params.is_empty());
+        assert_eq!(params.to_query_string(), "");
     }
 
     #[test]
@@ -164,22 +184,13 @@ mod tests {
         params.add_opt("page", Some(1));
         params.add_opt_encoded("query", Some("test search"));
         params.add_all("statuses", &["todo"]);
-        params.add_all_ints("assignees", &[789]);
+        params.add_comma_separated_ints("assignees", &[789]);
 
         let query = params.to_query_string();
         assert!(query.contains("archived=false"));
         assert!(query.contains("page=1"));
         assert!(query.contains("query=test%20search"));
         assert!(query.contains("statuses[]=todo"));
-        assert!(query.contains("assignees[]=789"));
-    }
-
-    #[test]
-    fn test_to_string_without_prefix() {
-        let mut params = QueryParams::new();
-        params.add_opt("a", Some(1));
-        params.add_opt("b", Some(2));
-
-        assert_eq!(params.to_string(), "a=1&b=2");
+        assert!(query.contains("assignees=789"));
     }
 }

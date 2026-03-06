@@ -14,7 +14,7 @@ use crate::cache::CacheManager;
 use crate::config::ConfigManager;
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, Document, Folder, List, SessionState, Task,
-    UpdateCommentRequest, Workspace,
+    UpdateCommentRequest, User, Workspace,
 };
 use crate::tui::widgets::SidebarItem;
 use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlGenerator};
@@ -41,6 +41,7 @@ pub enum Screen {
     TaskDetail,
     Document,
     Inbox,
+    AssignedTasks,
 }
 
 /// Comment view mode for threaded comments
@@ -66,7 +67,8 @@ pub enum AppMessage {
     CommentsLoaded(Result<Vec<Comment>, String>),
     CommentCreated(Result<Comment, String>, bool), // bool = is_reply
     CommentUpdated(Result<Comment, String>),
-    NotificationsLoaded(Result<Vec<crate::models::Notification>, String>),
+    AssignedTasksLoaded(Result<Vec<Task>, String>),
+    CurrentUserLoaded(Result<User, String>),
 }
 
 /// Main TUI application state
@@ -81,6 +83,7 @@ pub struct TuiApp {
     client: Option<Arc<dyn ClickUpApi>>,
 
     /// Config manager
+    #[allow(dead_code)]
     config: ConfigManager,
 
     /// Cache manager
@@ -143,11 +146,23 @@ pub struct TuiApp {
     comment_previous_selection: Option<usize>, // Store selection when entering thread
 
     /// Inbox UI state
+    #[allow(dead_code)]
     inbox_selected_index: usize,
     inbox_showing_detail: bool,
     inbox_loading: bool,
     inbox_error: Option<String>,
     inbox_list: InboxListState,
+
+    /// Assigned tasks UI state
+    assigned_tasks: TaskListState,
+    assigned_tasks_count: usize,
+    assigned_tasks_loading: bool,
+    assigned_tasks_error: Option<String>,
+    #[allow(dead_code)]
+    assigned_tasks_selected_index: usize,
+
+    /// User identity for assignee filtering
+    current_user_id: Option<i32>,
 
     /// Async message receiver
     message_rx: Option<mpsc::Receiver<AppMessage>>,
@@ -187,7 +202,6 @@ pub struct TuiApp {
 pub enum AppState {
     Initializing,
     Unauthenticated,
-    LoadingWorkspaces,
     Main,
 }
 
@@ -249,6 +263,12 @@ impl TuiApp {
             inbox_loading: false,
             inbox_error: None,
             inbox_list: InboxListState::new(),
+            assigned_tasks: TaskListState::new(),
+            assigned_tasks_count: 0,
+            assigned_tasks_loading: false,
+            assigned_tasks_error: None,
+            assigned_tasks_selected_index: 0,
+            current_user_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -283,6 +303,78 @@ impl TuiApp {
                 app.screen = Screen::Auth;
             }
         }
+
+        Ok(app)
+    }
+
+    /// Create a new TUI app with a custom client (for testing)
+    pub fn with_client(client: Arc<dyn ClickUpApi>) -> Result<Self> {
+        let config = ConfigManager::new().unwrap_or_default();
+        let cache = CacheManager::new(ConfigManager::database_path()?)?;
+        let auth = AuthManager::new().unwrap_or_default();
+
+        // Create channel for async messages
+        let (message_tx, message_rx) = mpsc::channel(32);
+
+        let app = Self {
+            screen: Screen::Workspaces,
+            state: AppState::Main,
+            client: Some(client),
+            config,
+            cache,
+            auth,
+            error: None,
+            loading: false,
+            sidebar: SidebarState::new(),
+            task_list: TaskListState::new(),
+            task_detail: TaskDetailState::new(),
+            auth_state: AuthState::new(),
+            document: DocumentState::new(),
+            dialog: DialogState::new(),
+            help: HelpState::new(),
+            screen_title: generate_screen_title("Workspaces"),
+            status: String::new(),
+            workspaces: Vec::new(),
+            spaces: Vec::new(),
+            folders: Vec::new(),
+            lists: Vec::new(),
+            tasks: Vec::new(),
+            documents: Vec::new(),
+            comments: Vec::new(),
+            notifications: Vec::new(),
+            comment_selected_index: 0,
+            comment_editing_index: None,
+            comment_new_text: String::new(),
+            comment_focus: false,
+            comment_view_mode: CommentViewMode::TopLevel,
+            comment_previous_selection: None,
+            inbox_selected_index: 0,
+            inbox_showing_detail: false,
+            inbox_loading: false,
+            inbox_error: None,
+            inbox_list: InboxListState::new(),
+            assigned_tasks: TaskListState::new(),
+            assigned_tasks_count: 0,
+            assigned_tasks_loading: false,
+            assigned_tasks_error: None,
+            assigned_tasks_selected_index: 0,
+            current_user_id: None,
+            message_rx: Some(message_rx),
+            message_tx: Some(message_tx.clone()),
+            clipboard: ClipboardService::new(),
+            url_copy_status: None,
+            url_copy_status_time: None,
+            current_workspace_id: None,
+            current_space_id: None,
+            current_folder_id: None,
+            current_list_id: None,
+            restoring_session: false,
+            restored_workspace_id: None,
+            restored_space_id: None,
+            restored_folder_id: None,
+            restored_list_id: None,
+            restored_task_id: None,
+        };
 
         Ok(app)
     }
@@ -333,8 +425,8 @@ impl TuiApp {
         Ok(())
     }
 
-    /// Process async messages from API calls
-    fn process_async_messages(&mut self) {
+    /// Process async messages from API calls (public for testing)
+    pub fn process_async_messages(&mut self) {
         if let Some(ref mut rx) = self.message_rx {
             // Try to receive messages without blocking
             // We need to collect messages first to avoid borrow conflicts with load_* methods
@@ -351,8 +443,8 @@ impl TuiApp {
                         match result {
                             Ok(workspaces) => {
                                 self.workspaces = workspaces.clone();
-                                // Populate sidebar with inbox at top, then workspaces
-                                let mut items = vec![SidebarItem::Inbox];
+                                // Populate sidebar with assigned tasks at top, then inbox, then workspaces
+                                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
                                 items.extend(self.workspaces.iter().map(|w| {
                                     SidebarItem::Workspace {
                                         name: w.name.clone(),
@@ -430,16 +522,14 @@ impl TuiApp {
                         match result {
                             Ok(spaces) => {
                                 self.spaces = spaces.clone();
-                                // Populate sidebar with spaces
-                                *self.sidebar.items_mut() = self
-                                    .spaces
-                                    .iter()
-                                    .map(|s| SidebarItem::Space {
-                                        name: s.name.clone(),
-                                        id: s.id.clone(),
-                                        indent: 1,
-                                    })
-                                    .collect();
+                                // Populate sidebar with assigned tasks, inbox, then spaces
+                                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                                items.extend(self.spaces.iter().map(|s| SidebarItem::Space {
+                                    name: s.name.clone(),
+                                    id: s.id.clone(),
+                                    
+                                }));
+                                *self.sidebar.items_mut() = items;
 
                                 // Check if we're restoring a session
                                 if self.restoring_session {
@@ -504,16 +594,14 @@ impl TuiApp {
                         match result {
                             Ok(folders) => {
                                 self.folders = folders.clone();
-                                // Populate sidebar with folders
-                                *self.sidebar.items_mut() = self
-                                    .folders
-                                    .iter()
-                                    .map(|f| SidebarItem::Folder {
-                                        name: f.name.clone(),
-                                        id: f.id.clone(),
-                                        indent: 2,
-                                    })
-                                    .collect();
+                                // Populate sidebar with assigned tasks, inbox, then folders
+                                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                                items.extend(self.folders.iter().map(|f| SidebarItem::Folder {
+                                    name: f.name.clone(),
+                                    id: f.id.clone(),
+                                    
+                                }));
+                                *self.sidebar.items_mut() = items;
 
                                 // Check if we're restoring a session
                                 if self.restoring_session {
@@ -579,16 +667,14 @@ impl TuiApp {
                         match result {
                             Ok(lists) => {
                                 self.lists = lists.clone();
-                                // Populate sidebar with lists
-                                *self.sidebar.items_mut() = self
-                                    .lists
-                                    .iter()
-                                    .map(|l| SidebarItem::List {
-                                        name: l.name.clone(),
-                                        id: l.id.clone(),
-                                        indent: 3,
-                                    })
-                                    .collect();
+                                // Populate sidebar with assigned tasks, inbox, then lists
+                                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                                items.extend(self.lists.iter().map(|l| SidebarItem::List {
+                                    name: l.name.clone(),
+                                    id: l.id.clone(),
+                                    
+                                }));
+                                *self.sidebar.items_mut() = items;
 
                                 // Check if we're restoring a session
                                 if self.restoring_session {
@@ -801,21 +887,55 @@ impl TuiApp {
                             }
                         }
                     }
-                    AppMessage::NotificationsLoaded(result) => {
-                        self.inbox_loading = false;
+                    AppMessage::AssignedTasksLoaded(result) => {
+                        self.assigned_tasks_loading = false;
                         match result {
-                            Ok(notifications) => {
-                                self.notifications = notifications;
-                                self.inbox_list
-                                    .set_notifications(self.notifications.clone());
-                                self.status =
-                                    format!("Loaded {} notification(s)", self.notifications.len());
-                                self.inbox_error = None;
+                            Ok(tasks) => {
+                                // Sort tasks by status priority and recency
+                                let sorted_tasks = crate::models::task::sort_tasks(tasks);
+
+                                // Update assigned tasks list
+                                *self.assigned_tasks.tasks_mut() = sorted_tasks.clone();
+                                self.assigned_tasks_count = sorted_tasks.len();
+
+                                // Cache the assigned tasks
+                                if let Err(e) = self.cache.cache_assigned_tasks(&sorted_tasks) {
+                                    tracing::warn!("Failed to cache assigned tasks: {}", e);
+                                }
+
+                                self.assigned_tasks.select_first();
+                                self.assigned_tasks_error = None;
+                                self.status = format!("Loaded {} assigned task(s)", self.assigned_tasks_count);
+
+                                // Try to detect user ID from the first task if not already set
+                                if self.current_user_id.is_none() {
+                                    if let Some(task) = sorted_tasks.first() {
+                                        self.detect_user_id_from_task(task);
+                                    }
+                                }
                             }
                             Err(e) => {
-                                self.inbox_error =
-                                    Some(format!("Failed to load notifications: {}", e));
-                                self.status = "Failed to load notifications".to_string();
+                                self.assigned_tasks_error = Some(format!("Failed to load assigned tasks: {}", e));
+                                self.status = "Failed to load assigned tasks".to_string();
+                                self.assigned_tasks.tasks_mut().clear();
+                                self.assigned_tasks_count = 0;
+                            }
+                        }
+                    }
+                    AppMessage::CurrentUserLoaded(result) => {
+                        match result {
+                            Ok(user) => {
+                                // Store user ID for filtering assigned tasks
+                                self.current_user_id = Some(user.id as i32);
+                                tracing::info!("Detected current user ID from API: {} ({})", user.id, user.username);
+                                
+                                // Now load assigned tasks with the user ID
+                                self.load_assigned_tasks();
+                            }
+                            Err(e) => {
+                                self.assigned_tasks_loading = false;
+                                self.assigned_tasks_error = Some(format!("Failed to load user profile: {}", e));
+                                self.status = "Failed to load user profile".to_string();
                             }
                         }
                     }
@@ -889,7 +1009,8 @@ impl TuiApp {
         }
     }
 
-    fn update(&mut self, event: InputEvent) {
+    /// Process input event and update state (public for testing)
+    pub fn update(&mut self, event: InputEvent) {
         // When help is visible, any key closes it
         if self.help.visible {
             if let InputEvent::Key(_) = event {
@@ -923,6 +1044,7 @@ impl TuiApp {
             Screen::TaskDetail => self.update_task_detail(event),
             Screen::Document => self.update_document(event),
             Screen::Inbox => self.update_inbox(event),
+            Screen::AssignedTasks => self.update_assigned_tasks(event),
         }
     }
 
@@ -1386,10 +1508,92 @@ impl TuiApp {
         }
     }
 
-    fn navigate_into(&mut self) {
+    fn update_assigned_tasks(&mut self, event: InputEvent) {
+        if let InputEvent::Key(key) = event {
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    // Move selection down in assigned tasks list
+                    self.assigned_tasks.select_next();
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    // Move selection up in assigned tasks list
+                    self.assigned_tasks.select_previous();
+                }
+                KeyCode::Char('r') => {
+                    // Manual refresh - reload assigned tasks from API
+                    self.assigned_tasks.tasks_mut().clear();
+                    self.assigned_tasks_count = 0;
+                    let _ = self.cache.clear_assigned_tasks();
+                    self.load_assigned_tasks();
+                    self.status = "Refreshing assigned tasks...".to_string();
+                }
+                KeyCode::Enter => {
+                    // Open task detail
+                    if let Some(task) = self.assigned_tasks.selected_task() {
+                        self.task_detail.task = Some(task.clone());
+                        self.screen = Screen::TaskDetail;
+                        self.screen_title = generate_screen_title(&format!("Task: {}", task.name));
+                        
+                        // Load comments for the task
+                        self.load_comments(task.id.clone());
+                    }
+                }
+                KeyCode::Esc => {
+                    // Navigate back to previous screen
+                    self.navigate_back();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Navigate into the selected item (public for testing)
+    pub fn navigate_into(&mut self) {
         // Navigate based on current screen and selection
         // Clone the selected item to avoid borrow checker issues
         let selected_item = self.sidebar.selected_item().cloned();
+
+        // Handle Assigned Tasks navigation from any screen
+        if let Some(SidebarItem::AssignedTasks) = selected_item {
+            self.screen = Screen::AssignedTasks;
+            self.screen_title = generate_screen_title("Assigned to Me");
+
+            // Try to detect user ID if not already set
+            self.try_detect_user_id();
+
+            // Check if we already have user ID
+            let has_user_id = self.current_user_id.is_some();
+
+            // Check cache first
+            let cache_valid = self.cache.is_assigned_tasks_cache_valid(300).unwrap_or(false);
+
+            if cache_valid && !self.assigned_tasks.tasks().is_empty() {
+                // Use cached data
+                match self.cache.get_assigned_tasks() {
+                    Ok(tasks) => {
+                        *self.assigned_tasks.tasks_mut() = tasks.clone();
+                        self.assigned_tasks_count = tasks.len();
+                        self.assigned_tasks.select_first();
+                        self.status = format!("Loaded {} assigned task(s) from cache", self.assigned_tasks_count);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to load assigned tasks from cache: {}", e);
+                        if has_user_id {
+                            self.load_assigned_tasks();
+                        } else {
+                            self.fetch_current_user_and_load_tasks();
+                        }
+                    }
+                }
+            } else if has_user_id {
+                // Have user ID - fetch tasks directly
+                self.load_assigned_tasks();
+            } else {
+                // No user ID - fetch from API first
+                self.fetch_current_user_and_load_tasks();
+            }
+            return;
+        }
 
         match &self.screen {
             Screen::Workspaces => {
@@ -1559,14 +1763,19 @@ impl TuiApp {
         match self.screen {
             Screen::Auth => {}       // Can't go back from auth
             Screen::Workspaces => {} // Can't go back from workspaces
+            Screen::AssignedTasks => {
+                // Navigate back to Workspaces (or stay at top level)
+                self.screen = Screen::Workspaces;
+                self.screen_title = generate_screen_title("Workspaces");
+            }
             Screen::Spaces => {
                 // Navigate back to Workspaces
                 self.current_space_id = None;
                 self.current_folder_id = None;
                 self.current_list_id = None;
 
-                // Repopulate sidebar with inbox at top, then workspaces
-                let mut items = vec![SidebarItem::Inbox];
+                // Repopulate sidebar with assigned tasks, inbox, then workspaces
+                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
                 items.extend(self.workspaces.iter().map(|w| SidebarItem::Workspace {
                     name: w.name.clone(),
                     id: w.id.clone(),
@@ -1592,12 +1801,12 @@ impl TuiApp {
                 self.current_folder_id = None;
                 self.current_list_id = None;
 
-                // Repopulate sidebar with inbox at top, then spaces
-                let mut items = vec![SidebarItem::Inbox];
+                // Repopulate sidebar with assigned tasks, inbox, then spaces
+                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
                 items.extend(self.spaces.iter().map(|s| SidebarItem::Space {
                     name: s.name.clone(),
                     id: s.id.clone(),
-                    indent: 1,
+                    
                 }));
                 *self.sidebar.items_mut() = items;
 
@@ -1629,12 +1838,12 @@ impl TuiApp {
                 // Navigate back to Folders
                 self.current_list_id = None;
 
-                // Repopulate sidebar with inbox at top, then folders
-                let mut items = vec![SidebarItem::Inbox];
+                // Repopulate sidebar with assigned tasks, inbox, then folders
+                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
                 items.extend(self.folders.iter().map(|f| SidebarItem::Folder {
                     name: f.name.clone(),
                     id: f.id.clone(),
-                    indent: 2,
+                    
                 }));
                 *self.sidebar.items_mut() = items;
 
@@ -1670,7 +1879,7 @@ impl TuiApp {
                 items.extend(self.lists.iter().map(|l| SidebarItem::List {
                     name: l.name.clone(),
                     id: l.id.clone(),
-                    indent: 3,
+                    
                 }));
                 *self.sidebar.items_mut() = items;
 
@@ -1885,6 +2094,125 @@ impl TuiApp {
         });
     }
 
+    /// Load assigned tasks for the current user
+    fn load_assigned_tasks(&mut self) {
+        self.assigned_tasks_loading = true;
+        self.assigned_tasks_error = None;
+        self.status = "Loading assigned tasks...".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.assigned_tasks_loading = false;
+                self.assigned_tasks_error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let user_id = match self.current_user_id {
+            Some(id) => id,
+            None => {
+                self.assigned_tasks_loading = false;
+                self.assigned_tasks_error = Some("User identity not detected. Navigate to a task list and open a task first, then try again.".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            // Get all accessible lists
+            let lists_result = client.get_all_accessible_lists().await;
+
+            match lists_result {
+                Ok(lists) => {
+                    // Fetch tasks from each list in parallel
+                    let mut all_tasks = Vec::new();
+                    for list in &lists {
+                        match client.get_tasks_with_assignee(&list.id, user_id, Some(100)).await {
+                            Ok(tasks) => all_tasks.extend(tasks),
+                            Err(e) => tracing::warn!("Failed to fetch tasks from list {}: {}", list.id, e),
+                        }
+                    }
+
+                    let msg = AppMessage::AssignedTasksLoaded(Ok(all_tasks));
+                    let _ = tx.send(msg).await;
+                }
+                Err(e) => {
+                    let msg = AppMessage::AssignedTasksLoaded(Err(e.to_string()));
+                    let _ = tx.send(msg).await;
+                }
+            }
+        });
+    }
+
+    /// Fetch current user from API and then load assigned tasks
+    fn fetch_current_user_and_load_tasks(&mut self) {
+        self.assigned_tasks_loading = true;
+        self.assigned_tasks_error = None;
+        self.status = "Fetching user profile...".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.assigned_tasks_loading = false;
+                self.assigned_tasks_error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            match client.get_current_user().await {
+                Ok(user) => {
+                    let msg = AppMessage::CurrentUserLoaded(Ok(user));
+                    let _ = tx.send(msg).await;
+                }
+                Err(e) => {
+                    let msg = AppMessage::CurrentUserLoaded(Err(e.to_string()));
+                    let _ = tx.send(msg).await;
+                }
+            }
+        });
+    }
+
+    /// Detect current user ID from a task's creator or assignee field
+    fn detect_user_id_from_task(&mut self, task: &Task) {
+        // First try to get user ID from task creator
+        if let Some(creator) = &task.creator {
+            self.current_user_id = Some(creator.id as i32);
+            tracing::info!("Detected user ID from task creator: {}", creator.id);
+            return;
+        }
+
+        // If no creator, try to get user ID from assignees
+        // Use the first assignee as a fallback
+        if let Some(assignee) = task.assignees.first() {
+            self.current_user_id = Some(assignee.id as i32);
+            tracing::info!("Detected user ID from task assignee: {}", assignee.id);
+        }
+    }
+
+    /// Try to detect user ID from any available task (public for testing)
+    pub fn try_detect_user_id(&mut self) {
+        // If we already have a user ID, skip detection
+        if self.current_user_id.is_some() {
+            return;
+        }
+
+        // Try to get user ID from tasks in the current list
+        // Clone the task to avoid borrow checker issues
+        if let Some(task) = self.task_list.tasks().first().cloned() {
+            self.detect_user_id_from_task(&task);
+        }
+
+        // If still no user ID, try from assigned tasks if available
+        if self.current_user_id.is_none() {
+            if let Some(task) = self.assigned_tasks.tasks().first().cloned() {
+                self.detect_user_id_from_task(&task);
+            }
+        }
+    }
+
     /// Load comments for a task (top-level + replies)
     fn load_comments(&mut self, task_id: String) {
         self.loading = true;
@@ -2068,6 +2396,7 @@ impl TuiApp {
                 }
             }
             Screen::Inbox => generate_screen_title("Inbox"),
+            Screen::AssignedTasks => generate_screen_title("Assigned to Me"),
         };
     }
 
@@ -2118,6 +2447,12 @@ impl TuiApp {
             } else if let Some(ref url_status) = self.url_copy_status {
                 // Show URL copy status (takes priority over regular status)
                 url_status.clone()
+            } else if self.screen == Screen::AssignedTasks && self.assigned_tasks_error.is_some() {
+                // Show assigned tasks error when on AssignedTasks screen
+                self.assigned_tasks_error.clone().unwrap()
+            } else if self.screen == Screen::AssignedTasks && self.assigned_tasks_loading {
+                // Show assigned tasks loading state
+                "Loading assigned tasks...".to_string()
             } else if self.loading {
                 "Loading...".to_string()
             } else {
@@ -2136,12 +2471,12 @@ impl TuiApp {
         content_area: Rect,
     ) {
         // Render sidebar
-        render_sidebar(frame, &self.sidebar, sidebar_area);
+        render_sidebar(frame, &self.sidebar, sidebar_area, Some(self.assigned_tasks_count));
 
         // Render main content based on screen
         match self.screen {
             Screen::Auth => render_auth(frame, &self.auth_state, content_area),
-            Screen::Tasks => render_task_list(frame, &self.task_list, content_area),
+            Screen::Tasks => render_task_list(frame, &self.task_list, content_area, false),
             Screen::TaskDetail => {
                 // Split content area between task detail and comments with 3:7 ratio
                 let (task_detail_area, comments_area) = split_task_detail(content_area);
@@ -2187,6 +2522,10 @@ impl TuiApp {
                     }
                 }
             }
+            Screen::AssignedTasks => {
+                // Render assigned tasks list
+                render_task_list(frame, &self.assigned_tasks, content_area, self.assigned_tasks_loading);
+            }
             _ => {
                 // For navigation screens, show placeholder
                 use ratatui::widgets::Paragraph;
@@ -2199,7 +2538,7 @@ impl TuiApp {
     fn render_main_content(&mut self, frame: &mut Frame, area: Rect) {
         match self.screen {
             Screen::Auth => render_auth(frame, &self.auth_state, area),
-            Screen::Tasks => render_task_list(frame, &self.task_list, area),
+            Screen::Tasks => render_task_list(frame, &self.task_list, area, false),
             Screen::TaskDetail => {
                 // Split area between task detail and comments with 3:7 ratio
                 let (task_detail_area, comments_area) = split_task_detail(area);
@@ -2304,6 +2643,7 @@ impl TuiApp {
         // Helper to get ID from sidebar item
         fn get_sidebar_id(item: &SidebarItem) -> &str {
             match item {
+                SidebarItem::AssignedTasks => "assigned-tasks",
                 SidebarItem::Inbox => "inbox",
                 SidebarItem::Workspace { id, .. } => id,
                 SidebarItem::Space { id, .. } => id,
@@ -2413,6 +2753,10 @@ impl TuiApp {
                 self.url_copy_status = Some("URL copy not available for inbox".to_string());
                 return;
             }
+            Screen::AssignedTasks => {
+                self.url_copy_status = Some("URL copy not available for assigned tasks view".to_string());
+                return;
+            }
         };
 
         // Handle URL generation result
@@ -2511,6 +2855,7 @@ impl TuiApp {
     ///
     /// If the saved navigation context is invalid, falls back to the nearest valid parent.
     /// Returns the final screen and an optional fallback message.
+    #[allow(dead_code)]
     fn apply_session_fallback(
         &self,
         target_screen: Screen,
@@ -2600,7 +2945,61 @@ impl TuiApp {
                     Some("No workspace selected for inbox".to_string()),
                 )
             }
+            Screen::AssignedTasks => {
+                // Assigned tasks view is always valid - will fetch from API or cache
+                (Screen::AssignedTasks, None)
+            }
         }
+    }
+
+    /// Get the current user ID (public for testing)
+    pub fn current_user_id(&self) -> Option<i32> {
+        self.current_user_id
+    }
+
+    /// Set the current user ID (public for testing)
+    pub fn set_current_user_id(&mut self, id: Option<i32>) {
+        self.current_user_id = id;
+    }
+
+    /// Get the current screen (public for testing)
+    pub fn screen(&self) -> Screen {
+        self.screen.clone()
+    }
+
+    /// Get assigned tasks error (public for testing)
+    pub fn assigned_tasks_error(&self) -> Option<&String> {
+        self.assigned_tasks_error.as_ref()
+    }
+
+    /// Get assigned tasks list (public for testing)
+    pub fn assigned_tasks(&self) -> &TaskListState {
+        &self.assigned_tasks
+    }
+
+    /// Get assigned tasks count (public for testing)
+    pub fn assigned_tasks_count(&self) -> usize {
+        self.assigned_tasks_count
+    }
+
+    /// Check if assigned tasks are loading (public for testing)
+    pub fn assigned_tasks_loading(&self) -> bool {
+        self.assigned_tasks_loading
+    }
+
+    /// Get sidebar (public for testing)
+    pub fn sidebar(&mut self) -> &mut SidebarState {
+        &mut self.sidebar
+    }
+
+    /// Get task list (public for testing)
+    pub fn task_list(&mut self) -> &mut TaskListState {
+        &mut self.task_list
+    }
+
+    /// Get status message (public for testing)
+    pub fn status(&self) -> &str {
+        &self.status
     }
 
     /// Clear session state from the cache

@@ -4,11 +4,12 @@ use crate::api::client_trait::ClickUpApi;
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
     Folder, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
-    Workspace,
+    User, Workspace,
 };
 use anyhow::{anyhow, Result};
 
 /// Helper function to return configured response or default empty vec
+#[allow(dead_code)]
 fn return_vec_response<T: Clone>(configured: &Option<Result<Vec<T>>>) -> Result<Vec<T>> {
     match configured {
         Some(Ok(items)) => Ok(items.clone()),
@@ -18,6 +19,7 @@ fn return_vec_response<T: Clone>(configured: &Option<Result<Vec<T>>>) -> Result<
 }
 
 /// Helper function to return configured response or default single item
+#[allow(dead_code)]
 fn return_response<T: Clone>(configured: &Option<Result<T>>, not_found_msg: &str) -> Result<T> {
     match configured {
         Some(Ok(item)) => Ok(item.clone()),
@@ -27,6 +29,7 @@ fn return_response<T: Clone>(configured: &Option<Result<T>>, not_found_msg: &str
 }
 
 /// Helper function to return configured response for unit result
+#[allow(dead_code)]
 fn return_unit_response(configured: &Option<Result<()>>, not_configured_msg: &str) -> Result<()> {
     match configured {
         Some(Ok(())) => Ok(()),
@@ -41,6 +44,7 @@ fn return_unit_response(configured: &Option<Result<()>>, not_configured_msg: &st
 /// to return predefined responses for testing without making actual
 /// network calls.
 #[derive(Default)]
+#[allow(dead_code)]
 pub struct MockClickUpClient {
     /// Override for get_workspaces response
     pub workspaces_response: Option<Result<Vec<Workspace>>>,
@@ -80,8 +84,15 @@ pub struct MockClickUpClient {
     pub update_comment_response: Option<Result<Comment>>,
     /// Override for get_notifications response
     pub notifications_response: Option<Result<Vec<Notification>>>,
+    /// Override for get_all_accessible_lists response
+    pub accessible_lists_response: Option<Result<Vec<List>>>,
+    /// Override for get_tasks_with_assignee response
+    pub tasks_with_assignee_response: Option<Result<Vec<Task>>>,
+    /// Override for get_current_user response
+    pub current_user_response: Option<Result<User>>,
 }
 
+#[allow(dead_code)]
 impl MockClickUpClient {
     /// Create a new mock client with default (empty) responses
     pub fn new() -> Self {
@@ -105,6 +116,9 @@ impl MockClickUpClient {
             create_comment_reply_response: None,
             update_comment_response: None,
             notifications_response: None,
+            accessible_lists_response: None,
+            tasks_with_assignee_response: None,
+            current_user_response: None,
         }
     }
     /// Set the workspaces response
@@ -225,12 +239,51 @@ impl MockClickUpClient {
         self.notifications_response = Some(Err(anyhow!(error)));
         self
     }
+
+    /// Set the accessible lists response
+    pub fn with_accessible_lists(mut self, lists: Vec<List>) -> Self {
+        self.accessible_lists_response = Some(Ok(lists));
+        self
+    }
+
+    /// Set the tasks with assignee response
+    pub fn with_tasks_with_assignee_response(mut self, tasks: Vec<Task>) -> Self {
+        self.tasks_with_assignee_response = Some(Ok(tasks));
+        self
+    }
+
+    /// Set the current user response
+    pub fn with_current_user(mut self, user: User) -> Self {
+        self.current_user_response = Some(Ok(user));
+        self
+    }
+
+    /// Set the current user error
+    pub fn with_current_user_error(mut self, error: String) -> Self {
+        self.current_user_response = Some(Err(anyhow!(error)));
+        self
+    }
 }
 
 #[async_trait::async_trait]
 impl ClickUpApi for MockClickUpClient {
     async fn get_workspaces(&self) -> Result<Vec<Workspace>> {
         return_vec_response(&self.workspaces_response)
+    }
+
+    async fn get_current_user(&self) -> Result<User> {
+        match &self.current_user_response {
+            Some(Ok(user)) => Ok(user.clone()),
+            Some(Err(e)) => Err(anyhow!(e.to_string())),
+            None => Ok(User {
+                id: 1,
+                username: "test_user".to_string(),
+                color: None,
+                email: None,
+                profile_picture: None,
+                initials: None,
+            }),
+        }
     }
 
     async fn get_spaces(&self, _team_id: &str) -> Result<Vec<ClickUpSpace>> {
@@ -350,5 +403,18 @@ impl ClickUpApi for MockClickUpClient {
 
     async fn get_notifications(&self, _workspace_id: &str) -> Result<Vec<Notification>> {
         return_vec_response(&self.notifications_response)
+    }
+
+    async fn get_all_accessible_lists(&self) -> Result<Vec<List>> {
+        return_vec_response(&self.accessible_lists_response)
+    }
+
+    async fn get_tasks_with_assignee(
+        &self,
+        _list_id: &str,
+        _user_id: i32,
+        _limit: Option<i32>,
+    ) -> Result<Vec<Task>> {
+        return_vec_response(&self.tasks_with_assignee_response)
     }
 }

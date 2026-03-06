@@ -191,19 +191,8 @@ pub struct TaskStatus {
 }
 
 /// User/Assignee reference
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct User {
-    pub id: i64,
-    pub username: String,
-    #[serde(default)]
-    pub color: Option<String>,
-    #[serde(default)]
-    pub email: Option<String>,
-    #[serde(default, rename = "profilePicture")]
-    pub profile_picture: Option<String>,
-    #[serde(default)]
-    pub initials: Option<String>,
-}
+/// Re-exported from crate::models::User for backwards compatibility
+pub use crate::models::user::User;
 
 /// Task checklist item
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -273,16 +262,6 @@ pub struct Tag {
     pub tag_bg: Option<String>,
     #[serde(default)]
     pub creator: Option<i64>,
-}
-
-/// Task dependency reference
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TaskDependency {
-    pub id: String,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default, rename = "status")]
-    pub dependency_status: Option<String>,
 }
 
 /// Task dependency reference (for dependencies array in task response)
@@ -484,7 +463,8 @@ impl TaskFilters {
         params.add_opt("reverse", self.reverse);
         params.add_opt("subtasks", self.subtasks);
         params.add_all("statuses", &self.statuses);
-        params.add_all_ints("assignees", &self.assignees);
+        // Use comma-separated format for assignees (ClickUp API expects assignees=123,456)
+        params.add_comma_separated_ints("assignees", &self.assignees);
         params.add_opt(
             "include_markdown_description",
             self.include_markdown_description,
@@ -792,5 +772,54 @@ mod tests {
         assert_eq!(sorted[0].id, "b");
         assert_eq!(sorted[1].id, "c");
         assert_eq!(sorted[2].id, "a");
+    }
+
+    #[test]
+    fn test_task_filters_assignees_format() {
+        // Test that assignees are formatted as comma-separated values
+        let mut filters = TaskFilters::default();
+        filters.assignees = vec![123, 456, 789];
+
+        let query = filters.to_query_string();
+
+        // Should use comma-separated format, not array format
+        assert!(query.contains("assignees=123,456,789"));
+        assert!(!query.contains("assignees[]"));
+    }
+
+    #[test]
+    fn test_task_filters_single_assignee() {
+        let mut filters = TaskFilters::default();
+        filters.assignees = vec![123];
+
+        let query = filters.to_query_string();
+
+        assert_eq!(query, "?assignees=123");
+    }
+
+    #[test]
+    fn test_task_filters_no_assignees() {
+        let filters = TaskFilters::default();
+        let query = filters.to_query_string();
+
+        // Empty filters should produce empty query or no assignees param
+        assert!(!query.contains("assignees"));
+    }
+
+    #[test]
+    fn test_task_filters_mixed_with_assignees() {
+        let mut filters = TaskFilters::default();
+        filters.archived = Some(false);
+        filters.assignees = vec![123, 456];
+        filters.statuses = vec!["todo".to_string(), "in progress".to_string()];
+
+        let query = filters.to_query_string();
+
+        assert!(query.contains("archived=false"));
+        assert!(query.contains("assignees=123,456"));
+        assert!(query.contains("statuses[]=todo"));
+        assert!(query.contains("statuses[]=in progress"));
+        // Verify assignees is NOT using array format
+        assert!(!query.contains("assignees[]"));
     }
 }

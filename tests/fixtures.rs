@@ -4,7 +4,6 @@ use clickdown::models::comment::Comment;
 use clickdown::models::document::Document;
 use clickdown::models::task::Task;
 use clickdown::models::workspace::{Folder, List, Space, Workspace};
-use clickdown::models::CommentUser;
 
 /// Create a test workspace
 pub fn test_workspace() -> Workspace {
@@ -124,8 +123,8 @@ pub fn test_document() -> Document {
 }
 
 /// Create a test comment user
-pub fn test_comment_user() -> CommentUser {
-    CommentUser {
+pub fn test_comment_user() -> clickdown::models::User {
+    clickdown::models::User {
         id: 123,
         username: "testuser".to_string(),
         color: None,
@@ -172,4 +171,52 @@ pub fn test_comment_edited() -> Comment {
 /// Create multiple test comments
 pub fn test_comments() -> Vec<Comment> {
     vec![test_comment(), test_comment_edited()]
+}
+
+/// Create a test user (for task assignees)
+pub fn test_user() -> clickdown::models::User {
+    clickdown::models::User {
+        id: 123,
+        username: "testuser".to_string(),
+        color: None,
+        email: Some("test@example.com".to_string()),
+        profile_picture: None,
+        initials: Some("TU".to_string()),
+    }
+}
+
+/// Create a test task with assignees
+pub fn test_task_with_assignee() -> Task {
+    let mut task = test_task();
+    task.id = "test-task-assigned-1".to_string();
+    task.name = "Task assigned to test user".to_string();
+    task.assignees = vec![test_user()];
+    task
+}
+
+/// Create multiple test tasks with assignees
+pub fn test_tasks_with_assignees() -> Vec<Task> {
+    vec![
+        {
+            let mut task = test_task();
+            task.id = "assigned-task-1".to_string();
+            task.name = "Review Q2 planning doc".to_string();
+            task.assignees = vec![test_user()];
+            task
+        },
+        {
+            let mut task = test_task();
+            task.id = "assigned-task-2".to_string();
+            task.name = "Fix bug in task filtering".to_string();
+            task.assignees = vec![test_user()];
+            task
+        },
+        {
+            let mut task = test_task();
+            task.id = "assigned-task-3".to_string();
+            task.name = "Update API documentation".to_string();
+            task.assignees = vec![test_user()];
+            task
+        },
+    ]
 }

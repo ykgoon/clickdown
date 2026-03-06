@@ -3,12 +3,12 @@ source: tests/snapshot_test.rs
 expression: snapshot
 ---
 ┌ Navigation ──────────────────────────┐
-│▸ WS Engineering                      │
+│▸ 👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│  WS Engineering                      │
 │  SP Backend                          │
 │  FL API                              │
 │  LI Sprint Tasks                     │
-│                                      │
-│                                      │
 │                                      │
 │                                      │
 │                                      │

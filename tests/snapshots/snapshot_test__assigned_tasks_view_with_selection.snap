@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+┌ Tasks ───────────────────────────────────────────────────┐
+│▸ [↑] I Review Q2 planning doc                            │
+│  [⚡ ] T Fix bug in task filtering                        │
+│  [•] D Update API documentation                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘

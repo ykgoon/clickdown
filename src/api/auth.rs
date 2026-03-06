@@ -57,6 +57,7 @@ impl AuthManager {
     }
 
     /// Remove the stored token
+    #[allow(dead_code)]
     pub fn clear_token(&self) -> Result<()> {
         let token_path = self.token_path();
 
@@ -68,6 +69,7 @@ impl AuthManager {
     }
 
     /// Check if a token is stored
+    #[allow(dead_code)]
     pub fn has_token(&self) -> bool {
         self.token_path().exists()
     }

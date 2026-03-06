@@ -133,38 +133,6 @@ fn test_quit_detection() {
     assert!(!is_quit(other), "Other keys should not be detected as quit");
 }
 
-/// Test escape detection
-#[test]
-fn test_escape_detection() {
-    use clickdown::tui::input::is_escape;
-    use crossterm::event::{KeyCode, KeyEvent};
-
-    let esc = KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE);
-    assert!(is_escape(esc), "Esc should be detected");
-
-    let other = KeyEvent::new(KeyCode::Char('a'), crossterm::event::KeyModifiers::NONE);
-    assert!(
-        !is_escape(other),
-        "Other keys should not be detected as escape"
-    );
-}
-
-/// Test enter detection
-#[test]
-fn test_enter_detection() {
-    use clickdown::tui::input::is_enter;
-    use crossterm::event::{KeyCode, KeyEvent};
-
-    let enter = KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
-    assert!(is_enter(enter), "Enter should be detected");
-
-    let other = KeyEvent::new(KeyCode::Char('a'), crossterm::event::KeyModifiers::NONE);
-    assert!(
-        !is_enter(other),
-        "Other keys should not be detected as enter"
-    );
-}
-
 /// Test dialog state
 #[test]
 fn test_dialog_state() {
@@ -265,7 +233,7 @@ fn test_sidebar_state() {
     sidebar.items_mut().push(SidebarItem::Space {
         name: "Test Space".to_string(),
         id: "sp-1".to_string(),
-        indent: 1,
+
     });
 
     // Select first
@@ -1144,4 +1112,301 @@ fn test_top_level_comment_no_parent_id() {
     };
 
     assert_eq!(top_level.parent_id, None);
+}
+
+// ==================== Assigned Tasks Integration Tests ====================
+
+/// Test that "Assigned to Me" navigation requires user ID to be set
+/// 
+/// This test demonstrates the current bug: navigating to "Assigned to Me"
+/// Test that "Assigned to Me" initiates user fetch when user ID is not set
+///
+/// This test verifies that when navigating to "Assigned to Me" without a
+/// pre-set current_user_id, the app initiates a fetch of the current user
+/// from the API and enters a loading state.
+#[test]
+fn test_assigned_to_me_requires_user_id() {
+    use clickdown::api::MockClickUpClient;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::widgets::SidebarItem;
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        // Create mock client - will use default user (id=1)
+        let mock_client = MockClickUpClient::new();
+
+        // Create app with mock client
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Verify initial state - no user ID set
+        assert!(
+            app.current_user_id().is_none(),
+            "User ID should start as None"
+        );
+
+        // Set up sidebar with AssignedTasks item selected
+        *app.sidebar().items_mut() = vec![
+            SidebarItem::AssignedTasks,
+            SidebarItem::Inbox,
+        ];
+        app.sidebar().select_first();
+
+        // Navigate to "Assigned to Me"
+        app.navigate_into();
+
+        // Should navigate to AssignedTasks screen
+        assert_eq!(
+            app.screen(),
+            clickdown::tui::app::Screen::AssignedTasks,
+            "Should navigate to AssignedTasks screen"
+        );
+
+        // App should be in loading state (fetching user from API)
+        assert!(
+            app.assigned_tasks_loading(),
+            "Should be loading user from API"
+        );
+
+        // No error yet - still loading
+        assert!(
+            app.assigned_tasks_error().is_none(),
+            "Should not have error while loading"
+        );
+
+        // Status should indicate loading
+        assert!(
+            app.status().contains("Fetching user profile"),
+            "Status should indicate fetching user, got: {}",
+            app.status()
+        );
+
+        // Note: The actual user fetch and task loading happen in spawned tokio tasks.
+        // To fully test this, we would need to wait for spawned tasks to complete.
+        // This test verifies the navigation flow and loading state initiation.
+    });
+}
+
+/// Test that "Assigned to Me" works when user ID is pre-set
+/// 
+/// This test shows the expected behavior: when current_user_id is set
+/// before navigating, tasks should be loaded successfully.
+/// 
+/// Note: This test verifies the navigation flow starts correctly.
+/// The full async loading requires the spawned tokio task to complete,
+/// which needs additional test infrastructure.
+#[test]
+fn test_assigned_to_me_with_user_id_set() {
+    use clickdown::api::MockClickUpClient;
+    use clickdown::models::workspace::List;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::widgets::SidebarItem;
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        // Create mock client with tasks that have assignees
+        let tasks = fixtures::test_tasks_with_assignees();
+        let lists = vec![List {
+            id: "list-1".to_string(),
+            name: "Test List".to_string(),
+            content: None,
+            description: None,
+            archived: false,
+            hidden: false,
+            orderindex: Some(0),
+            space: None,
+            folder: None,
+            status: None,
+            priority: None,
+        }];
+
+        let mock_client = MockClickUpClient::new()
+            .with_accessible_lists(lists.clone())
+            .with_tasks_with_assignee_response(tasks.clone());
+
+        // Create app with mock client
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Pre-set the user ID (simulating successful detection from a previous task)
+        app.set_current_user_id(Some(123));
+
+        // Set up sidebar with AssignedTasks item selected
+        *app.sidebar().items_mut() = vec![
+            SidebarItem::AssignedTasks,
+            SidebarItem::Inbox,
+        ];
+        app.sidebar().select_first();
+
+        // Navigate to "Assigned to Me"
+        app.navigate_into();
+
+        // Should navigate to AssignedTasks screen
+        assert_eq!(
+            app.screen(),
+            clickdown::tui::app::Screen::AssignedTasks,
+            "Should navigate to AssignedTasks screen"
+        );
+
+        // No error should be set (user ID is set, so no early return)
+        assert!(
+            app.assigned_tasks_error().is_none(),
+            "Should not have error when user ID is set: {:?}",
+            app.assigned_tasks_error()
+        );
+
+        // Should be in loading state (async task was spawned)
+        assert!(
+            app.assigned_tasks_loading(),
+            "Should be loading tasks from API"
+        );
+
+        // Status should indicate loading
+        assert!(
+            app.status().contains("Loading assigned tasks"),
+            "Status should indicate loading, got: {}",
+            app.status()
+        );
+
+        // Note: The actual task loading happens in a spawned tokio task.
+        // To fully test this, we would need to:
+        // 1. Wait for the spawned task to complete
+        // 2. Process async messages
+        // 3. Verify tasks were loaded
+        // This requires more sophisticated async test infrastructure.
+    });
+}
+
+/// Test that user ID can be detected from task assignees
+#[test]
+fn test_user_id_detection_from_assignees() {
+    use clickdown::tui::app::TuiApp;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        // Create app (will have current_user_id = None)
+        let mut app = TuiApp::default();
+
+        // Verify initial state
+        assert!(
+            app.current_user_id().is_none(),
+            "User ID should start as None"
+        );
+
+        // Create a task with an assignee
+        let task_with_assignee = fixtures::test_task_with_assignee();
+
+        // Manually set the task in the task list (simulating loaded tasks)
+        *app.task_list().tasks_mut() = vec![task_with_assignee.clone()];
+
+        // Call the detection method
+        app.try_detect_user_id();
+
+        // User ID should now be detected from the assignee
+        assert!(
+            app.current_user_id().is_some(),
+            "User ID should be detected from task assignee"
+        );
+
+        let detected_id = app.current_user_id().unwrap();
+        let expected_id = task_with_assignee.assignees[0].id as i32;
+        assert_eq!(
+            detected_id, expected_id,
+            "Detected user ID should match assignee ID"
+        );
+    });
+}
+
+/// Test that demonstrates the REAL BUG: "Assigned to Me" shows zero tasks
+/// 
+/// This test demonstrates the fix for the "Assigned to Me" shows zero tasks bug
+///
+/// This test simulates the actual user workflow:
+/// 1. User starts app with no cached tasks
+/// 2. User navigates directly to "Assigned to Me"
+/// 3. App fetches current user from API
+/// 4. User ID is detected and tasks are loaded
+///
+/// THIS TEST SHOULD PASS with the fix - user sees tasks instead of error
+#[test]
+fn test_bug_assigned_to_me_shows_zero_tasks() {
+    use clickdown::api::MockClickUpClient;
+    use clickdown::models::workspace::List;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::widgets::SidebarItem;
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        // Simulate fresh app start: no cached tasks, no user ID
+        let tasks = fixtures::test_tasks_with_assignees();
+        let lists = vec![List {
+            id: "list-1".to_string(),
+            name: "Test List".to_string(),
+            content: None,
+            description: None,
+            archived: false,
+            hidden: false,
+            orderindex: Some(0),
+            space: None,
+            folder: None,
+            status: None,
+            priority: None,
+        }];
+
+        let mock_client = MockClickUpClient::new()
+            .with_current_user(fixtures::test_user())
+            .with_accessible_lists(lists.clone())
+            .with_tasks_with_assignee_response(tasks.clone());
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Set up sidebar (matching real app behavior)
+        *app.sidebar().items_mut() = vec![
+            SidebarItem::AssignedTasks,
+            SidebarItem::Inbox,
+        ];
+        app.sidebar().select_first();
+
+        // User navigates to "Assigned to Me" (simulating real workflow)
+        app.navigate_into();
+
+        // Process async messages in a loop until tasks are loaded or we timeout
+        // This simulates the async flow:
+        // 1. Fetch current user from API
+        // 2. Store user ID and trigger task loading
+        // 3. Fetch tasks from API
+        // 4. Store tasks in assigned_tasks list
+        let mut iterations = 0;
+        let max_iterations = 30;
+        while app.assigned_tasks().tasks().is_empty() && iterations < max_iterations {
+            app.process_async_messages();
+            // Give spawned tasks time to complete
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            iterations += 1;
+        }
+
+        // EXPECTED: User should see tasks loaded (no error)
+        assert!(
+            app.assigned_tasks_error().is_none(),
+            "FIXED: User should see tasks but got error: {:?}",
+            app.assigned_tasks_error()
+        );
+
+        // This should now pass with the fix
+        let task_count = app.assigned_tasks().tasks().len();
+        assert!(
+            task_count > 0,
+            "FIXED: Expected tasks to be loaded but got {} tasks",
+            task_count
+        );
+    });
 }

@@ -12,6 +12,7 @@ use ratatui::{
 /// Sidebar item types
 #[derive(Debug, Clone)]
 pub enum SidebarItem {
+    AssignedTasks,
     Inbox,
     Workspace {
         name: String,
@@ -20,17 +21,14 @@ pub enum SidebarItem {
     Space {
         name: String,
         id: String,
-        indent: usize,
     },
     Folder {
         name: String,
         id: String,
-        indent: usize,
     },
     List {
         name: String,
         id: String,
-        indent: usize,
     },
 }
 
@@ -38,6 +36,7 @@ impl SidebarItem {
     /// Get the ID of this sidebar item
     pub fn id(&self) -> &str {
         match self {
+            SidebarItem::AssignedTasks => "assigned-tasks",
             SidebarItem::Inbox => "inbox",
             SidebarItem::Workspace { id, .. } => id,
             SidebarItem::Space { id, .. } => id,
@@ -53,8 +52,6 @@ pub struct SidebarState {
     list: SelectableList<SidebarItem>,
     /// Whether sidebar is visible
     pub visible: bool,
-    /// Scroll offset
-    pub scroll_offset: usize,
 }
 
 impl SidebarState {
@@ -62,7 +59,6 @@ impl SidebarState {
         Self {
             list: SelectableList::empty(),
             visible: true,
-            scroll_offset: 0,
         }
     }
 
@@ -114,28 +110,40 @@ impl Default for SidebarState {
 }
 
 /// Render the sidebar
-pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
+pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect, assigned_count: Option<usize>) {
     let items: Vec<ListItem> = state
         .items()
         .iter()
         .map(|item| {
             let (type_label, name, name_style) = match item {
+                SidebarItem::AssignedTasks => {
+                    let count_str = assigned_count
+                        .map(|c| format!(" ({})", c))
+                        .unwrap_or_default();
+                    (
+                        "👤",
+                        format!("Assigned to Me{}", count_str),
+                        Style::default()
+                            .add_modifier(Modifier::BOLD)
+                            .fg(Color::Green),
+                    )
+                }
                 SidebarItem::Inbox => (
                     "📬",
-                    "Inbox",
+                    format!("Inbox"),
                     Style::default()
                         .add_modifier(Modifier::BOLD)
                         .fg(Color::Yellow),
                 ),
                 SidebarItem::Workspace { name, .. } => (
                     "WS",
-                    name.as_str(),
+                    format!("{}", name),
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
-                SidebarItem::Space { name, .. } => ("SP", name.as_str(), Style::default()),
-                SidebarItem::Folder { name, .. } => ("FL", name.as_str(), Style::default()),
+                SidebarItem::Space { name, .. } => ("SP", format!("{}", name), Style::default()),
+                SidebarItem::Folder { name, .. } => ("FL", format!("{}", name), Style::default()),
                 SidebarItem::List { name, .. } => {
-                    ("LI", name.as_str(), Style::default().fg(Color::Cyan))
+                    ("LI", format!("{}", name), Style::default().fg(Color::Cyan))
                 }
             };
 
@@ -243,21 +251,18 @@ mod tests {
         let space = SidebarItem::Space {
             name: "Test".to_string(),
             id: "sp-456".to_string(),
-            indent: 1,
         };
         assert_eq!(space.id(), "sp-456");
 
         let folder = SidebarItem::Folder {
             name: "Test".to_string(),
             id: "fd-789".to_string(),
-            indent: 2,
         };
         assert_eq!(folder.id(), "fd-789");
 
         let list = SidebarItem::List {
             name: "Test".to_string(),
             id: "lt-abc".to_string(),
-            indent: 3,
         };
         assert_eq!(list.id(), "lt-abc");
     }

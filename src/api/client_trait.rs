@@ -3,12 +3,13 @@
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
     Folder, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
-    Workspace,
+    User, Workspace,
 };
 use anyhow::Result;
 
 /// Authentication result containing the API token
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct AuthToken {
     pub token: String,
 }
@@ -22,12 +23,18 @@ pub trait ClickUpApi: Send + Sync {
     /// Get all authorized workspaces
     async fn get_workspaces(&self) -> Result<Vec<Workspace>>;
 
+    // ==================== User ====================
+
+    /// Get the current authenticated user's profile
+    async fn get_current_user(&self) -> Result<User>;
+
     // ==================== Spaces ====================
 
     /// Get all spaces in a team/workspace
     async fn get_spaces(&self, team_id: &str) -> Result<Vec<ClickUpSpace>>;
 
     /// Get a single space
+    #[allow(dead_code)]
     async fn get_space(&self, space_id: &str) -> Result<ClickUpSpace>;
 
     // ==================== Folders ====================
@@ -57,12 +64,15 @@ pub trait ClickUpApi: Send + Sync {
     async fn get_task(&self, task_id: &str) -> Result<Task>;
 
     /// Create a new task
+    #[allow(dead_code)]
     async fn create_task(&self, list_id: &str, task: &CreateTaskRequest) -> Result<Task>;
 
     /// Update a task
+    #[allow(dead_code)]
     async fn update_task(&self, task_id: &str, task: &UpdateTaskRequest) -> Result<Task>;
 
     /// Delete a task
+    #[allow(dead_code)]
     async fn delete_task(&self, task_id: &str) -> Result<()>;
 
     // ==================== Documents ====================
@@ -71,9 +81,11 @@ pub trait ClickUpApi: Send + Sync {
     async fn search_docs(&self, filters: &DocumentFilters) -> Result<Vec<Document>>;
 
     /// Get all pages in a document
+    #[allow(dead_code)]
     async fn get_doc_pages(&self, doc_id: &str) -> Result<Vec<Page>>;
 
     /// Get a single page
+    #[allow(dead_code)]
     async fn get_page(&self, page_id: &str) -> Result<Page>;
 
     // ==================== Comments ====================
@@ -109,4 +121,17 @@ pub trait ClickUpApi: Send + Sync {
 
     /// Get notifications for a workspace
     async fn get_notifications(&self, workspace_id: &str) -> Result<Vec<Notification>>;
+
+    // ==================== Assigned Tasks ====================
+
+    /// Get all lists accessible to the user (for fetching assigned tasks)
+    async fn get_all_accessible_lists(&self) -> Result<Vec<List>>;
+
+    /// Get tasks assigned to a specific user from a list
+    async fn get_tasks_with_assignee(
+        &self,
+        list_id: &str,
+        user_id: i32,
+        limit: Option<i32>,
+    ) -> Result<Vec<Task>>;
 }
