@@ -293,6 +293,42 @@ impl DebugOperations {
         Ok(())
     }
 
+    /// List all accessible lists by traversing the full hierarchy
+    pub async fn list_accessible_lists(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let lists = api.get_all_accessible_lists().await?;
+
+        if lists.is_empty() {
+            println!("No accessible lists found.");
+            println!("\nThis could mean:");
+            println!("  - No workspaces exist");
+            println!("  - Workspaces have no spaces");
+            println!("  - Spaces have no folders or lists");
+            println!("\nUse 'clickdown debug workspaces' to check your workspaces.");
+            return Ok(());
+        }
+
+        println!("Found {} accessible list(s):\n", lists.len());
+        for list in &lists {
+            let archived = if list.archived { " (archived)" } else { "" };
+            let hidden = if list.hidden { " (hidden)" } else { "" };
+            println!("{} - {}{}{}", list.id, list.name, archived, hidden);
+        }
+
+        Ok(())
+    }
+
+    /// List all accessible lists as JSON
+    pub async fn list_accessible_lists_json(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let lists = api.get_all_accessible_lists().await?;
+
+        let json = serde_json::to_string_pretty(&lists)?;
+        println!("{}", json);
+
+        Ok(())
+    }
+
     /// Get a single task as JSON
     pub async fn get_task_json(&self, task_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
@@ -594,6 +630,112 @@ impl DebugOperations {
         let notifications = api.get_notifications(workspace_id).await?;
 
         let json = serde_json::to_string_pretty(&notifications)?;
+        println!("{}", json);
+
+        Ok(())
+    }
+
+    /// Get all tasks assigned to the current user
+    pub async fn get_assigned_tasks(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+
+        println!("=== Assigned Tasks ===\n");
+
+        // First, get current user
+        println!("Fetching current user...");
+        let user = api.get_current_user().await?;
+        println!("Current user: {} (ID: {})\n", user.username, user.id);
+
+        let user_id = user.id as i32;
+
+        // Get all accessible lists
+        println!("Fetching all accessible lists (traversing hierarchy)...");
+        let lists = api.get_all_accessible_lists().await?;
+
+        if lists.is_empty() {
+            println!("\nNo accessible lists found.");
+            println!("\nThis could mean:");
+            println!("  - No workspaces exist");
+            println!("  - Workspaces have no spaces");
+            println!("  - Spaces have no folders or lists");
+            println!("\nUse 'clickdown debug workspaces' to check your workspaces.");
+            return Ok(());
+        }
+
+        println!("Found {} accessible list(s)\n", lists.len());
+
+        // Fetch tasks from each list
+        let mut all_tasks = Vec::new();
+        let mut failed_lists = Vec::new();
+
+        for list in &lists {
+            match api.get_tasks_with_assignee(&list.id, user_id, Some(100)).await {
+                Ok(tasks) => {
+                    if !tasks.is_empty() {
+                        println!("List '{}': {} assigned task(s)", list.name, tasks.len());
+                        all_tasks.extend(tasks);
+                    }
+                }
+                Err(e) => {
+                    println!("List '{}': Failed to fetch - {}", list.name, e);
+                    failed_lists.push((&list.id, e.to_string()));
+                }
+            }
+        }
+
+        println!("\n=== Summary ===");
+        println!("Total lists checked: {}", lists.len());
+        println!("Total assigned tasks: {}", all_tasks.len());
+
+        if !failed_lists.is_empty() {
+            println!("\nFailed to fetch from {} list(s):", failed_lists.len());
+            for (list_id, error) in &failed_lists {
+                println!("  - {}: {}", list_id, error);
+            }
+        }
+
+        if !all_tasks.is_empty() {
+            println!("\n=== Assigned Tasks ===");
+            for task in &all_tasks {
+                let status = task.status.as_ref().map(|s| s.status.as_str()).unwrap_or("Unknown");
+                println!("  [{}] {} (ID: {})", status, task.name, task.id);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get all tasks assigned to the current user as JSON
+    pub async fn get_assigned_tasks_json(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+
+        // Get current user
+        let user = api.get_current_user().await?;
+        let user_id = user.id as i32;
+
+        // Get all accessible lists
+        let lists = api.get_all_accessible_lists().await?;
+
+        // Fetch tasks from each list in parallel
+        use futures::future::join_all;
+        let fetch_futures = lists.iter().map(|list| {
+            let api = api.clone();
+            let list_id = list.id.clone();
+            async move {
+                api.get_tasks_with_assignee(&list_id, user_id, Some(100)).await
+            }
+        });
+
+        let results = join_all(fetch_futures).await;
+        let mut all_tasks = Vec::new();
+
+        for result in results {
+            if let Ok(tasks) = result {
+                all_tasks.extend(tasks);
+            }
+        }
+
+        let json = serde_json::to_string_pretty(&all_tasks)?;
         println!("{}", json);
 
         Ok(())

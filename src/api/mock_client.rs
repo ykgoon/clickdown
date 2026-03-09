@@ -151,6 +151,12 @@ impl MockClickUpClient {
         self
     }
 
+    /// Set the lists in space response (folderless lists)
+    pub fn with_lists_in_space(mut self, lists: Vec<List>) -> Self {
+        self.lists_in_space_response = Some(Ok(lists));
+        self
+    }
+
     /// Set the tasks response
     pub fn with_tasks(mut self, tasks: Vec<Task>) -> Self {
         self.tasks_response = Some(Ok(tasks));
@@ -406,7 +412,42 @@ impl ClickUpApi for MockClickUpClient {
     }
 
     async fn get_all_accessible_lists(&self) -> Result<Vec<List>> {
-        return_vec_response(&self.accessible_lists_response)
+        // If accessible_lists_response is explicitly set, use it (for direct mocking)
+        if let Some(ref result) = self.accessible_lists_response {
+            match result {
+                Ok(lists) => return Ok(lists.clone()),
+                Err(e) => return Err(anyhow!(e.to_string())),
+            }
+        }
+
+        // Otherwise, traverse the hierarchy like the real client does
+        let mut all_lists = Vec::new();
+
+        // Get all workspaces
+        let workspaces = self.get_workspaces().await?;
+
+        // For each workspace, get spaces
+        for workspace in &workspaces {
+            let spaces = self.get_spaces(&workspace.id).await?;
+
+            // For each space, get folders and folderless lists
+            for space in &spaces {
+                // Get folderless lists in space
+                let space_lists = self.get_lists_in_space(&space.id, None).await?;
+                all_lists.extend(space_lists);
+
+                // Get folders in space
+                let folders = self.get_folders(&space.id).await?;
+
+                // For each folder, get lists
+                for folder in &folders {
+                    let folder_lists = self.get_lists_in_folder(&folder.id, None).await?;
+                    all_lists.extend(folder_lists);
+                }
+            }
+        }
+
+        Ok(all_lists)
     }
 
     async fn get_tasks_with_assignee(

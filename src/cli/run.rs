@@ -112,6 +112,13 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 debug_ops.list_lists_in_folder(id).await
             }
         }
+        DebugOperation::ListsAll => {
+            if command.json {
+                debug_ops.list_accessible_lists_json().await
+            } else {
+                debug_ops.list_accessible_lists().await
+            }
+        }
         DebugOperation::Task { ref task_id } => {
             if command.json {
                 debug_ops.get_task_json(task_id).await
@@ -187,6 +194,13 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 debug_ops.get_notifications_json(workspace_id).await
             } else {
                 debug_ops.get_notifications(workspace_id).await
+            }
+        }
+        DebugOperation::AssignedTasks => {
+            if command.json {
+                debug_ops.get_assigned_tasks_json().await
+            } else {
+                debug_ops.get_assigned_tasks().await
             }
         }
         DebugOperation::Help => {

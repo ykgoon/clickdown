@@ -395,6 +395,91 @@ fn test_assigned_tasks_view_loading() {
     });
 }
 
+/// Test that verifies "Assigned to Me" loads tasks correctly
+///
+/// This test verifies the fix for the bug where "Assigned to Me" showed zero tasks.
+/// The fix ensures that:
+/// - Mock client has accessible lists configured
+/// - Tasks are fetched from those lists
+/// - User sees their assigned tasks
+///
+/// Before the fix: get_all_accessible_lists() returned empty, no tasks were fetched.
+/// After the fix: accessible lists are provided, tasks are loaded and displayed.
+#[test]
+fn test_assigned_tasks_view_bug_shows_zero_tasks() {
+    use clickdown::api::MockClickUpClient;
+    use clickdown::models::workspace::List;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::widgets::SidebarItem;
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        // Configure mock to test the FIX:
+        // - Has current user configured
+        // - Has accessible lists configured (this was missing before!)
+        // - Has tasks with assignee configured
+        let lists = vec![List {
+            id: "list-1".to_string(),
+            name: "Test List".to_string(),
+            content: None,
+            description: None,
+            archived: false,
+            hidden: false,
+            orderindex: Some(0),
+            space: None,
+            folder: None,
+            status: None,
+            priority: None,
+        }];
+
+        let mock_client = MockClickUpClient::new()
+            .with_current_user(fixtures::test_user())
+            .with_accessible_lists(lists.clone())  // FIX: Now providing accessible lists
+            .with_tasks_with_assignee_response(fixtures::test_tasks_with_assignees());
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Set up sidebar with AssignedTasks item (matching real app behavior)
+        *app.sidebar().items_mut() = vec![SidebarItem::AssignedTasks];
+        app.sidebar().select_first();
+
+        // User navigates to "Assigned to Me" (simulating real workflow)
+        app.navigate_into();
+
+        // Process async messages to let the fetch complete
+        // Loop until tasks are loaded or timeout
+        let mut iterations = 0;
+        let max_iterations = 30;
+        while app.assigned_tasks().tasks().is_empty() && iterations < max_iterations {
+            app.process_async_messages();
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            iterations += 1;
+        }
+
+        // Verify tasks were loaded (fix verification)
+        assert!(
+            !app.assigned_tasks().tasks().is_empty(),
+            "Expected tasks to be loaded but got {} tasks after {} iterations",
+            app.assigned_tasks().tasks().len(),
+            iterations
+        );
+
+        // Capture snapshot - should show tasks loaded (the fix)
+        assert_widget_snapshot("assigned_tasks_view_with_tasks_loaded", 60, 15, |frame| {
+            let area = Rect::new(0, 0, 60, 15);
+            render_task_list(
+                frame,
+                app.assigned_tasks(),
+                area,
+                app.assigned_tasks_loading(),
+            );
+        });
+    });
+}
+
 // ============================================================================
 // Task Detail Widget Snapshot Tests (Task 3.3)
 // ============================================================================

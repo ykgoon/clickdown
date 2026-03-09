@@ -3,6 +3,7 @@
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::event::{KeyCode, KeyModifiers};
+use futures::future::join_all;
 use ratatui::prelude::Rect;
 use ratatui::Frame;
 use std::sync::Arc;
@@ -2113,7 +2114,9 @@ impl TuiApp {
             Some(id) => id,
             None => {
                 self.assigned_tasks_loading = false;
-                self.assigned_tasks_error = Some("User identity not detected. Navigate to a task list and open a task first, then try again.".to_string());
+                self.assigned_tasks_error = Some(
+                    "User identity not detected. Navigate to a task list and open a task to auto-detect your user ID, or try refreshing the page.".to_string()
+                );
                 return;
             }
         };
@@ -2121,24 +2124,88 @@ impl TuiApp {
         let tx = self.message_tx.clone().unwrap();
         tokio::spawn(async move {
             // Get all accessible lists
+            tracing::info!("Starting assigned tasks load for user {}", user_id);
             let lists_result = client.get_all_accessible_lists().await;
 
             match lists_result {
                 Ok(lists) => {
-                    // Fetch tasks from each list in parallel
+                    tracing::info!("Retrieved {} accessible list(s) for assigned tasks", lists.len());
+
+                    // Check if lists are empty - this was causing the "zero tasks" bug
+                    if lists.is_empty() {
+                        tracing::warn!("No accessible lists found for assigned tasks");
+                        let msg = AppMessage::AssignedTasksLoaded(Err(
+                            "No accessible lists found. This means:\n  • Your workspaces have no spaces, OR\n  • Your spaces have no folders or lists, OR\n  • You don't have access to any lists\n\nUse 'clickdown debug lists-all' to diagnose.".to_string()
+                        ));
+                        let _ = tx.send(msg).await;
+                        return;
+                    }
+
+                    // Fetch tasks from each list in parallel using join_all
+                    tracing::info!("Fetching tasks assigned to user {} from {} list(s) in parallel", user_id, lists.len());
+                    
+                    // Create a list of futures for fetching tasks from each list
+                    let fetch_futures = lists.iter().map(|list| {
+                        let client = client.clone();
+                        let list_id = list.id.clone();
+                        let list_name = list.name.clone();
+                        async move {
+                            match client.get_tasks_with_assignee(&list_id, user_id, Some(100)).await {
+                                Ok(tasks) => {
+                                    tracing::debug!("Found {} assigned tasks in list '{}'", tasks.len(), list_name);
+                                    Ok((list_id, tasks))
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to fetch tasks from list '{}': {}", list_id, e);
+                                    Err((list_id, e))
+                                }
+                            }
+                        }
+                    });
+
+                    // Execute all fetches in parallel
+                    let results = join_all(fetch_futures).await;
+
+                    // Collect all successful tasks
                     let mut all_tasks = Vec::new();
-                    for list in &lists {
-                        match client.get_tasks_with_assignee(&list.id, user_id, Some(100)).await {
-                            Ok(tasks) => all_tasks.extend(tasks),
-                            Err(e) => tracing::warn!("Failed to fetch tasks from list {}: {}", list.id, e),
+                    let mut failed_lists = Vec::new();
+                    
+                    for result in results {
+                        match result {
+                            Ok((_list_id, tasks)) => {
+                                all_tasks.extend(tasks);
+                            }
+                            Err((list_id, error)) => {
+                                failed_lists.push((list_id, error));
+                            }
                         }
                     }
 
-                    let msg = AppMessage::AssignedTasksLoaded(Ok(all_tasks));
-                    let _ = tx.send(msg).await;
+                    // Log summary
+                    if !failed_lists.is_empty() {
+                        tracing::warn!("Failed to fetch tasks from {} list(s): {:?}", 
+                            failed_lists.len(), 
+                            failed_lists.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>());
+                    }
+
+                    tracing::info!("Total assigned tasks found: {}", all_tasks.len());
+                    
+                    // Provide helpful message if no tasks found
+                    if all_tasks.is_empty() {
+                        tracing::warn!("No assigned tasks found in any list");
+                        let msg = AppMessage::AssignedTasksLoaded(Ok(all_tasks));
+                        let _ = tx.send(msg).await;
+                    } else {
+                        let msg = AppMessage::AssignedTasksLoaded(Ok(all_tasks));
+                        let _ = tx.send(msg).await;
+                    }
                 }
                 Err(e) => {
-                    let msg = AppMessage::AssignedTasksLoaded(Err(e.to_string()));
+                    tracing::error!("Failed to get accessible lists: {}", e);
+                    let msg = AppMessage::AssignedTasksLoaded(Err(format!(
+                        "Failed to fetch lists: {}\n\nThis could be due to:\n  • API connectivity issues\n  • Insufficient permissions\n  • Invalid API token\n\nTry: clickdown debug auth-status",
+                        e
+                    )));
                     let _ = tx.send(msg).await;
                 }
             }

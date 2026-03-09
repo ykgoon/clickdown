@@ -443,6 +443,7 @@ pub struct TasksResponse {
 pub struct TaskFilters {
     pub archived: Option<bool>,
     pub page: Option<u32>,
+    pub limit: Option<u32>,
     pub order_by: Option<String>,
     pub reverse: Option<bool>,
     pub subtasks: Option<bool>,
@@ -459,12 +460,13 @@ impl TaskFilters {
         let mut params = QueryParams::new();
         params.add_opt("archived", self.archived);
         params.add_opt("page", self.page);
+        params.add_opt("limit", self.limit);
         params.add_opt("order_by", self.order_by.as_ref());
         params.add_opt("reverse", self.reverse);
         params.add_opt("subtasks", self.subtasks);
         params.add_all("statuses", &self.statuses);
-        // Use comma-separated format for assignees (ClickUp API expects assignees=123,456)
-        params.add_comma_separated_ints("assignees", &self.assignees);
+        // Use array format for assignees (ClickUp API expects assignees[]=123&assignees[]=456)
+        params.add_all("assignees", &self.assignees);
         params.add_opt(
             "include_markdown_description",
             self.include_markdown_description,
@@ -776,15 +778,16 @@ mod tests {
 
     #[test]
     fn test_task_filters_assignees_format() {
-        // Test that assignees are formatted as comma-separated values
+        // Test that assignees are formatted as array values (assignees[]=123&assignees[]=456)
         let mut filters = TaskFilters::default();
         filters.assignees = vec![123, 456, 789];
 
         let query = filters.to_query_string();
 
-        // Should use comma-separated format, not array format
-        assert!(query.contains("assignees=123,456,789"));
-        assert!(!query.contains("assignees[]"));
+        // Should use array format, not comma-separated
+        assert!(query.contains("assignees[]=123"));
+        assert!(query.contains("assignees[]=456"));
+        assert!(query.contains("assignees[]=789"));
     }
 
     #[test]
@@ -794,7 +797,7 @@ mod tests {
 
         let query = filters.to_query_string();
 
-        assert_eq!(query, "?assignees=123");
+        assert_eq!(query, "?assignees[]=123");
     }
 
     #[test]
@@ -807,6 +810,19 @@ mod tests {
     }
 
     #[test]
+    fn test_task_filters_with_limit() {
+        let mut filters = TaskFilters::default();
+        filters.assignees = vec![123];
+        filters.limit = Some(100);
+
+        let query = filters.to_query_string();
+
+        // Should use array format for assignees and include limit
+        assert!(query.contains("assignees[]=123"));
+        assert!(query.contains("limit=100"));
+    }
+
+    #[test]
     fn test_task_filters_mixed_with_assignees() {
         let mut filters = TaskFilters::default();
         filters.archived = Some(false);
@@ -816,10 +832,9 @@ mod tests {
         let query = filters.to_query_string();
 
         assert!(query.contains("archived=false"));
-        assert!(query.contains("assignees=123,456"));
+        assert!(query.contains("assignees[]=123"));
+        assert!(query.contains("assignees[]=456"));
         assert!(query.contains("statuses[]=todo"));
         assert!(query.contains("statuses[]=in progress"));
-        // Verify assignees is NOT using array format
-        assert!(!query.contains("assignees[]"));
     }
 }

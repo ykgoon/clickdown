@@ -1,0 +1,20 @@
+---
+source: tests/snapshot_test.rs
+assertion_line: 59
+expression: snapshot
+---
+┌ Tasks ───────────────────────────────────────────────────┐
+│▸ [•] - Review Q2 planning doc                            │
+│  [•] - Fix bug in task filtering                         │
+│  [•] - Update API documentation                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘

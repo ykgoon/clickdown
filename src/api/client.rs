@@ -168,6 +168,7 @@ impl ClickUpClient {
     pub async fn get_tasks(&self, list_id: &str, filters: &TaskFilters) -> Result<Vec<Task>> {
         let query = filters.to_query_string();
         let url = ApiEndpoints::tasks_in_list(list_id, &query);
+        tracing::debug!("Fetching tasks from list {} with URL: {}", list_id, url);
         let response = self
             .execute::<TasksResponse>(self.request(reqwest::Method::GET, url))
             .await?;
@@ -321,28 +322,38 @@ impl ClickUpClient {
 
         // Get all workspaces
         let workspaces = self.get_workspaces().await?;
+        tracing::info!("Found {} workspace(s) in ClickUp", workspaces.len());
 
         // For each workspace, get spaces
         for workspace in &workspaces {
+            tracing::debug!("Fetching spaces for workspace: '{}' (id={})", workspace.name, workspace.id);
             let spaces = self.get_spaces(&workspace.id).await?;
+            tracing::info!("  Workspace '{}': found {} space(s)", workspace.name, spaces.len());
 
             // For each space, get folders and folderless lists
             for space in &spaces {
+                tracing::debug!("Fetching folderless lists for space: '{}' (id={})", space.name, space.id);
                 // Get folderless lists in space
                 let space_lists = self.get_lists_in_space(&space.id, None).await?;
+                tracing::info!("    Space '{}': found {} folderless list(s)", space.name, space_lists.len());
                 all_lists.extend(space_lists);
 
+                tracing::debug!("Fetching folders for space: '{}' (id={})", space.name, space.id);
                 // Get folders in space
                 let folders = self.get_folders(&space.id).await?;
+                tracing::info!("    Space '{}': found {} folder(s)", space.name, folders.len());
 
                 // For each folder, get lists
                 for folder in &folders {
+                    tracing::debug!("Fetching lists for folder: '{}' (id={})", folder.name, folder.id);
                     let folder_lists = self.get_lists_in_folder(&folder.id, None).await?;
+                    tracing::info!("      Folder '{}': found {} list(s)", folder.name, folder_lists.len());
                     all_lists.extend(folder_lists);
                 }
             }
         }
 
+        tracing::info!("Total accessible lists: {}", all_lists.len());
         Ok(all_lists)
     }
 
@@ -356,11 +367,33 @@ impl ClickUpClient {
         // Use ClickUp API's assignees filter parameter
         let mut filters = TaskFilters::default();
         filters.assignees = vec![user_id as i64];
+        // ClickUp API uses 'limit' parameter to control how many tasks to return (default: 100)
+        // 'page' is for pagination page number
         if let Some(l) = limit {
-            filters.page = Some(l as u32);
+            filters.limit = Some(l as u32);
         }
 
+        let query = filters.to_query_string();
+        tracing::info!(
+            "Fetching tasks for user {} from list {} with query: {}",
+            user_id,
+            list_id,
+            query
+        );
+        tracing::debug!(
+            "Filters: assignees={:?}, limit={:?}",
+            filters.assignees,
+            filters.limit
+        );
+        
         let tasks = self.get_tasks(list_id, &filters).await?;
+        tracing::info!(
+            "API returned {} tasks for user {} in list {} (query: {})",
+            tasks.len(),
+            user_id,
+            list_id,
+            query
+        );
         // API returns only tasks assigned to the specified user
 
         Ok(tasks)

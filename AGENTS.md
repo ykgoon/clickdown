@@ -331,7 +331,116 @@ All state changes flow through the `Message` enum in `app.rs`:
 
 ## API Reference
 
+### ClickUp API v2 Reference
+
+**Base URL:** `https://api.clickup.com/api/v2`
+
+**Authentication:** All endpoints require authentication via header:
+```
+Authorization: pk_{your_api_token}
+```
+
+**Rate Limits:** Apply to all API requests. See [Rate Limits](https://developer.clickup.com/docs/rate-limits).
+
+#### Workspace Hierarchy Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/team` | `GET` | Get all authorized workspaces |
+| `/team/{team_id}/space` | `GET` | Get spaces in a workspace |
+| `/team/{team_id}/space` | `POST` | Create a new space |
+| `/space/{space_id}` | `GET` | Get a specific space |
+| `/space/{space_id}` | `PUT` | Update a space |
+| `/space/{space_id}` | `DELETE` | Delete a space |
+| `/space/{space_id}/folder` | `GET` | Get folders in a space |
+| `/space/{space_id}/folder` | `POST` | Create a folder |
+| `/folder/{folder_id}` | `GET` | Get a specific folder |
+| `/folder/{folder_id}` | `PUT` | Update a folder |
+| `/folder/{folder_id}` | `DELETE` | Delete a folder |
+| `/folder/{folder_id}/list` | `GET` | Get lists in a folder |
+| `/space/{space_id}/list` | `GET` | Get folderless lists in a space |
+| `/folder/{folder_id}/list` | `POST` | Create a list in a folder |
+| `/space/{space_id}/list` | `POST` | Create a folderless list |
+| `/list/{list_id}` | `GET` | Get a specific list |
+| `/list/{list_id}` | `PUT` | Update a list |
+| `/list/{list_id}` | `DELETE` | Delete a list |
+
+**Query Parameters:**
+- `archived` (boolean) - Include archived items (for spaces, folders, lists)
+
+#### Tasks API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/list/{list_id}/task` | `GET` | Get tasks in a list |
+| `/list/{list_id}/task` | `POST` | Create a new task |
+| `/task/{task_id}` | `GET` | Get a single task |
+| `/task/{task_id}` | `PUT` | Update a task |
+| `/task/{task_id}` | `DELETE` | Delete a task |
+| `/task/{task_id}/field/{field_id}` | `PUT` | Set custom field value |
+| `/task/{task_id}/relationship` | `GET/POST/DELETE` | Manage task relationships |
+
+**Task Creation/Update Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | Yes | Task name |
+| `description` | string | No | Plain text description |
+| `markdown_description` | string | No | Markdown-formatted description |
+| `assignees` | array | No | Array of user IDs |
+| `status` | string | No | Task status |
+| `priority` | integer | No | Priority: 1=Urgent, 2=High, 3=Normal, 4=Low |
+| `start_date` | string | No | Start date (with optional time) |
+| `due_date` | string | No | Due date (with optional time) |
+| `tags` | array | No | Tags for categorization |
+| `custom_fields` | array | No | Custom field values (creation only) |
+| `time_estimate` | integer | No | Time estimate in **milliseconds** |
+| `points` | integer | No | Story points |
+| `parent` | string | No | Parent task ID for subtasks |
+
+**Important Notes:**
+- Dates follow ClickUp's date formatting standards
+- `time_estimate` must be in **milliseconds**
+- Custom fields can only be set during creation; use `/task/{task_id}/field/{field_id}` to update
+- Escape double quotes in descriptions with `\"`
+- See [Tasks API](https://developer.clickup.com/docs/tasks) for full documentation
+
+#### Comments API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/task/{task_id}/comment` | `GET` | Get comments for a task |
+| `/task/{task_id}/comment` | `POST` | Create a comment |
+| `/comment/{comment_id}` | `PUT` | Update a comment |
+| `/comment/{comment_id}` | `DELETE` | Delete a comment |
+
+**Comment Fields:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `comment_text` | string | Comment content (supports Markdown) |
+| `assignee` | integer | User ID to assign comment to |
+| `parent_id` | string | Parent comment ID for replies |
+
+**Notes:**
+- Comments support Markdown formatting
+- Pagination available for task comments
+- See [Comments API](https://developer.clickup.com/docs/comments) for details
+
+#### Documents API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/doc` | `GET` | Search documents |
+| `/doc/{doc_id}` | `GET` | Get a document |
+| `/doc/{doc_id}/page` | `GET` | Get pages in a document |
+
+**Notes:**
+- Documents support Markdown rendering
+- See [ClickUp Docs](https://developer.clickup.com/docs) for details
+
 ### ClickUpApi Trait Methods
+
 | Method | Description |
 |--------|-------------|
 | `get_workspaces()` | Get all authorized workspaces |
@@ -370,6 +479,22 @@ MockClickUpClient::new()
     .with_create_comment_reply_response(comment)
     .with_update_comment_response(comment)
 ```
+
+### Related API Documentation
+
+| Topic | URL |
+|-------|-----|
+| Authentication | https://developer.clickup.com/docs/authentication |
+| Rate Limits | https://developer.clickup.com/docs/rate-limits |
+| Date Formatting | https://developer.clickup.com/docs/date-formatting |
+| Tasks API | https://developer.clickup.com/docs/tasks |
+| Spaces API | https://developer.clickup.com/docs/spaces |
+| Custom Fields | https://developer.clickup.com/docs/custom-fields |
+| Comments API | https://developer.clickup.com/docs/comments |
+| ClickUp Docs | https://developer.clickup.com/docs/clickup-docs |
+| API v2 vs v3 | https://developer.clickup.com/docs/clickup-api-v2-and-v3-terminology |
+| FAQ | https://developer.clickup.com/docs/faq |
+| Common Errors | https://developer.clickup.com/docs/common-errors |
 
 ## Current Status
 
