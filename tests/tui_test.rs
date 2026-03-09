@@ -178,6 +178,82 @@ fn test_help_state() {
     assert!(!help.visible, "Help should be hidden after second toggle");
 }
 
+/// Test that help dialog displays all keyboard shortcuts
+#[test]
+fn test_help_dialog_shows_all_shortcuts() {
+    use clickdown::tui::widgets::help::{render_help, HelpState};
+    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+
+    // Setup help dialog
+    let mut help = HelpState::new();
+    help.visible = true;
+
+    // Create test terminal
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    // Render help dialog
+    terminal
+        .draw(|frame| {
+            let area = Rect::new(0, 0, 80, 24);
+            render_help(frame, &help, area);
+        })
+        .unwrap();
+
+    // Get rendered content
+    let buffer = terminal.backend().buffer();
+    let content = buffer
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+
+    // Assert all categories are present
+    assert!(content.contains("Navigation:"), "Missing Navigation category");
+    assert!(content.contains("Global:"), "Missing Global category");
+    assert!(content.contains("Actions:"), "Missing Actions category");
+    assert!(
+        content.contains("Comments (Task Detail):"),
+        "Missing Comments category"
+    );
+    assert!(
+        content.contains("Inbox (Notifications):"),
+        "Missing Inbox category"
+    );
+    assert!(content.contains("Forms:"), "Missing Forms category");
+    assert!(content.contains("Session:"), "Missing Session category");
+
+    // Assert Navigation shortcuts
+    assert!(content.contains("j/k"), "Missing j/k navigation");
+    assert!(content.contains("Enter"), "Missing Enter key");
+    assert!(content.contains("Esc"), "Missing Esc key");
+
+    // Assert Global shortcuts
+    assert!(content.contains("Ctrl+Q"), "Missing Ctrl+Q quit");
+    assert!(content.contains("Tab"), "Missing Tab key");
+    assert!(content.contains("?"), "Missing ? help toggle");
+    assert!(content.contains("u"), "Missing u URL copy");
+
+    // Assert Actions shortcuts
+    assert!(content.contains("n"), "Missing n for create");
+    assert!(content.contains("e"), "Missing e for edit");
+    assert!(content.contains("d"), "Missing d for delete");
+
+    // Assert Comments shortcuts
+    assert!(content.contains("r"), "Missing r for reply");
+    assert!(content.contains("Ctrl+S"), "Missing Ctrl+S save");
+
+    // Assert Inbox shortcuts
+    assert!(content.contains("c"), "Missing c for mark as read");
+    assert!(content.contains("C"), "Missing C for mark all as read");
+
+    // Assert close hint
+    assert!(
+        content.contains("Press any key to close"),
+        "Missing close hint"
+    );
+}
+
 /// Test auth state
 #[test]
 fn test_auth_state() {

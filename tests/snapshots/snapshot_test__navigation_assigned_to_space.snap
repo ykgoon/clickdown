@@ -1,0 +1,37 @@
+---
+source: tests/snapshot_test.rs
+expression: combined_snapshot
+---
+=== Part 1: Assigned to Me (Task List) ===
+┌ Tasks ───────────────────────────────────────────────────┐
+│▸ [•] - Review Q2 planning doc                            │
+│  [•] - Fix bug in task filtering                         │
+│  [•] - Update API documentation                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+
+=== Part 2: Space → Folders List ===
+┌ Navigation ──────────────────────────┐
+│▸ 👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│  FL Q1 Projects                      │
+│  FL Q2 Projects                      │
+│  FL Q3 Projects                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘

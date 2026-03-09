@@ -830,3 +830,628 @@ fn test_status_bar_loading() {
     let status = " Loading... ";
     assert_snapshot!("status_bar_loading", status.to_string());
 }
+
+// ============================================================================
+// Navigation Bar Snapshot Tests
+// ============================================================================
+
+/// Test that traverses the navigation bar hierarchy and verifies
+/// "Assigned to Me" appears above "Inbox" at each level.
+///
+/// This test:
+/// 1. Navigates down through: Workspaces → Spaces → Folders → Lists → Tasks
+/// 2. Navigates back up through: Lists → Folders → Spaces → Workspaces
+/// 3. Captures a single combined snapshot showing all 9 levels
+#[test]
+fn test_navigation_hierarchy() {
+    use clickdown::api::MockClickUpClient;
+    use clickdown::models::workspace::{Folder, List, Space, Workspace};
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::widgets::{render_sidebar, SidebarItem};
+    use insta::assert_snapshot;
+    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        // Create test hierarchy with multiple items at each level
+        // 3 workspaces
+        let workspaces = vec![
+            Workspace {
+                id: "ws-1".to_string(),
+                name: "Engineering".to_string(),
+                color: Some("#1abc9c".to_string()),
+                avatar: None,
+                member_count: Some(5),
+            },
+            Workspace {
+                id: "ws-2".to_string(),
+                name: "Marketing".to_string(),
+                color: Some("#e74c3c".to_string()),
+                avatar: None,
+                member_count: Some(3),
+            },
+            Workspace {
+                id: "ws-3".to_string(),
+                name: "Design".to_string(),
+                color: Some("#9b59b6".to_string()),
+                avatar: None,
+                member_count: Some(4),
+            },
+        ];
+
+        // 3 spaces in first workspace
+        let spaces = vec![
+            Space {
+                id: "sp-1".to_string(),
+                name: "Backend Team".to_string(),
+                color: Some("#3498db".to_string()),
+                private: false,
+                status: None,
+                folders: vec![],
+                lists: vec![],
+            },
+            Space {
+                id: "sp-2".to_string(),
+                name: "Frontend Team".to_string(),
+                color: Some("#2ecc71".to_string()),
+                private: false,
+                status: None,
+                folders: vec![],
+                lists: vec![],
+            },
+            Space {
+                id: "sp-3".to_string(),
+                name: "DevOps Team".to_string(),
+                color: Some("#f39c12".to_string()),
+                private: false,
+                status: None,
+                folders: vec![],
+                lists: vec![],
+            },
+        ];
+
+        // 3 folders in first space
+        let folders = vec![
+            Folder {
+                id: "fd-1".to_string(),
+                name: "Q1 Projects".to_string(),
+                color: Some("#e74c3c".to_string()),
+                private: false,
+                space: None,
+                lists: vec![],
+            },
+            Folder {
+                id: "fd-2".to_string(),
+                name: "Q2 Projects".to_string(),
+                color: Some("#3498db".to_string()),
+                private: false,
+                space: None,
+                lists: vec![],
+            },
+            Folder {
+                id: "fd-3".to_string(),
+                name: "Q3 Projects".to_string(),
+                color: Some("#2ecc71".to_string()),
+                private: false,
+                space: None,
+                lists: vec![],
+            },
+        ];
+
+        // 3 lists in first folder
+        let lists = vec![
+            List {
+                id: "lst-1".to_string(),
+                name: "Sprint Planning".to_string(),
+                content: None,
+                description: None,
+                archived: false,
+                hidden: false,
+                orderindex: Some(0),
+                space: None,
+                folder: None,
+                status: None,
+                priority: None,
+            },
+            List {
+                id: "lst-2".to_string(),
+                name: "Bug Fixes".to_string(),
+                content: None,
+                description: None,
+                archived: false,
+                hidden: false,
+                orderindex: Some(1),
+                space: None,
+                folder: None,
+                status: None,
+                priority: None,
+            },
+            List {
+                id: "lst-3".to_string(),
+                name: "Feature Requests".to_string(),
+                content: None,
+                description: None,
+                archived: false,
+                hidden: false,
+                orderindex: Some(2),
+                space: None,
+                folder: None,
+                status: None,
+                priority: None,
+            },
+        ];
+
+        // Configure mock client with full hierarchy
+        let mock_client = MockClickUpClient::new()
+            .with_workspaces(workspaces.clone())
+            .with_spaces(spaces.clone())
+            .with_folders(folders.clone())
+            .with_lists_in_folder(lists.clone())
+            .with_tasks(vec![]);
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Load workspaces to populate sidebar
+        app.load_workspaces();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Helper to capture sidebar snapshot as string
+        let capture_sidebar = |app: &mut TuiApp| -> String {
+            let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+
+            terminal
+                .draw(|frame| {
+                    let area = Rect::new(0, 0, 40, 15);
+                    render_sidebar(frame, app.sidebar(), area, Some(3));
+                })
+                .unwrap();
+
+            // Get buffer contents
+            let mut snapshot = String::new();
+            for y in 0..15 {
+                for x in 0..40 {
+                    let cell = terminal.backend().buffer().get(x, y);
+                    snapshot.push(cell.symbol().chars().next().unwrap_or(' '));
+                }
+                snapshot.push('\n');
+            }
+
+            snapshot
+        };
+
+        // Helper to verify sidebar order
+        let verify_sidebar_order = |app: &mut TuiApp, level_name: &str| {
+            let items = app.sidebar().items().clone();
+
+            // Find positions of "Assigned to Me" and "Inbox"
+            let mut assigned_pos = None;
+            let mut inbox_pos = None;
+
+            for (i, item) in items.iter().enumerate() {
+                match item {
+                    SidebarItem::AssignedTasks => assigned_pos = Some(i),
+                    SidebarItem::Inbox => inbox_pos = Some(i),
+                    _ => {}
+                }
+            }
+
+            // Assert both items exist
+            assert!(
+                assigned_pos.is_some(),
+                "Level '{}': 'Assigned to Me' not found in sidebar. Items: {:?}",
+                level_name,
+                items.iter().map(|i| format!("{:?}", i)).collect::<Vec<_>>()
+            );
+            assert!(
+                inbox_pos.is_some(),
+                "Level '{}': 'Inbox' not found in sidebar. Items: {:?}",
+                level_name,
+                items.iter().map(|i| format!("{:?}", i)).collect::<Vec<_>>()
+            );
+
+            // Assert "Assigned to Me" comes before "Inbox"
+            let assigned = assigned_pos.unwrap();
+            let inbox = inbox_pos.unwrap();
+            assert!(
+                assigned < inbox,
+                "Level '{}': 'Assigned to Me' (position {}) should appear before 'Inbox' (position {}). Items: {:?}",
+                level_name,
+                assigned,
+                inbox,
+                items.iter().map(|i| format!("{:?}", i)).collect::<Vec<_>>()
+            );
+        };
+
+        // Collect all levels into one combined snapshot
+        let mut combined_snapshot = String::new();
+
+        // Helper to add level to combined snapshot
+        let mut add_level = |app: &mut TuiApp, level_num: usize, level_name: &str, direction: &str| {
+            verify_sidebar_order(app, &format!("{} ({})", level_name, direction));
+            
+            let sidebar = capture_sidebar(app);
+            
+            combined_snapshot.push_str(&format!(
+                "=== Level {}: {} ({}) ===\n{}\n",
+                level_num, level_name, direction, sidebar
+            ));
+        };
+
+        // =====================================================================
+        // TRAVERSE DOWN
+        // =====================================================================
+
+        // Level 1: Workspaces
+        assert_eq!(app.screen(), Screen::Workspaces, "Should start at Workspaces");
+        add_level(&mut app, 1, "Workspaces", "Down");
+
+        // Navigate into workspace
+        app.sidebar().select_next(); // Skip "Assigned to Me" (index 0)
+        app.sidebar().select_next(); // Skip "Inbox" (index 1)
+        app.navigate_into();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Level 2: Spaces
+        assert_eq!(app.screen(), Screen::Spaces, "Should be at Spaces");
+        add_level(&mut app, 2, "Spaces", "Down");
+
+        // Navigate into space
+        app.sidebar().select_next();
+        app.sidebar().select_next();
+        app.navigate_into();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Level 3: Folders
+        assert_eq!(app.screen(), Screen::Folders, "Should be at Folders");
+        add_level(&mut app, 3, "Folders", "Down");
+
+        // Navigate into folder
+        app.sidebar().select_next();
+        app.sidebar().select_next();
+        app.navigate_into();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Level 4: Lists
+        assert_eq!(app.screen(), Screen::Lists, "Should be at Lists");
+        add_level(&mut app, 4, "Lists", "Down");
+
+        // Navigate into list
+        app.sidebar().select_next();
+        app.sidebar().select_next();
+        app.navigate_into();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Level 5: Tasks (deepest level)
+        assert_eq!(app.screen(), Screen::Tasks, "Should be at Tasks");
+        add_level(&mut app, 5, "Tasks", "Down");
+
+        // =====================================================================
+        // TRAVERSE UP
+        // =====================================================================
+
+        // Navigate back to Lists
+        app.navigate_back();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Level 6: Lists (going up)
+        assert_eq!(app.screen(), Screen::Lists, "Should be back at Lists");
+        add_level(&mut app, 6, "Lists", "Up");
+
+        // Navigate back to Folders
+        app.navigate_back();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Level 7: Folders (going up)
+        assert_eq!(app.screen(), Screen::Folders, "Should be back at Folders");
+        add_level(&mut app, 7, "Folders", "Up");
+
+        // Navigate back to Spaces
+        app.navigate_back();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Level 8: Spaces (going up)
+        assert_eq!(app.screen(), Screen::Spaces, "Should be back at Spaces");
+        add_level(&mut app, 8, "Spaces", "Up");
+
+        // Navigate back to Workspaces
+        app.navigate_back();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Level 9: Workspaces (going up)
+        assert_eq!(app.screen(), Screen::Workspaces, "Should be back at Workspaces");
+        add_level(&mut app, 9, "Workspaces", "Up");
+
+        // Assert the combined snapshot
+        assert_snapshot!("navigation_hierarchy", combined_snapshot);
+    });
+}
+
+// ============================================================================
+// Navigation: Assigned to Me → Space → Folders Snapshot Test
+// ============================================================================
+
+/// Test that navigates into "Assigned to Me" to see tasks, then navigates to a Space to see folders.
+///
+/// This test verifies:
+/// 1. Navigate into "Assigned to Me" → expect list of tasks
+/// 2. Navigate back to Workspaces
+/// 3. Navigate into a Space
+/// 4. Once entered → expect to see list of folders in sidebar
+#[test]
+fn test_navigation_assigned_to_space() {
+    use clickdown::api::MockClickUpClient;
+    use clickdown::models::workspace::{Folder, List, Space, Workspace};
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::widgets::{render_sidebar, render_task_list, SidebarItem};
+    use insta::assert_snapshot;
+    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        // Create test hierarchy
+        let workspaces = vec![Workspace {
+            id: "ws-1".to_string(),
+            name: "Engineering".to_string(),
+            color: Some("#1abc9c".to_string()),
+            avatar: None,
+            member_count: Some(5),
+        }];
+
+        let spaces = vec![
+            Space {
+                id: "sp-1".to_string(),
+                name: "Backend Team".to_string(),
+                color: Some("#3498db".to_string()),
+                private: false,
+                status: None,
+                folders: vec![],
+                lists: vec![],
+            },
+            Space {
+                id: "sp-2".to_string(),
+                name: "Frontend Team".to_string(),
+                color: Some("#2ecc71".to_string()),
+                private: false,
+                status: None,
+                folders: vec![],
+                lists: vec![],
+            },
+        ];
+
+        let folders = vec![
+            Folder {
+                id: "fd-1".to_string(),
+                name: "Q1 Projects".to_string(),
+                color: Some("#e74c3c".to_string()),
+                private: false,
+                space: None,
+                lists: vec![],
+            },
+            Folder {
+                id: "fd-2".to_string(),
+                name: "Q2 Projects".to_string(),
+                color: Some("#3498db".to_string()),
+                private: false,
+                space: None,
+                lists: vec![],
+            },
+            Folder {
+                id: "fd-3".to_string(),
+                name: "Q3 Projects".to_string(),
+                color: Some("#2ecc71".to_string()),
+                private: false,
+                space: None,
+                lists: vec![],
+            },
+        ];
+
+        let lists = vec![List {
+            id: "lst-1".to_string(),
+            name: "Sprint Planning".to_string(),
+            content: None,
+            description: None,
+            archived: false,
+            hidden: false,
+            orderindex: Some(0),
+            space: None,
+            folder: None,
+            status: None,
+            priority: None,
+        }];
+
+        // Configure mock client with hierarchy and assigned tasks
+        let mock_client = MockClickUpClient::new()
+            .with_current_user(fixtures::test_user())
+            .with_accessible_lists(lists.clone())
+            .with_workspaces(workspaces.clone())
+            .with_spaces(spaces.clone())
+            .with_folders(folders.clone())
+            .with_lists_in_folder(lists.clone())
+            .with_tasks_with_assignee_response(fixtures::test_tasks_with_assignees());
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Load workspaces
+        app.load_workspaces();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Helper to capture sidebar snapshot
+        let capture_sidebar = |app: &mut TuiApp| -> String {
+            let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+            terminal
+                .draw(|frame| {
+                    let area = Rect::new(0, 0, 40, 15);
+                    render_sidebar(frame, app.sidebar(), area, Some(3));
+                })
+                .unwrap();
+
+            let mut snapshot = String::new();
+            for y in 0..15 {
+                for x in 0..40 {
+                    let cell = terminal.backend().buffer().get(x, y);
+                    snapshot.push(cell.symbol().chars().next().unwrap_or(' '));
+                }
+                snapshot.push('\n');
+            }
+            snapshot
+        };
+
+        // Helper to capture task list snapshot
+        let capture_task_list = |app: &mut TuiApp| -> String {
+            let mut terminal = Terminal::new(TestBackend::new(60, 15)).unwrap();
+            terminal
+                .draw(|frame| {
+                    let area = Rect::new(0, 0, 60, 15);
+                    render_task_list(frame, app.assigned_tasks(), area, app.assigned_tasks_loading());
+                })
+                .unwrap();
+
+            let mut snapshot = String::new();
+            for y in 0..15 {
+                for x in 0..60 {
+                    let cell = terminal.backend().buffer().get(x, y);
+                    snapshot.push(cell.symbol().chars().next().unwrap_or(' '));
+                }
+                snapshot.push('\n');
+            }
+            snapshot
+        };
+
+        // Collect snapshots
+        let mut combined_snapshot = String::new();
+
+        // =====================================================================
+        // PART 1: Navigate into "Assigned to Me" from Workspaces
+        // =====================================================================
+
+        // Select "Assigned to Me" in sidebar (first item)
+        app.sidebar().select_first();
+        app.navigate_into();
+        
+        // Wait for async task loading with timeout
+        let mut iterations = 0;
+        let max_iterations = 30;
+        while app.assigned_tasks().tasks().is_empty() && iterations < max_iterations {
+            app.process_async_messages();
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            iterations += 1;
+        }
+
+        // Verify we're on Assigned Tasks screen
+        assert_eq!(
+            app.screen(),
+            Screen::AssignedTasks,
+            "Should be at Assigned Tasks screen"
+        );
+
+        // Verify tasks were loaded
+        assert!(
+            !app.assigned_tasks().tasks().is_empty(),
+            "Expected tasks to be loaded in Assigned to Me view after {} iterations",
+            iterations
+        );
+
+        // Capture task list snapshot
+        let task_list_snapshot = capture_task_list(&mut app);
+        combined_snapshot.push_str("=== Part 1: Assigned to Me (Task List) ===\n");
+        combined_snapshot.push_str(&task_list_snapshot);
+        combined_snapshot.push('\n');
+
+        // =====================================================================
+        // PART 2: Navigate back out of Assigned to Me (goes to Workspaces)
+        // =====================================================================
+
+        app.navigate_back();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Should be back at Workspaces (AssignedTasks navigates back to Workspaces)
+        assert_eq!(
+            app.screen(),
+            Screen::Workspaces,
+            "Should be back at Workspaces screen"
+        );
+
+        // =====================================================================
+        // PART 3: Navigate into a Space to see folders
+        // =====================================================================
+
+        // After navigate_back, sidebar selection is at index 0 (Assigned to Me)
+        // Sidebar has: [AssignedTasks, Inbox, Workspace]
+        // Need to select workspace at index 2
+        app.sidebar().select_next(); // Skip "Assigned to Me" (index 0 -> 1)
+        app.sidebar().select_next(); // Skip "Inbox" (index 1 -> 2)
+        // Now at workspace (index 2)
+        
+        // Verify selection before navigating
+        assert!(
+            matches!(app.sidebar().selected_item(), Some(SidebarItem::Workspace { .. })),
+            "Should have workspace selected before navigate_into, got: {:?}",
+            app.sidebar().selected_item()
+        );
+        
+        app.navigate_into();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Verify we're at Spaces screen
+        assert_eq!(app.screen(), Screen::Spaces, "Should be at Spaces screen after entering workspace");
+
+        // Now navigate into first space
+        // Sidebar at Spaces screen has: [AssignedTasks, Inbox, Space, ...]
+        app.sidebar().select_next(); // Skip "Assigned to Me" (index 0 -> 1)
+        app.sidebar().select_next(); // Skip "Inbox" (index 1 -> 2)
+        // Now at first space (index 2)
+        
+        // Verify selection before navigating
+        assert!(
+            matches!(app.sidebar().selected_item(), Some(SidebarItem::Space { .. })),
+            "Should have space selected before navigate_into, got: {:?}",
+            app.sidebar().selected_item()
+        );
+        
+        app.navigate_into();
+        app.process_async_messages();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        app.process_async_messages();
+
+        // Verify we're at Folders screen (entering a space shows its folders)
+        assert_eq!(app.screen(), Screen::Folders, "Should be at Folders screen after entering space");
+
+        // Capture sidebar showing folders
+        let sidebar_snapshot = capture_sidebar(&mut app);
+        combined_snapshot.push_str("=== Part 2: Space → Folders List ===\n");
+        combined_snapshot.push_str(&sidebar_snapshot);
+
+        // Assert the combined snapshot
+        assert_snapshot!("navigation_assigned_to_space", combined_snapshot);
+    });
+}

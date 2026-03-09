@@ -149,13 +149,14 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         Line::from("  Restores last view on startup"),
     ]);
 
-    frame.render_widget(nav, inner[0]);
-    frame.render_widget(global, inner[1]);
-    frame.render_widget(actions, inner[2]);
-    frame.render_widget(comments, inner[3]);
-    frame.render_widget(inbox, inner[4]);
-    frame.render_widget(forms, inner[5]);
-    frame.render_widget(session, inner[6]);
+    // Render sections at correct indices (odd indices are content, even are spacers)
+    frame.render_widget(nav, inner[1]);
+    frame.render_widget(global, inner[3]);
+    frame.render_widget(actions, inner[5]);
+    frame.render_widget(comments, inner[7]);
+    frame.render_widget(inbox, inner[9]);
+    frame.render_widget(forms, inner[11]);
+    frame.render_widget(session, inner[13]);
 
     let close_hint =
         Paragraph::new("Press any key to close").style(Style::default().fg(Color::DarkGray));

@@ -1,0 +1,156 @@
+---
+source: tests/snapshot_test.rs
+expression: combined_snapshot
+---
+=== Level 1: Workspaces (Down) ===
+┌ Navigation ──────────────────────────┐
+│▸ 👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│  WS Engineering                      │
+│  WS Marketing                        │
+│  WS Design                           │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘
+
+=== Level 2: Spaces (Down) ===
+┌ Navigation ──────────────────────────┐
+│▸ 👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│  SP Backend Team                     │
+│  SP Frontend Team                    │
+│  SP DevOps Team                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘
+
+=== Level 3: Folders (Down) ===
+┌ Navigation ──────────────────────────┐
+│▸ 👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│  FL Q1 Projects                      │
+│  FL Q2 Projects                      │
+│  FL Q3 Projects                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘
+
+=== Level 4: Lists (Down) ===
+┌ Navigation ──────────────────────────┐
+│▸ 👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│  LI Sprint Planning                  │
+│  LI Bug Fixes                        │
+│  LI Feature Requests                 │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘
+
+=== Level 5: Tasks (Down) ===
+┌ Navigation ──────────────────────────┐
+│  👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│▸ LI Sprint Planning                  │
+│  LI Bug Fixes                        │
+│  LI Feature Requests                 │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘
+
+=== Level 6: Lists (Up) ===
+┌ Navigation ──────────────────────────┐
+│▸ 👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│  LI Sprint Planning                  │
+│  LI Bug Fixes                        │
+│  LI Feature Requests                 │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘
+
+=== Level 7: Folders (Up) ===
+┌ Navigation ──────────────────────────┐
+│  👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│▸ FL Q1 Projects                      │
+│  FL Q2 Projects                      │
+│  FL Q3 Projects                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘
+
+=== Level 8: Spaces (Up) ===
+┌ Navigation ──────────────────────────┐
+│  👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│▸ SP Backend Team                     │
+│  SP Frontend Team                    │
+│  SP DevOps Team                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘
+
+=== Level 9: Workspaces (Up) ===
+┌ Navigation ──────────────────────────┐
+│  👤  Assigned to Me (3)               │
+│  📬  Inbox                            │
+│▸ WS Engineering                      │
+│  WS Marketing                        │
+│  WS Design                           │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘

@@ -1760,7 +1760,8 @@ impl TuiApp {
         }
     }
 
-    fn navigate_back(&mut self) {
+    /// Navigate back to previous screen (public for testing)
+    pub fn navigate_back(&mut self) {
         match self.screen {
             Screen::Auth => {}       // Can't go back from auth
             Screen::Workspaces => {} // Can't go back from workspaces
@@ -1875,12 +1876,12 @@ impl TuiApp {
                 // Navigate back to Lists
                 self.current_list_id = None;
 
-                // Repopulate sidebar with inbox at top, then lists
-                let mut items = vec![SidebarItem::Inbox];
+                // Repopulate sidebar with assigned tasks, inbox, then lists
+                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
                 items.extend(self.lists.iter().map(|l| SidebarItem::List {
                     name: l.name.clone(),
                     id: l.id.clone(),
-                    
+
                 }));
                 *self.sidebar.items_mut() = items;
 
@@ -1973,7 +1974,8 @@ impl TuiApp {
         self.status = "Authenticated! Loading workspaces...".to_string();
     }
 
-    fn load_workspaces(&mut self) {
+    /// Load workspaces from API (public for testing)
+    pub fn load_workspaces(&mut self) {
         self.loading = true;
         self.status = "Loading workspaces...".to_string();
 

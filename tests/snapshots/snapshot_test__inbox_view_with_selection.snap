@@ -1,11 +1,12 @@
 ---
 source: tests/snapshot_test.rs
+assertion_line: 59
 expression: snapshot
 ---
 ┌Inbox─────────────────────────────────────────────────────┐
 │  [1] Task assigned to you - You were assigned to 'Review │
 │▶ [2] Comment on task - New comment on 'Deploy to producti│
-│  [3] Status change (Jan 03, 2024 08:00)                  │
+│  [3] Status change (Jan 03, 2024 00:00)                  │
 │                                                          │
 │                                                          │
 │                                                          │
