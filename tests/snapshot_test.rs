@@ -407,7 +407,7 @@ fn test_assigned_tasks_view_loading() {
 /// After the fix: accessible lists are provided, tasks are loaded and displayed.
 #[test]
 fn test_assigned_tasks_view_bug_shows_zero_tasks() {
-    use clickdown::api::MockClickUpClient;
+    use clickdown::api::mock_client::MockClickUpClient;
     use clickdown::models::workspace::List;
     use clickdown::tui::app::TuiApp;
     use clickdown::tui::widgets::SidebarItem;
@@ -844,7 +844,7 @@ fn test_status_bar_loading() {
 /// 3. Captures a single combined snapshot showing all 9 levels
 #[test]
 fn test_navigation_hierarchy() {
-    use clickdown::api::MockClickUpClient;
+    use clickdown::api::mock_client::MockClickUpClient;
     use clickdown::models::workspace::{Folder, List, Space, Workspace};
     use clickdown::tui::app::{Screen, TuiApp};
     use clickdown::tui::widgets::{render_sidebar, SidebarItem};
@@ -1200,7 +1200,7 @@ fn test_navigation_hierarchy() {
 /// 4. Once entered → expect to see list of folders in sidebar
 #[test]
 fn test_navigation_assigned_to_space() {
-    use clickdown::api::MockClickUpClient;
+    use clickdown::api::mock_client::MockClickUpClient;
     use clickdown::models::workspace::{Folder, List, Space, Workspace};
     use clickdown::tui::app::{Screen, TuiApp};
     use clickdown::tui::widgets::{render_sidebar, render_task_list, SidebarItem};

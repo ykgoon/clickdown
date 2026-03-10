@@ -41,6 +41,7 @@ pub fn restore() -> Result<()> {
 }
 
 /// Draw a frame on the terminal
+#[allow(dead_code)]
 pub fn draw<F>(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, f: F) -> Result<()>
 where
     F: FnOnce(&mut Frame),

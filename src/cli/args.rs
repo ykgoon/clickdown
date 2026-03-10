@@ -8,7 +8,6 @@ use std::env;
 pub mod exit_codes {
     pub const SUCCESS: i32 = 0;
     pub const GENERAL_ERROR: i32 = 1;
-    pub const INVALID_ARGS: i32 = 2;
     pub const AUTH_ERROR: i32 = 3;
     pub const NETWORK_ERROR: i32 = 4;
 }

@@ -8,7 +8,7 @@ pub enum InputEvent {
     /// A key was pressed
     Key(KeyEvent),
     /// Terminal was resized
-    Resize(u16, u16),
+    Resize,
     /// Quit requested
     Quit,
     /// No event

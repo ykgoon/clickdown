@@ -149,6 +149,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
+#[allow(dead_code)]
 pub fn get_dialog_hints() -> &'static str {
     "←/→: Select | Enter: Confirm | Esc: Cancel"
 }

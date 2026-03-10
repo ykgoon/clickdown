@@ -9,4 +9,3 @@ pub mod mock_client;
 pub use auth::AuthManager;
 pub use client::ClickUpClient;
 pub use client_trait::ClickUpApi;
-pub use mock_client::MockClickUpClient;

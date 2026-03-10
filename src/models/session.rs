@@ -25,6 +25,9 @@ pub struct SessionState {
     /// Current document ID (when in Document view)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_id: Option<String>,
+    /// Current user ID for assignee filtering (if detected)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<i32>,
 }
 
 impl SessionState {
@@ -39,6 +42,7 @@ impl SessionState {
         list_id: Option<String>,
         task_id: Option<String>,
         document_id: Option<String>,
+        user_id: Option<i32>,
     ) -> Self {
         Self {
             screen: format!("{:?}", screen),
@@ -48,20 +52,8 @@ impl SessionState {
             list_id,
             task_id,
             document_id,
+            user_id,
         }
-    }
-
-    /// Check if the session state is valid (has at least a screen type)
-    pub fn is_valid(&self) -> bool {
-        !self.screen.is_empty() && self.screen != "Auth"
-    }
-
-    /// Check if the session state has any navigation context
-    pub fn has_navigation_context(&self) -> bool {
-        self.workspace_id.is_some()
-            || self.space_id.is_some()
-            || self.folder_id.is_some()
-            || self.list_id.is_some()
     }
 }
 
@@ -75,6 +67,7 @@ impl Default for SessionState {
             list_id: None,
             task_id: None,
             document_id: None,
+            user_id: None,
         }
     }
 }
@@ -96,44 +89,6 @@ mod tests {
     }
 
     #[test]
-    fn test_session_state_is_valid() {
-        let valid_state = SessionState {
-            screen: String::from("Tasks"),
-            workspace_id: Some("ws-123".to_string()),
-            ..Default::default()
-        };
-        assert!(valid_state.is_valid());
-
-        let invalid_auth_state = SessionState {
-            screen: String::from("Auth"),
-            ..Default::default()
-        };
-        assert!(!invalid_auth_state.is_valid());
-
-        let invalid_empty_state = SessionState {
-            screen: String::new(),
-            ..Default::default()
-        };
-        assert!(!invalid_empty_state.is_valid());
-    }
-
-    #[test]
-    fn test_session_state_has_navigation_context() {
-        let state_with_context = SessionState {
-            screen: String::from("Tasks"),
-            workspace_id: Some("ws-123".to_string()),
-            ..Default::default()
-        };
-        assert!(state_with_context.has_navigation_context());
-
-        let state_without_context = SessionState {
-            screen: String::from("Workspaces"),
-            ..Default::default()
-        };
-        assert!(!state_without_context.has_navigation_context());
-    }
-
-    #[test]
     fn test_session_state_serialization() {
         let state = SessionState {
             screen: String::from("Tasks"),
@@ -143,6 +98,7 @@ mod tests {
             list_id: Some("list-789".to_string()),
             task_id: None,
             document_id: None,
+            user_id: None,
         };
 
         let json = serde_json::to_string(&state).unwrap();

@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_test_assigned_tasks_preload.rs
+expression: snapshot
+---
+┌ Tasks ───────────────────────────────────────────────────┐
+│▸ [•] - Review Q2 planning doc                            │
+│  [•] - Fix bug in task filtering                         │
+│  [•] - Update API documentation                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘

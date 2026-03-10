@@ -162,6 +162,7 @@ pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect, lo
     frame.render_stateful_widget(list, area, &mut state.state().clone());
 }
 
+#[allow(dead_code)]
 pub fn get_task_list_hints() -> &'static str {
     "j/k: Navigate | Enter: View | n: New | e: Edit | d: Delete"
 }

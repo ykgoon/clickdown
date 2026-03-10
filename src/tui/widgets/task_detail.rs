@@ -142,6 +142,7 @@ fn estimate_wrapped_lines(text: &str, available_width: usize) -> usize {
     lines.max(1)
 }
 
+#[allow(dead_code)]
 pub fn get_task_detail_hints() -> &'static str {
     "e: Edit | d: Delete | Ctrl+S: Save | Esc: Close"
 }

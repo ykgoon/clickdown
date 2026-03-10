@@ -85,6 +85,7 @@ pub fn render_document(frame: &mut Frame, state: &DocumentState, area: Rect) {
     frame.render_widget(paragraph, inner_area);
 }
 
+#[allow(dead_code)]
 pub fn get_document_hints() -> &'static str {
     "j/k: Scroll | Esc: Close"
 }

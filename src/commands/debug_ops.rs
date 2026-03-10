@@ -8,6 +8,7 @@ use crate::models::task::TaskFilters;
 use std::sync::Arc;
 
 /// Exit codes for CLI operations
+#[allow(dead_code)]
 pub mod exit_codes {
     pub const SUCCESS: i32 = 0;
     pub const GENERAL_ERROR: i32 = 1;

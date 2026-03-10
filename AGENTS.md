@@ -300,6 +300,10 @@ See [TESTING.md](TESTING.md) for mock client testing patterns.
 1. **Headless Testing**: All tests use `MockClickUpClient` - no network calls
 2. **Fixtures**: Reusable test data in `tests/fixtures.rs`
 3. **Integration Tests**: Full application flow tests in `tests/app_test.rs`
+4. **Snapshot Testing for Visual Bugs**: When bugs are reported about incorrect user experience, especially visual issues (layout, rendering, colors, text alignment, etc.), the correct workflow is to **create a snapshot test to reproduce the behavior first** before attempting to fix it. This ensures:
+   - The bug is accurately captured and reproducible
+   - The fix can be verified against the exact same conditions
+   - Regression testing is available for future changes
 
 Example test pattern:
 ```rust
@@ -310,7 +314,7 @@ use clickdown::app::{ClickDown, Message};
 async fn test_example() {
     let mock_client = MockClickUpClient::new()
         .with_workspaces(vec![test_workspace()]);
-    
+
     let (mut app, _task) = ClickDown::with_client(Arc::new(mock_client));
     app.update(Message::Initialize);
     // ... assertions

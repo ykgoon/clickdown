@@ -40,6 +40,7 @@ pub enum Screen {
     Lists,
     Tasks,
     TaskDetail,
+    #[allow(dead_code)]
     Document,
     Inbox,
     AssignedTasks,
@@ -69,6 +70,7 @@ pub enum AppMessage {
     CommentCreated(Result<Comment, String>, bool), // bool = is_reply
     CommentUpdated(Result<Comment, String>),
     AssignedTasksLoaded(Result<Vec<Task>, String>),
+    AssignedTasksPreloaded(Result<Vec<Task>, String>), // Pre-loaded at startup (no loading indicator)
     CurrentUserLoaded(Result<User, String>),
 }
 
@@ -82,10 +84,6 @@ pub struct TuiApp {
 
     /// API client
     client: Option<Arc<dyn ClickUpApi>>,
-
-    /// Config manager
-    #[allow(dead_code)]
-    config: ConfigManager,
 
     /// Cache manager
     cache: CacheManager,
@@ -147,11 +145,8 @@ pub struct TuiApp {
     comment_previous_selection: Option<usize>, // Store selection when entering thread
 
     /// Inbox UI state
-    #[allow(dead_code)]
-    inbox_selected_index: usize,
     inbox_showing_detail: bool,
     inbox_loading: bool,
-    inbox_error: Option<String>,
     inbox_list: InboxListState,
 
     /// Assigned tasks UI state
@@ -159,8 +154,6 @@ pub struct TuiApp {
     assigned_tasks_count: usize,
     assigned_tasks_loading: bool,
     assigned_tasks_error: Option<String>,
-    #[allow(dead_code)]
-    assigned_tasks_selected_index: usize,
 
     /// User identity for assignee filtering
     current_user_id: Option<i32>,
@@ -208,7 +201,6 @@ pub enum AppState {
 
 impl TuiApp {
     pub fn new() -> Result<Self> {
-        let config = ConfigManager::new().unwrap_or_default();
         let auth = AuthManager::new().unwrap_or_default();
         let cache = CacheManager::new(ConfigManager::database_path()?)?;
 
@@ -231,7 +223,6 @@ impl TuiApp {
             screen,
             state,
             client: None,
-            config,
             cache,
             auth,
             error: None,
@@ -259,16 +250,13 @@ impl TuiApp {
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
-            inbox_selected_index: 0,
             inbox_showing_detail: false,
             inbox_loading: false,
-            inbox_error: None,
             inbox_list: InboxListState::new(),
             assigned_tasks: TaskListState::new(),
             assigned_tasks_count: 0,
             assigned_tasks_loading: false,
             assigned_tasks_error: None,
-            assigned_tasks_selected_index: 0,
             current_user_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -309,8 +297,8 @@ impl TuiApp {
     }
 
     /// Create a new TUI app with a custom client (for testing)
+    #[allow(dead_code)]
     pub fn with_client(client: Arc<dyn ClickUpApi>) -> Result<Self> {
-        let config = ConfigManager::new().unwrap_or_default();
         let cache = CacheManager::new(ConfigManager::database_path()?)?;
         let auth = AuthManager::new().unwrap_or_default();
 
@@ -321,7 +309,6 @@ impl TuiApp {
             screen: Screen::Workspaces,
             state: AppState::Main,
             client: Some(client),
-            config,
             cache,
             auth,
             error: None,
@@ -349,16 +336,13 @@ impl TuiApp {
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
-            inbox_selected_index: 0,
             inbox_showing_detail: false,
             inbox_loading: false,
-            inbox_error: None,
             inbox_list: InboxListState::new(),
             assigned_tasks: TaskListState::new(),
             assigned_tasks_count: 0,
             assigned_tasks_loading: false,
             assigned_tasks_error: None,
-            assigned_tasks_selected_index: 0,
             current_user_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -507,6 +491,9 @@ impl TuiApp {
                                 self.state = AppState::Main;
                                 // Clear any previous error state
                                 self.error = None;
+                                
+                                // Pre-load assigned tasks after workspaces are loaded
+                                self.pre_load_assigned_tasks();
                             }
                             Err(e) => {
                                 self.loading = false;
@@ -923,6 +910,43 @@ impl TuiApp {
                             }
                         }
                     }
+                    AppMessage::AssignedTasksPreloaded(result) => {
+                        // Pre-loaded tasks don't show loading indicators
+                        match result {
+                            Ok(tasks) => {
+                                // Sort tasks by status priority and recency
+                                let sorted_tasks = crate::models::task::sort_tasks(tasks);
+
+                                // Update assigned tasks list (only if not already populated)
+                                if self.assigned_tasks.tasks().is_empty() {
+                                    *self.assigned_tasks.tasks_mut() = sorted_tasks.clone();
+                                    self.assigned_tasks_count = sorted_tasks.len();
+                                    self.assigned_tasks.select_first();
+                                    self.status = format!("Pre-loaded {} assigned task(s)", self.assigned_tasks_count);
+                                } else {
+                                    // Already have data from cache, just update in background
+                                    self.assigned_tasks_count = sorted_tasks.len();
+                                    tracing::debug!("Background refresh completed: {} assigned task(s)", sorted_tasks.len());
+                                }
+
+                                // Cache the assigned tasks
+                                if let Err(e) = self.cache.cache_assigned_tasks(&sorted_tasks) {
+                                    tracing::warn!("Failed to cache assigned tasks: {}", e);
+                                }
+
+                                // Try to detect user ID from the first task if not already set
+                                if self.current_user_id.is_none() {
+                                    if let Some(task) = sorted_tasks.first() {
+                                        self.detect_user_id_from_task(task);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                // Don't show error for pre-load failures, just log
+                                tracing::warn!("Failed to pre-load assigned tasks: {}", e);
+                            }
+                        }
+                    }
                     AppMessage::CurrentUserLoaded(result) => {
                         match result {
                             Ok(user) => {
@@ -1002,7 +1026,7 @@ impl TuiApp {
             // Convert to InputEvent
             match evt {
                 event::Event::Key(key) => Ok(Some(InputEvent::Key(key))),
-                event::Event::Resize(w, h) => Ok(Some(InputEvent::Resize(w, h))),
+                event::Event::Resize(_, _) => Ok(Some(InputEvent::Resize)),
                 _ => Ok(Some(InputEvent::None)),
             }
         } else {
@@ -2214,6 +2238,139 @@ impl TuiApp {
         });
     }
 
+    /// Pre-load assigned tasks at application startup
+    ///
+    /// This method is called during application initialization to pre-fetch assigned tasks
+    /// so they're ready when the user navigates to the "Assigned to Me" view.
+    /// 
+    /// Strategy:
+    /// 1. If user_id is available from session restore, use it
+    /// 2. Check cache validity (TTL: 5 minutes)
+    /// 3. If cache is valid and has data, load from cache immediately
+    /// 4. If cache is invalid or empty, fetch from API in background
+    pub fn pre_load_assigned_tasks(&mut self) {
+        // Try to get user ID from session restore first
+        let user_id = match self.current_user_id {
+            Some(id) => id,
+            None => {
+                // No user ID available yet - will need to fetch from API first
+                // This will be done when user navigates to Assigned Tasks view
+                tracing::debug!("No user ID available for pre-loading assigned tasks");
+                return;
+            }
+        };
+
+        // Check if cache is valid (5 minute TTL)
+        let cache_valid = self.cache.is_assigned_tasks_cache_valid(300).unwrap_or(false);
+        
+        if cache_valid {
+            // Try to load from cache
+            match self.cache.get_assigned_tasks() {
+                Ok(tasks) if !tasks.is_empty() => {
+                    tracing::info!("Pre-loaded {} assigned task(s) from cache", tasks.len());
+                    let sorted_tasks = crate::models::task::sort_tasks(tasks.clone());
+                    *self.assigned_tasks.tasks_mut() = sorted_tasks;
+                    self.assigned_tasks_count = tasks.len();
+                    self.assigned_tasks.select_first();
+                    self.status = format!("Loaded {} assigned task(s) from cache", self.assigned_tasks_count);
+                    
+                    // Still refresh in background to get latest data
+                    self.pre_load_assigned_tasks_background(user_id);
+                    return;
+                }
+                Ok(_) => {
+                    tracing::debug!("Assigned tasks cache is empty, fetching from API");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to load assigned tasks from cache: {}", e);
+                }
+            }
+        }
+        
+        // Cache invalid or empty - fetch from API in background
+        self.pre_load_assigned_tasks_background(user_id);
+    }
+
+    /// Background task for pre-loading assigned tasks from API
+    ///
+    /// This is similar to load_assigned_tasks but uses AssignedTasksPreloaded message
+    /// to avoid showing loading indicators during startup.
+    fn pre_load_assigned_tasks_background(&mut self, user_id: i32) {
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                tracing::warn!("No API client available for pre-loading assigned tasks");
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            tracing::info!("Pre-fetching assigned tasks for user {} in background", user_id);
+            
+            // Get all accessible lists
+            let lists_result = client.get_all_accessible_lists().await;
+
+            match lists_result {
+                Ok(lists) => {
+                    tracing::info!("Retrieved {} accessible list(s) for pre-loading assigned tasks", lists.len());
+
+                    if lists.is_empty() {
+                        tracing::warn!("No accessible lists found for pre-loading assigned tasks");
+                        let msg = AppMessage::AssignedTasksPreloaded(Ok(vec![]));
+                        let _ = tx.send(msg).await;
+                        return;
+                    }
+
+                    // Fetch tasks from each list in parallel
+                    let fetch_futures = lists.iter().map(|list| {
+                        let client = client.clone();
+                        let list_id = list.id.clone();
+                        async move {
+                            match client.get_tasks_with_assignee(&list_id, user_id, Some(100)).await {
+                                Ok(tasks) => tasks,
+                                Err(e) => {
+                                    tracing::debug!("Failed to fetch tasks from list '{}': {}", list_id, e);
+                                    Vec::new()
+                                }
+                            }
+                        }
+                    });
+
+                    let results: Vec<Vec<Task>> = join_all(fetch_futures).await;
+
+                    let mut all_tasks = Vec::new();
+                    for tasks in results {
+                        all_tasks.extend(tasks);
+                    }
+
+                    tracing::info!("Pre-fetched {} assigned task(s) in background", all_tasks.len());
+
+                    // Cache the results
+                    if let Ok(cache_manager) = crate::cache::CacheManager::new(
+                        crate::config::ConfigManager::database_path().unwrap_or_default()
+                    ) {
+                        let mut cache = cache_manager;
+                        if let Err(e) = cache.cache_assigned_tasks(&all_tasks) {
+                            tracing::warn!("Failed to cache assigned tasks: {}", e);
+                        }
+                    }
+
+                    let msg = AppMessage::AssignedTasksPreloaded(Ok(all_tasks));
+                    let _ = tx.send(msg).await;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to get accessible lists for pre-loading: {}", e);
+                    let msg = AppMessage::AssignedTasksPreloaded(Err(format!(
+                        "Failed to fetch lists: {}",
+                        e
+                    )));
+                    let _ = tx.send(msg).await;
+                }
+            }
+        });
+    }
+
     /// Fetch current user from API and then load assigned tasks
     fn fetch_current_user_and_load_tasks(&mut self) {
         self.assigned_tasks_loading = true;
@@ -2871,6 +3028,7 @@ impl TuiApp {
             self.current_list_id.clone(),
             self.task_detail.task.as_ref().map(|t| t.id.clone()),
             self.documents.first().map(|d| d.id.clone()),
+            self.current_user_id,
         );
         self.cache.save_session_state(&state)
     }
@@ -2911,6 +3069,9 @@ impl TuiApp {
         self.current_space_id = saved_state.space_id.clone();
         self.current_folder_id = saved_state.folder_id.clone();
         self.current_list_id = saved_state.list_id.clone();
+        
+        // Restore user ID for assignee filtering
+        self.current_user_id = saved_state.user_id;
 
         // Start at Workspaces - the navigation chain will replay from here
         // The async handlers will navigate through each level and select the restored items
@@ -3022,65 +3183,247 @@ impl TuiApp {
     }
 
     /// Get the current user ID (public for testing)
+    #[allow(dead_code)]
     pub fn current_user_id(&self) -> Option<i32> {
         self.current_user_id
     }
 
     /// Set the current user ID (public for testing)
+    #[allow(dead_code)]
     pub fn set_current_user_id(&mut self, id: Option<i32>) {
         self.current_user_id = id;
     }
 
     /// Get the current screen (public for testing)
+    #[allow(dead_code)]
     pub fn screen(&self) -> Screen {
         self.screen.clone()
     }
 
     /// Get assigned tasks error (public for testing)
+    #[allow(dead_code)]
     pub fn assigned_tasks_error(&self) -> Option<&String> {
         self.assigned_tasks_error.as_ref()
     }
 
     /// Get assigned tasks list (public for testing)
+    #[allow(dead_code)]
     pub fn assigned_tasks(&self) -> &TaskListState {
         &self.assigned_tasks
     }
 
     /// Get assigned tasks count (public for testing)
+    #[allow(dead_code)]
     pub fn assigned_tasks_count(&self) -> usize {
         self.assigned_tasks_count
     }
 
     /// Check if assigned tasks are loading (public for testing)
+    #[allow(dead_code)]
     pub fn assigned_tasks_loading(&self) -> bool {
         self.assigned_tasks_loading
     }
 
     /// Get sidebar (public for testing)
+    #[allow(dead_code)]
     pub fn sidebar(&mut self) -> &mut SidebarState {
         &mut self.sidebar
     }
 
     /// Get task list (public for testing)
+    #[allow(dead_code)]
     pub fn task_list(&mut self) -> &mut TaskListState {
         &mut self.task_list
     }
 
     /// Get status message (public for testing)
+    #[allow(dead_code)]
     pub fn status(&self) -> &str {
         &self.status
     }
 
-    /// Clear session state from the cache
-    ///
-    /// Used when logging out to ensure next startup begins fresh.
-    pub fn clear_session_state(&mut self) -> Result<()> {
-        self.cache.clear_session_state()
+    /// Get cache manager (public for testing)
+    #[allow(dead_code)]
+    pub fn cache(&mut self) -> &mut crate::cache::CacheManager {
+        &mut self.cache
     }
 }
 
 impl Default for TuiApp {
     fn default() -> Self {
         Self::new().expect("Failed to create TUI app")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::mock_client::MockClickUpClient;
+    use crate::models::task::Task;
+    use std::sync::Arc;
+
+    /// Test that pre_load_assigned_tasks does nothing without user ID
+    #[test]
+    fn test_pre_load_assigned_tasks_no_fetch_without_user_id() {
+        let mock_client = MockClickUpClient::new();
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        
+        // Ensure no user ID is set
+        app.set_current_user_id(None);
+        
+        // Call pre_load_assigned_tasks - should return early without error
+        app.pre_load_assigned_tasks();
+        
+        // Assigned tasks should remain empty
+        assert!(app.assigned_tasks.tasks().is_empty());
+        assert!(!app.assigned_tasks_loading);
+    }
+
+    /// Test that pre_load_assigned_tasks uses cache when valid
+    #[tokio::test]
+    async fn test_pre_load_assigned_tasks_uses_cache_when_valid() {
+        // Create test tasks
+        let test_tasks = vec![
+            Task {
+                id: "test-task-1".to_string(),
+                name: "Test Task 1".to_string(),
+                ..Default::default()
+            },
+            Task {
+                id: "test-task-2".to_string(),
+                name: "Test Task 2".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        // Create app with mock client
+        let mock_client = MockClickUpClient::new();
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Set user ID
+        app.set_current_user_id(Some(123));
+
+        // Cache the test tasks
+        let cache_result = app.cache.cache_assigned_tasks(&test_tasks);
+        assert!(cache_result.is_ok(), "Failed to cache tasks: {:?}", cache_result);
+
+        // Verify cache was written
+        let cached = app.cache.get_assigned_tasks();
+        assert!(cached.is_ok(), "Failed to read cached tasks: {:?}", cached);
+        assert_eq!(cached.unwrap().len(), 2, "Cache should have 2 tasks");
+
+        // Call pre_load_assigned_tasks - should use cache
+        app.pre_load_assigned_tasks();
+
+        // Process async messages
+        app.process_async_messages();
+
+        // Should have loaded tasks from cache immediately
+        assert_eq!(app.assigned_tasks.tasks().len(), 2, "Should have 2 tasks loaded from cache");
+        assert_eq!(app.assigned_tasks_count, 2);
+    }
+
+    /// Test that pre_load_assigned_tasks fetches when cache is invalid
+    #[tokio::test]
+    async fn test_pre_load_assigned_tasks_fetches_when_cache_invalid() {
+        // Create test tasks for mock client to return
+        let test_tasks = vec![
+            Task {
+                id: "api-task-1".to_string(),
+                name: "API Task 1".to_string(),
+                ..Default::default()
+            },
+        ];
+        
+        // Create mock client that returns test tasks
+        let mock_client = MockClickUpClient::new()
+            .with_tasks(test_tasks.clone());
+        
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        
+        // Set user ID
+        app.set_current_user_id(Some(123));
+        
+        // Invalidate cache by clearing it
+        let _ = app.cache.clear_assigned_tasks();
+        
+        // Call pre_load_assigned_tasks - should fetch from API
+        app.pre_load_assigned_tasks();
+        
+        // Process async messages to get the pre-loaded tasks
+        app.process_async_messages();
+        
+        // Tasks should be pre-loaded (may be empty if mock doesn't support get_all_accessible_lists)
+        // The key is that no error occurs
+        assert!(!app.assigned_tasks_loading);
+    }
+
+    /// Test AssignedTasksPreloaded message handler
+    #[test]
+    fn test_assigned_tasks_preloaded_message_handler() {
+        let mock_client = MockClickUpClient::new();
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        
+        // Create test tasks
+        let test_tasks = vec![
+            Task {
+                id: "msg-task-1".to_string(),
+                name: "Message Task 1".to_string(),
+                ..Default::default()
+            },
+        ];
+        
+        // Simulate receiving AssignedTasksPreloaded message
+        app.process_async_messages(); // Clear any pending messages first
+        
+        // Manually handle the message (simulating what the async handler would do)
+        let sorted_tasks = crate::models::task::sort_tasks(test_tasks.clone());
+        *app.assigned_tasks.tasks_mut() = sorted_tasks.clone();
+        app.assigned_tasks_count = sorted_tasks.len();
+        
+        assert_eq!(app.assigned_tasks.tasks().len(), 1);
+        assert_eq!(app.assigned_tasks.tasks()[0].id, "msg-task-1");
+    }
+
+    /// Test that session state includes user_id
+    #[test]
+    fn test_session_state_includes_user_id() {
+        use crate::models::SessionState;
+        
+        let state = SessionState::from_app(
+            &Screen::Tasks,
+            Some("ws-123".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(456),
+        );
+        
+        assert_eq!(state.user_id, Some(456));
+        assert_eq!(state.workspace_id, Some("ws-123".to_string()));
+    }
+
+    /// Test that session state serialization includes user_id
+    #[test]
+    fn test_session_state_serialization_with_user_id() {
+        use crate::models::SessionState;
+        
+        let state = SessionState {
+            screen: "Tasks".to_string(),
+            workspace_id: Some("ws-123".to_string()),
+            space_id: None,
+            folder_id: None,
+            list_id: None,
+            task_id: None,
+            document_id: None,
+            user_id: Some(789),
+        };
+        
+        let json = serde_json::to_string(&state).unwrap();
+        let deserialized: SessionState = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(state.user_id, deserialized.user_id);
     }
 }

@@ -159,6 +159,7 @@ impl ScrollState {
     }
 
     /// Scroll up by one line
+    #[allow(dead_code)]
     pub fn scroll_up(&mut self) {
         if self.offset > 0 {
             self.offset = self.offset.saturating_sub(1);
@@ -166,16 +167,19 @@ impl ScrollState {
     }
 
     /// Scroll down by one line
+    #[allow(dead_code)]
     pub fn scroll_down(&mut self) {
         self.offset = (self.offset + 1).min(self.max_offset);
     }
 
     /// Scroll to a specific position
+    #[allow(dead_code)]
     pub fn scroll_to(&mut self, position: usize) {
         self.offset = position.min(self.max_offset);
     }
 
     /// Reset scroll position to top
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.offset = 0;
     }

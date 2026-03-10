@@ -59,6 +59,7 @@ impl QueryParams {
     ///
     /// This is used for ClickUp API parameters that expect comma-separated values
     /// instead of repeated array parameters.
+    #[allow(dead_code)]
     pub fn add_comma_separated_ints(&mut self, key: &str, values: &[i64]) -> &mut Self {
         if !values.is_empty() {
             let comma_separated = values
@@ -72,6 +73,7 @@ impl QueryParams {
     }
 
     /// Check if there are any parameters
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.params.is_empty()
     }

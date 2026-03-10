@@ -14,7 +14,9 @@ use ratatui::widgets::ListState;
 /// ```no_run
 /// use clickdown::tui::helpers::SelectableList;
 ///
-/// let mut list = SelectableList::new(vec!["Item 1", "Item 2", "Item 3"]);
+/// let mut list = SelectableList::empty();
+/// list.items_mut().extend(vec!["Item 1", "Item 2", "Item 3"]);
+/// list.select_first();
 /// list.select_next();
 /// assert_eq!(list.selected(), Some(&"Item 2"));
 /// ```
@@ -25,14 +27,6 @@ pub struct SelectableList<T> {
 }
 
 impl<T> SelectableList<T> {
-    /// Create a new selectable list with the given items
-    pub fn new(items: Vec<T>) -> Self {
-        Self {
-            state: ListState::default(),
-            items,
-        }
-    }
-
     /// Create a new empty selectable list
     pub fn empty() -> Self {
         Self {
@@ -41,32 +35,15 @@ impl<T> SelectableList<T> {
         }
     }
 
-    /// Get the current selection index
-    pub fn selected_index(&self) -> Option<usize> {
-        self.state.selected()
-    }
-
     /// Get the currently selected item
     pub fn selected(&self) -> Option<&T> {
         self.state.selected().and_then(|i| self.items.get(i))
-    }
-
-    /// Get the currently selected item (mutable)
-    pub fn selected_mut(&mut self) -> Option<&mut T> {
-        self.state.selected().and_then(|i| self.items.get_mut(i))
     }
 
     /// Select the first item
     pub fn select_first(&mut self) {
         if !self.items.is_empty() {
             self.state.select(Some(0));
-        }
-    }
-
-    /// Select the last item
-    pub fn select_last(&mut self) {
-        if !self.items.is_empty() {
-            self.state.select(Some(self.items.len() - 1));
         }
     }
 
@@ -141,30 +118,9 @@ impl<T> SelectableList<T> {
         &mut self.items
     }
 
-    /// Set items and reset selection
-    pub fn set_items(&mut self, items: Vec<T>) {
-        self.items = items;
-        self.state = ListState::default();
-    }
-
-    /// Get the number of items
-    pub fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    /// Check if the list is empty
-    pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-
     /// Get the internal ListState for rendering
     pub fn state(&self) -> &ListState {
         &self.state
-    }
-
-    /// Get the internal ListState for rendering (mutable)
-    pub fn state_mut(&mut self) -> &mut ListState {
-        &mut self.state
     }
 }
 
@@ -179,44 +135,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_list() {
-        let list = SelectableList::new(vec![1, 2, 3]);
-        assert_eq!(list.len(), 3);
-        assert_eq!(list.selected(), None);
-    }
-
-    #[test]
     fn test_empty_list() {
         let list: SelectableList<i32> = SelectableList::empty();
-        assert_eq!(list.len(), 0);
-        assert!(list.is_empty());
+        assert!(list.items().is_empty());
     }
 
     #[test]
     fn test_select_first() {
-        let mut list = SelectableList::new(vec![1, 2, 3]);
+        let mut list = SelectableList::empty();
+        list.items_mut().extend(vec![1, 2, 3]);
         list.select_first();
         assert_eq!(list.selected(), Some(&1));
     }
 
     #[test]
-    fn test_select_last() {
-        let mut list = SelectableList::new(vec![1, 2, 3]);
-        list.select_last();
-        assert_eq!(list.selected(), Some(&3));
-    }
-
-    #[test]
     fn test_select_next_wraps() {
-        let mut list = SelectableList::new(vec![1, 2, 3]);
-        list.select_last();
+        let mut list = SelectableList::empty();
+        list.items_mut().extend(vec![1, 2, 3]);
+        list.select_first();
+        list.select_next();
+        list.select_next();
         list.select_next();
         assert_eq!(list.selected(), Some(&1));
     }
 
     #[test]
     fn test_select_previous_wraps() {
-        let mut list = SelectableList::new(vec![1, 2, 3]);
+        let mut list = SelectableList::empty();
+        list.items_mut().extend(vec![1, 2, 3]);
         list.select_first();
         list.select_previous();
         assert_eq!(list.selected(), Some(&3));
@@ -224,7 +170,8 @@ mod tests {
 
     #[test]
     fn test_select_by() {
-        let mut list = SelectableList::new(vec!["a", "b", "c"]);
+        let mut list = SelectableList::empty();
+        list.items_mut().extend(vec!["a", "b", "c"]);
         assert!(list.select_by(|&x| x == "b"));
         assert_eq!(list.selected(), Some(&"b"));
 
@@ -232,17 +179,9 @@ mod tests {
     }
 
     #[test]
-    fn test_set_items() {
-        let mut list = SelectableList::new(vec![1, 2, 3]);
-        list.select_first();
-        list.set_items(vec![4, 5]);
-        assert_eq!(list.len(), 2);
-        assert_eq!(list.selected(), None);
-    }
-
-    #[test]
     fn test_select_none() {
-        let mut list = SelectableList::new(vec![1, 2, 3]);
+        let mut list = SelectableList::empty();
+        list.items_mut().extend(vec![1, 2, 3]);
         list.select_first();
         list.select(None);
         assert_eq!(list.selected(), None);

@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_test_assigned_tasks_preload.rs
+expression: snapshot
+---
+┌ Navigation ──────────────────────────┐
+│▸ 👤  Assigned to Me (3)               │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘

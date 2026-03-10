@@ -21,5 +21,5 @@ pub use task::*;
 pub use user::User;
 pub use workspace::{
     Folder, FolderReference as ClickUpFolderReference, FoldersResponse, List, ListsResponse,
-    Space as ClickUpSpace, SpaceReference, SpacesResponse, Workspace, WorkspacesResponse,
+    Space as ClickUpSpace, SpacesResponse, Workspace, WorkspacesResponse,
 };

@@ -72,6 +72,7 @@ impl InboxListState {
         self.list_state.select(Some(i));
     }
 
+    #[allow(dead_code)]
     pub fn selected(&self) -> Option<usize> {
         self.list_state.selected()
     }

@@ -57,18 +57,8 @@ pub enum TaskContent {
     },
 }
 
-impl TaskContent {
-    /// Get the content as a string
-    pub fn as_text(&self) -> String {
-        match self {
-            TaskContent::Plain(s) => s.clone(),
-            TaskContent::Rich { html } => html.clone().unwrap_or_default(),
-        }
-    }
-}
-
 /// A ClickUp Task
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Task {
     pub id: String,
     #[serde(default)]
