@@ -381,21 +381,18 @@ The application uses the ClickUp API v2:
 - [x] Dark theme TUI with vim-style navigation
 
 ### In Progress / Planned 🚧
+- [ ] Inbox bug
+- [ ] Assigned tasks bug
+- [ ] Navigation bug
+- [ ] View comments assigned to me
 - [ ] Task filtering and sorting (by status, priority, due date, assignee)
+- [ ] New comments not reflected correctly
+- [ ] Assign tasks
+- [ ] Modify status
+- [ ] Given a URL, opens the resource
+- [ ] Create tasks
 - [ ] Background sync mechanism (periodic refresh)
 - [ ] Task comments viewing and creation
-- [ ] Custom fields support
-- [ ] Subtasks and checklists
-- [ ] Task attachments
-- [ ] Rich text editor for task descriptions
-- [ ] Document editing
-- [ ] Bulk operations
-- [ ] Search functionality
-- [ ] Activity log / history
-- [ ] Time tracking
-- [ ] Goal tracking
-- [ ] Dashboard widgets
-- [ ] Plugin/extensions system
 
 ## License
 
