@@ -20,8 +20,5 @@ Thumbs.db
 # Configuration (keep token out of repo)
 config/token
 
-# Cache
-cache/
-
 # Build artifacts
 *.rs.bk

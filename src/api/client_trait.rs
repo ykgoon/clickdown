@@ -2,7 +2,7 @@
 
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
-    Folder, InboxActivityResponse, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
+    Folder, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
     User, Workspace,
 };
 use anyhow::Result;
@@ -91,9 +91,11 @@ pub trait ClickUpApi: Send + Sync {
     // ==================== Comments ====================
 
     /// Get all comments for a task (top-level only)
+    #[allow(dead_code)]
     async fn get_task_comments(&self, task_id: &str) -> Result<Vec<Comment>>;
 
     /// Get replies to a specific comment (threaded comments)
+    #[allow(dead_code)]
     async fn get_comment_replies(&self, comment_id: &str) -> Result<Vec<Comment>>;
 
     /// Create a new comment on a task (top-level)
@@ -104,6 +106,7 @@ pub trait ClickUpApi: Send + Sync {
     ) -> Result<Comment>;
 
     /// Create a reply to an existing comment (threaded)
+    #[allow(dead_code)]
     async fn create_comment_reply(
         &self,
         parent_comment_id: &str,
@@ -122,11 +125,13 @@ pub trait ClickUpApi: Send + Sync {
     /// Get notifications for a workspace
     /// Note: This endpoint doesn't exist in ClickUp API v2 - kept for backward compatibility
     /// Use get_inbox_activity() instead for the smart inbox feature
+    #[allow(dead_code)]
     async fn get_notifications(&self, workspace_id: &str) -> Result<Vec<Notification>>;
 
     // ==================== Smart Inbox / Activity Feed ====================
 
     /// Get tasks assigned to a user with optional date filter
+    #[allow(dead_code)]
     async fn get_tasks_assigned_to_user(
         &self,
         team_id: &str,
@@ -135,6 +140,7 @@ pub trait ClickUpApi: Send + Sync {
     ) -> Result<Vec<Task>>;
 
     /// Get comments for multiple tasks (batched fetch)
+    #[allow(dead_code)]
     async fn get_comments_for_tasks(
         &self,
         task_ids: &[String],
@@ -142,6 +148,7 @@ pub trait ClickUpApi: Send + Sync {
     ) -> Result<Vec<Comment>>;
 
     /// Get tasks with due dates before a specified timestamp
+    #[allow(dead_code)]
     async fn get_tasks_with_due_dates(
         &self,
         team_id: &str,

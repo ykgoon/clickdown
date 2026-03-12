@@ -132,6 +132,7 @@ impl InboxActivity {
     }
 
     /// Create a new comment activity
+    #[allow(dead_code)]
     pub fn comment(
         comment_id: String,
         task_id: String,
@@ -157,6 +158,7 @@ impl InboxActivity {
     }
 
     /// Create a new status change activity
+    #[allow(dead_code)]
     pub fn status_change(
         task_id: String,
         task_name: String,
@@ -224,6 +226,7 @@ impl InboxActivity {
 }
 
 /// Truncate text to a maximum length, adding ellipsis if needed
+#[allow(dead_code)]
 fn truncate_text(text: &str, max_len: usize) -> String {
     let stripped = text.trim();
     if stripped.len() <= max_len {
@@ -265,6 +268,7 @@ pub struct InboxActivityResponse {
 ///
 /// # Returns
 /// A new vector with duplicates removed, sorted by timestamp (newest first)
+#[allow(dead_code)]
 pub fn deduplicate_activities(activities: Vec<InboxActivity>) -> Vec<InboxActivity> {
     use std::collections::HashMap;
 
@@ -300,6 +304,7 @@ pub fn deduplicate_activities(activities: Vec<InboxActivity>) -> Vec<InboxActivi
 ///
 /// # Returns
 /// A single deduplicated vector of activities
+#[allow(dead_code)]
 pub fn merge_activity_sources(sources: Vec<Vec<InboxActivity>>) -> Vec<InboxActivity> {
     let all_activities: Vec<InboxActivity> = sources.into_iter().flatten().collect();
     deduplicate_activities(all_activities)

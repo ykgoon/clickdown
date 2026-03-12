@@ -3,7 +3,7 @@
 use crate::api::client_trait::ClickUpApi;
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
-    Folder, InboxActivityResponse, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
+    Folder, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
     User, Workspace,
 };
 use anyhow::{anyhow, Result};

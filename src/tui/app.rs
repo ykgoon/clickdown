@@ -2416,6 +2416,7 @@ impl TuiApp {
     ///
     /// This method fetches notifications from the ClickUp API for the current workspace,
     /// caches them locally, and updates the inbox UI state.
+    #[allow(dead_code)]
     fn load_notifications(&mut self) {
         self.inbox_loading = true;
         self.status = "Loading notifications...".to_string();
@@ -2466,6 +2467,7 @@ impl TuiApp {
     ///
     /// This method checks the cache first and fetches from API if cache is empty or stale.
     /// Used when navigating to the inbox to provide instant display if cache is valid.
+    #[allow(dead_code)]
     pub fn pre_load_notifications(&mut self) {
         let workspace_id = match &self.current_workspace_id {
             Some(id) => id.clone(),
@@ -2634,6 +2636,7 @@ impl TuiApp {
     ///
     /// This method checks the cache first and fetches from API if cache is empty or stale.
     /// Used when navigating to the inbox to provide instant display if cache is valid.
+    #[allow(dead_code)]
     pub fn pre_load_inbox_activity(&mut self) {
         let workspace_id = match &self.current_workspace_id {
             Some(id) => id.clone(),
@@ -2675,6 +2678,7 @@ impl TuiApp {
     ///
     /// This is similar to load_inbox_activity but used for background refresh
     /// without showing loading indicators.
+    #[allow(dead_code)]
     fn pre_load_inbox_activity_background(&mut self, workspace_id: String) {
         let client = match &self.client {
             Some(c) => c.clone(),

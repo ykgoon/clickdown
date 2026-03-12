@@ -447,9 +447,9 @@ impl ClickUpClient {
                     match self.get_comments_for_tasks(&task_ids, since_timestamp).await {
                         Ok(comments) => {
                             // Map comments to activities (need task names)
-                            let task_map: std::collections::HashMap<String, String> = 
+                            let _task_map: std::collections::HashMap<String, String> =
                                 tasks.into_iter().map(|t| (t.id.clone(), t.name)).collect();
-                            
+
                             for comment in comments {
                                 // Comments don't have task_id field, so we skip this for now
                                 // In a real implementation, we'd need to fetch comment details differently

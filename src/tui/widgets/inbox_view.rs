@@ -40,6 +40,7 @@ impl InboxListState {
     }
 
     /// Legacy method for backward compatibility (maps to set_activities)
+    #[allow(dead_code)]
     pub fn set_notifications(&mut self, activities: Vec<InboxActivity>) {
         self.set_activities(activities);
     }
@@ -90,6 +91,7 @@ impl InboxListState {
     }
 
     /// Legacy method for backward compatibility
+    #[allow(dead_code)]
     pub fn selected_notification(&self) -> Option<&InboxActivity> {
         self.selected_activity()
     }
