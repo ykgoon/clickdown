@@ -440,6 +440,12 @@ pub struct TaskFilters {
     pub statuses: Vec<String>,
     pub assignees: Vec<i64>,
     pub include_markdown_description: Option<bool>,
+    /// Filter tasks updated after this timestamp (milliseconds)
+    pub date_updated_gt: Option<i64>,
+    /// Filter tasks with due date less than this timestamp (milliseconds)
+    pub due_date_lt: Option<i64>,
+    /// Include closed tasks in results
+    pub include_closed: Option<bool>,
 }
 
 impl TaskFilters {
@@ -461,6 +467,9 @@ impl TaskFilters {
             "include_markdown_description",
             self.include_markdown_description,
         );
+        params.add_opt("date_updated_gt", self.date_updated_gt);
+        params.add_opt("due_date_lt", self.due_date_lt);
+        params.add_opt("include_closed", self.include_closed);
 
         params.to_query_string()
     }

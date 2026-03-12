@@ -96,4 +96,9 @@ impl ApiEndpoints {
     pub fn notifications(workspace_id: &str) -> String {
         format!("{}/team/{}/notifications", BASE_URL, workspace_id)
     }
+
+    // Smart Inbox / Activity Feed endpoints
+    pub fn tasks_in_team_with_filters(team_id: &str, query: &str) -> String {
+        format!("{}/team/{}/task{}", BASE_URL, team_id, query)
+    }
 }

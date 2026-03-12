@@ -72,6 +72,8 @@ pub enum AppMessage {
     AssignedTasksLoaded(Result<Vec<Task>, String>),
     AssignedTasksPreloaded(Result<Vec<Task>, String>), // Pre-loaded at startup (no loading indicator)
     CurrentUserLoaded(Result<User, String>),
+    NotificationsLoaded(Result<Vec<crate::models::Notification>, String>),
+    InboxActivityLoaded(Result<Vec<crate::models::InboxActivity>, String>),
 }
 
 /// Main TUI application state
@@ -148,6 +150,10 @@ pub struct TuiApp {
     inbox_showing_detail: bool,
     inbox_loading: bool,
     inbox_list: InboxListState,
+    /// Smart inbox activity feed
+    inbox_activity: Vec<crate::models::InboxActivity>,
+    inbox_activity_loading: bool,
+    inbox_activity_error: Option<String>,
 
     /// Assigned tasks UI state
     assigned_tasks: TaskListState,
@@ -253,6 +259,9 @@ impl TuiApp {
             inbox_showing_detail: false,
             inbox_loading: false,
             inbox_list: InboxListState::new(),
+            inbox_activity: Vec::new(),
+            inbox_activity_loading: false,
+            inbox_activity_error: None,
             assigned_tasks: TaskListState::new(),
             assigned_tasks_count: 0,
             assigned_tasks_loading: false,
@@ -339,6 +348,9 @@ impl TuiApp {
             inbox_showing_detail: false,
             inbox_loading: false,
             inbox_list: InboxListState::new(),
+            inbox_activity: Vec::new(),
+            inbox_activity_loading: false,
+            inbox_activity_error: None,
             assigned_tasks: TaskListState::new(),
             assigned_tasks_count: 0,
             assigned_tasks_loading: false,
@@ -491,9 +503,14 @@ impl TuiApp {
                                 self.state = AppState::Main;
                                 // Clear any previous error state
                                 self.error = None;
-                                
+
                                 // Pre-load assigned tasks after workspaces are loaded
                                 self.pre_load_assigned_tasks();
+                                
+                                // Pre-load notifications in background
+                                if let Some(workspace_id) = &self.current_workspace_id.clone() {
+                                    self.pre_load_notifications_background(workspace_id.clone());
+                                }
                             }
                             Err(e) => {
                                 self.loading = false;
@@ -953,7 +970,7 @@ impl TuiApp {
                                 // Store user ID for filtering assigned tasks
                                 self.current_user_id = Some(user.id as i32);
                                 tracing::info!("Detected current user ID from API: {} ({})", user.id, user.username);
-                                
+
                                 // Now load assigned tasks with the user ID
                                 self.load_assigned_tasks();
                             }
@@ -961,6 +978,52 @@ impl TuiApp {
                                 self.assigned_tasks_loading = false;
                                 self.assigned_tasks_error = Some(format!("Failed to load user profile: {}", e));
                                 self.status = "Failed to load user profile".to_string();
+                            }
+                        }
+                    }
+                    AppMessage::NotificationsLoaded(result) => {
+                        self.inbox_loading = false;
+                        match result {
+                            Ok(notifications) => {
+                                self.notifications = notifications.clone();
+                                // Convert notifications to activities for display
+                                let activities: Vec<crate::models::InboxActivity> = notifications
+                                    .iter()
+                                    .map(|n| crate::models::InboxActivity {
+                                        id: format!("notification_{}", n.id),
+                                        activity_type: crate::models::ActivityType::Assignment,
+                                        title: n.title.clone(),
+                                        description: n.description.clone(),
+                                        timestamp: n.created_at.unwrap_or(0),
+                                        task_id: None,
+                                        comment_id: None,
+                                        workspace_id: n.workspace_id.clone(),
+                                        task_name: String::new(),
+                                        previous_status: None,
+                                        new_status: None,
+                                        due_date: None,
+                                    })
+                                    .collect();
+                                self.inbox_list.set_activities(activities);
+                                self.status = format!("Loaded {} notification(s)", self.notifications.len());
+                            }
+                            Err(e) => {
+                                self.status = format!("Failed to load notifications: {}", e);
+                                // Keep existing cached data if available
+                            }
+                        }
+                    }
+                    AppMessage::InboxActivityLoaded(result) => {
+                        self.inbox_activity_loading = false;
+                        match result {
+                            Ok(activities) => {
+                                self.inbox_activity = activities.clone();
+                                self.status = format!("Loaded {} activity item(s)", self.inbox_activity.len());
+                            }
+                            Err(e) => {
+                                self.inbox_activity_error = Some(e.clone());
+                                self.status = format!("Failed to load inbox activity: {}", e);
+                                // Keep existing cached data if available
                             }
                         }
                     }
@@ -1458,65 +1521,31 @@ impl TuiApp {
                     self.inbox_list.select_previous();
                 }
                 KeyCode::Char('r') => {
-                    // Manual refresh - reload notifications from cache
-                    if let Some(workspace_id) = &self.current_workspace_id {
-                        match self.cache.get_unread_notifications(workspace_id, None) {
-                            Ok(notifications) => {
-                                self.notifications = notifications;
-                                self.inbox_list
-                                    .set_notifications(self.notifications.clone());
-                                self.status = format!(
-                                    "Refreshed {} notification(s)",
-                                    self.notifications.len()
-                                );
-                            }
-                            Err(e) => {
-                                self.status = format!("Failed to refresh: {}", e);
-                            }
-                        }
-                    } else {
-                        self.status = "No workspace selected".to_string();
-                    }
+                    // Manual refresh - fetch activity from API
+                    self.status = "Refreshing activity...".to_string();
+                    self.load_inbox_activity();
                 }
                 KeyCode::Char('c') => {
-                    // Clear single notification (mark as read)
-                    if let Some(notif) = self.inbox_list.selected_notification() {
-                        let notif_id = notif.id.clone();
-                        match self.cache.mark_notification_read(&notif_id) {
-                            Ok(_) => {
-                                // Remove from list
-                                self.notifications.retain(|n| n.id != notif_id);
-                                self.inbox_list
-                                    .set_notifications(self.notifications.clone());
-                                self.status = "Notification marked as read".to_string();
-                            }
-                            Err(e) => {
-                                self.status = format!("Failed to mark as read: {}", e);
-                            }
-                        }
+                    // Dismiss single activity (remove from list)
+                    if let Some(activity) = self.inbox_list.selected_activity() {
+                        let activity_id = activity.id.clone();
+                        // Remove from list
+                        self.inbox_activity.retain(|a| a.id != activity_id);
+                        self.inbox_list
+                            .set_activities(self.inbox_activity.clone());
+                        self.status = "Activity dismissed".to_string();
                     } else {
-                        self.status = "No notification selected".to_string();
+                        self.status = "No activity selected".to_string();
                     }
                 }
                 KeyCode::Char('C') => {
-                    // Clear all notifications (mark all as read)
-                    if let Some(workspace_id) = &self.current_workspace_id {
-                        match self.cache.mark_all_notifications_read(workspace_id) {
-                            Ok(_) => {
-                                self.notifications.clear();
-                                self.inbox_list.set_notifications(Vec::new());
-                                self.status = "All notifications marked as read".to_string();
-                            }
-                            Err(e) => {
-                                self.status = format!("Failed to mark all as read: {}", e);
-                            }
-                        }
-                    } else {
-                        self.status = "No workspace selected".to_string();
-                    }
+                    // Dismiss all activities (clear inbox)
+                    self.inbox_activity.clear();
+                    self.inbox_list.set_activities(Vec::new());
+                    self.status = "All activities dismissed".to_string();
                 }
                 KeyCode::Enter => {
-                    // Show notification detail
+                    // Show activity detail
                     self.inbox_showing_detail = true;
                 }
                 KeyCode::Esc => {
@@ -1626,25 +1655,23 @@ impl TuiApp {
                     // Navigate to Inbox view
                     self.screen = Screen::Inbox;
                     self.screen_title = generate_screen_title("Inbox");
-                    // Load notifications from cache
-                    if let Some(workspace_id) = &self.current_workspace_id {
-                        self.inbox_loading = true;
-                        match self.cache.get_unread_notifications(workspace_id, None) {
-                            Ok(notifications) => {
-                                self.notifications = notifications;
-                                self.inbox_list
-                                    .set_notifications(self.notifications.clone());
-                                self.status =
-                                    format!("Loaded {} notification(s)", self.notifications.len());
-                                self.inbox_loading = false;
-                            }
-                            Err(e) => {
-                                self.status = format!("Failed to load notifications: {}", e);
-                                self.inbox_loading = false;
+                    // Load inbox activity from API
+                    if self.current_workspace_id.is_some() {
+                        // Need user ID for smart inbox
+                        if self.current_user_id.is_some() {
+                            self.load_inbox_activity();
+                        } else {
+                            // Try to detect user ID first
+                            self.try_detect_user_id();
+                            if self.current_user_id.is_some() {
+                                self.load_inbox_activity();
+                            } else {
+                                self.status = "Loading user profile...".to_string();
+                                self.fetch_current_user_and_load_tasks();
                             }
                         }
                     } else {
-                        self.status = "Select a workspace first to view notifications".to_string();
+                        self.status = "Select a workspace first to view inbox".to_string();
                     }
                 } else if let Some(SidebarItem::Workspace { id, name }) = selected_item {
                     self.current_workspace_id = Some(id.clone());
@@ -1661,25 +1688,21 @@ impl TuiApp {
                     // Navigate to Inbox view
                     self.screen = Screen::Inbox;
                     self.screen_title = generate_screen_title("Inbox");
-                    // Load notifications from cache
-                    if let Some(workspace_id) = &self.current_workspace_id {
-                        self.inbox_loading = true;
-                        match self.cache.get_unread_notifications(workspace_id, None) {
-                            Ok(notifications) => {
-                                self.notifications = notifications;
-                                self.inbox_list
-                                    .set_notifications(self.notifications.clone());
-                                self.status =
-                                    format!("Loaded {} notification(s)", self.notifications.len());
-                                self.inbox_loading = false;
-                            }
-                            Err(e) => {
-                                self.status = format!("Failed to load notifications: {}", e);
-                                self.inbox_loading = false;
+                    // Load inbox activity from API
+                    if self.current_workspace_id.is_some() {
+                        if self.current_user_id.is_some() {
+                            self.load_inbox_activity();
+                        } else {
+                            self.try_detect_user_id();
+                            if self.current_user_id.is_some() {
+                                self.load_inbox_activity();
+                            } else {
+                                self.status = "Loading user profile...".to_string();
+                                self.fetch_current_user_and_load_tasks();
                             }
                         }
                     } else {
-                        self.status = "Select a workspace first to view notifications".to_string();
+                        self.status = "Select a workspace first to view inbox".to_string();
                     }
                 } else if let Some(SidebarItem::Space { id, name, .. }) = selected_item {
                     self.current_space_id = Some(id.clone());
@@ -1695,25 +1718,21 @@ impl TuiApp {
                     // Navigate to Inbox view
                     self.screen = Screen::Inbox;
                     self.screen_title = generate_screen_title("Inbox");
-                    // Load notifications from cache
-                    if let Some(workspace_id) = &self.current_workspace_id {
-                        self.inbox_loading = true;
-                        match self.cache.get_unread_notifications(workspace_id, None) {
-                            Ok(notifications) => {
-                                self.notifications = notifications;
-                                self.inbox_list
-                                    .set_notifications(self.notifications.clone());
-                                self.status =
-                                    format!("Loaded {} notification(s)", self.notifications.len());
-                                self.inbox_loading = false;
-                            }
-                            Err(e) => {
-                                self.status = format!("Failed to load notifications: {}", e);
-                                self.inbox_loading = false;
+                    // Load inbox activity from API
+                    if self.current_workspace_id.is_some() {
+                        if self.current_user_id.is_some() {
+                            self.load_inbox_activity();
+                        } else {
+                            self.try_detect_user_id();
+                            if self.current_user_id.is_some() {
+                                self.load_inbox_activity();
+                            } else {
+                                self.status = "Loading user profile...".to_string();
+                                self.fetch_current_user_and_load_tasks();
                             }
                         }
                     } else {
-                        self.status = "Select a workspace first to view notifications".to_string();
+                        self.status = "Select a workspace first to view inbox".to_string();
                     }
                 } else if let Some(SidebarItem::Folder { id, name, .. }) = selected_item {
                     self.current_folder_id = Some(id.clone());
@@ -1728,25 +1747,21 @@ impl TuiApp {
                     // Navigate to Inbox view
                     self.screen = Screen::Inbox;
                     self.screen_title = generate_screen_title("Inbox");
-                    // Load notifications from cache
-                    if let Some(workspace_id) = &self.current_workspace_id {
-                        self.inbox_loading = true;
-                        match self.cache.get_unread_notifications(workspace_id, None) {
-                            Ok(notifications) => {
-                                self.notifications = notifications;
-                                self.inbox_list
-                                    .set_notifications(self.notifications.clone());
-                                self.status =
-                                    format!("Loaded {} notification(s)", self.notifications.len());
-                                self.inbox_loading = false;
-                            }
-                            Err(e) => {
-                                self.status = format!("Failed to load notifications: {}", e);
-                                self.inbox_loading = false;
+                    // Load inbox activity from API
+                    if self.current_workspace_id.is_some() {
+                        if self.current_user_id.is_some() {
+                            self.load_inbox_activity();
+                        } else {
+                            self.try_detect_user_id();
+                            if self.current_user_id.is_some() {
+                                self.load_inbox_activity();
+                            } else {
+                                self.status = "Loading user profile...".to_string();
+                                self.fetch_current_user_and_load_tasks();
                             }
                         }
                     } else {
-                        self.status = "Select a workspace first to view notifications".to_string();
+                        self.status = "Select a workspace first to view inbox".to_string();
                     }
                 } else if let Some(SidebarItem::List { id, name, .. }) = selected_item {
                     self.current_list_id = Some(id.clone());
@@ -1759,25 +1774,21 @@ impl TuiApp {
                 // Open inbox view
                 self.screen = Screen::Inbox;
                 self.screen_title = generate_screen_title("Inbox");
-                // Load notifications from cache
-                if let Some(workspace_id) = &self.current_workspace_id {
-                    self.inbox_loading = true;
-                    match self.cache.get_unread_notifications(workspace_id, None) {
-                        Ok(notifications) => {
-                            self.notifications = notifications;
-                            self.inbox_list
-                                .set_notifications(self.notifications.clone());
-                            self.status =
-                                format!("Loaded {} notification(s)", self.notifications.len());
-                            self.inbox_loading = false;
-                        }
-                        Err(e) => {
-                            self.status = format!("Failed to load notifications: {}", e);
-                            self.inbox_loading = false;
+                // Load inbox activity from API
+                if self.current_workspace_id.is_some() {
+                    if self.current_user_id.is_some() {
+                        self.load_inbox_activity();
+                    } else {
+                        self.try_detect_user_id();
+                        if self.current_user_id.is_some() {
+                            self.load_inbox_activity();
+                        } else {
+                            self.status = "Loading user profile...".to_string();
+                            self.fetch_current_user_and_load_tasks();
                         }
                     }
                 } else {
-                    self.status = "Select a workspace first to view notifications".to_string();
+                    self.status = "Select a workspace first to view inbox".to_string();
                 }
             }
             _ => {}
@@ -2401,6 +2412,318 @@ impl TuiApp {
         });
     }
 
+    /// Load notifications from API and cache them
+    ///
+    /// This method fetches notifications from the ClickUp API for the current workspace,
+    /// caches them locally, and updates the inbox UI state.
+    fn load_notifications(&mut self) {
+        self.inbox_loading = true;
+        self.status = "Loading notifications...".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.inbox_loading = false;
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        let workspace_id = match &self.current_workspace_id {
+            Some(id) => id.clone(),
+            None => {
+                self.inbox_loading = false;
+                self.status = "No workspace selected".to_string();
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            match client.get_notifications(&workspace_id).await {
+                Ok(notifications) => {
+                    // Cache the notifications
+                    if let Ok(cache_manager) = crate::cache::CacheManager::new(
+                        crate::config::ConfigManager::database_path().unwrap_or_default()
+                    ) {
+                        let mut cache = cache_manager;
+                        if let Err(e) = cache.cache_notifications(&workspace_id, &notifications) {
+                            tracing::warn!("Failed to cache notifications: {}", e);
+                        }
+                    }
+                    let msg = AppMessage::NotificationsLoaded(Ok(notifications));
+                    let _ = tx.send(msg).await;
+                }
+                Err(e) => {
+                    let msg = AppMessage::NotificationsLoaded(Err(e.to_string()));
+                    let _ = tx.send(msg).await;
+                }
+            }
+        });
+    }
+
+    /// Pre-load notifications from cache or fetch from API if needed
+    ///
+    /// This method checks the cache first and fetches from API if cache is empty or stale.
+    /// Used when navigating to the inbox to provide instant display if cache is valid.
+    pub fn pre_load_notifications(&mut self) {
+        let workspace_id = match &self.current_workspace_id {
+            Some(id) => id.clone(),
+            None => {
+                tracing::debug!("No workspace selected for pre-loading notifications");
+                return;
+            }
+        };
+
+        // Check if cache is valid (5 minute TTL)
+        let cache_valid = self.cache.is_notifications_cache_valid(&workspace_id, 300).unwrap_or(false);
+
+        if cache_valid {
+            // Try to load from cache
+            match self.cache.get_unread_notifications(&workspace_id, None) {
+                Ok(notifications) if !notifications.is_empty() => {
+                    tracing::info!("Pre-loaded {} notification(s) from cache", notifications.len());
+                    self.notifications = notifications.clone();
+                    // Convert notifications to activities for display
+                    let activities: Vec<crate::models::InboxActivity> = notifications
+                        .iter()
+                        .map(|n| crate::models::InboxActivity {
+                            id: format!("notification_{}", n.id),
+                            activity_type: crate::models::ActivityType::Assignment,
+                            title: n.title.clone(),
+                            description: n.description.clone(),
+                            timestamp: n.created_at.unwrap_or(0),
+                            task_id: None,
+                            comment_id: None,
+                            workspace_id: n.workspace_id.clone(),
+                            task_name: String::new(),
+                            previous_status: None,
+                            new_status: None,
+                            due_date: None,
+                        })
+                        .collect();
+                    self.inbox_list.set_activities(activities);
+                    self.status = format!("Loaded {} notification(s) from cache", self.notifications.len());
+
+                    // Still refresh in background to get latest data
+                    self.pre_load_notifications_background(workspace_id);
+                    return;
+                }
+                Ok(_) => {
+                    tracing::debug!("Notifications cache is empty, fetching from API");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to load notifications from cache: {}", e);
+                }
+            }
+        }
+
+        // Cache invalid or empty - fetch from API in background
+        self.pre_load_notifications_background(workspace_id);
+    }
+
+    /// Background task for pre-loading notifications from API
+    ///
+    /// This is similar to load_notifications but used for background refresh
+    /// without showing loading indicators.
+    fn pre_load_notifications_background(&mut self, workspace_id: String) {
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                tracing::warn!("No API client available for pre-loading notifications");
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            tracing::info!("Pre-fetching notifications for workspace {} in background", workspace_id);
+
+            match client.get_notifications(&workspace_id).await {
+                Ok(notifications) => {
+                    tracing::info!("Fetched {} notification(s) for workspace {}", notifications.len(), workspace_id);
+
+                    // Cache the notifications
+                    if let Ok(cache_manager) = crate::cache::CacheManager::new(
+                        crate::config::ConfigManager::database_path().unwrap_or_default()
+                    ) {
+                        let mut cache = cache_manager;
+                        if let Err(e) = cache.cache_notifications(&workspace_id, &notifications) {
+                            tracing::warn!("Failed to cache notifications: {}", e);
+                        }
+                    }
+
+                    let msg = AppMessage::NotificationsLoaded(Ok(notifications));
+                    let _ = tx.send(msg).await;
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to fetch notifications for workspace {}: {}", workspace_id, e);
+                    // Don't send error message for background fetch - just log
+                }
+            }
+        });
+    }
+
+    /// Load inbox activity from API and cache it
+    ///
+    /// This method fetches activity from the ClickUp API for the current workspace,
+    /// caches it locally, and updates the smart inbox UI state.
+    fn load_inbox_activity(&mut self) {
+        self.inbox_activity_loading = true;
+        self.status = "Loading activity...".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.inbox_activity_loading = false;
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        let workspace_id = match &self.current_workspace_id {
+            Some(id) => id.clone(),
+            None => {
+                self.inbox_activity_loading = false;
+                self.status = "No workspace selected".to_string();
+                return;
+            }
+        };
+
+        let user_id = match self.current_user_id {
+            Some(id) => id,
+            None => {
+                self.inbox_activity_loading = false;
+                self.status = "User ID not available".to_string();
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            match client.get_inbox_activity(&workspace_id, user_id, None).await {
+                Ok(response) => {
+                    let activities = response.activities;
+                    tracing::info!("Fetched {} activity item(s) for workspace {}", activities.len(), workspace_id);
+
+                    // Cache the activity
+                    if let Ok(mut cache) = crate::cache::CacheManager::new(
+                        crate::config::ConfigManager::database_path().unwrap_or_default()
+                    ) {
+                        if let Err(e) = cache.cache_inbox_activity(&workspace_id, &activities) {
+                            tracing::warn!("Failed to cache inbox activity: {}", e);
+                        }
+                        // Store the fetch timestamp
+                        let now = chrono::Utc::now().timestamp_millis();
+                        let _ = cache.store_last_inbox_check(&workspace_id, now);
+                    }
+
+                    let msg = AppMessage::InboxActivityLoaded(Ok(activities));
+                    let _ = tx.send(msg).await;
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to fetch inbox activity for workspace {}: {}", workspace_id, e);
+                    let msg = AppMessage::InboxActivityLoaded(Err(e.to_string()));
+                    let _ = tx.send(msg).await;
+                }
+            }
+        });
+    }
+
+    /// Pre-load inbox activity from cache or fetch from API if needed
+    ///
+    /// This method checks the cache first and fetches from API if cache is empty or stale.
+    /// Used when navigating to the inbox to provide instant display if cache is valid.
+    pub fn pre_load_inbox_activity(&mut self) {
+        let workspace_id = match &self.current_workspace_id {
+            Some(id) => id.clone(),
+            None => {
+                tracing::debug!("No workspace selected for pre-loading inbox activity");
+                return;
+            }
+        };
+
+        // Check if cache is valid (5 minute TTL)
+        let cache_valid = self.cache.is_inbox_activity_cache_valid(&workspace_id, 300).unwrap_or(false);
+
+        if cache_valid {
+            // Try to load from cache
+            match self.cache.get_cached_inbox_activity(&workspace_id) {
+                Ok(activities) if !activities.is_empty() => {
+                    tracing::info!("Pre-loaded {} activity item(s) from cache", activities.len());
+                    self.inbox_activity = activities.clone();
+                    self.status = format!("Loaded {} activity item(s) from cache", self.inbox_activity.len());
+
+                    // Still refresh in background to get latest data
+                    self.pre_load_inbox_activity_background(workspace_id);
+                    return;
+                }
+                Ok(_) => {
+                    tracing::debug!("Inbox activity cache is empty, fetching from API");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to load inbox activity from cache: {}", e);
+                }
+            }
+        }
+
+        // Cache invalid or empty - fetch from API in background
+        self.pre_load_inbox_activity_background(workspace_id);
+    }
+
+    /// Background task for pre-loading inbox activity from API
+    ///
+    /// This is similar to load_inbox_activity but used for background refresh
+    /// without showing loading indicators.
+    fn pre_load_inbox_activity_background(&mut self, workspace_id: String) {
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                tracing::warn!("No API client available for pre-loading inbox activity");
+                return;
+            }
+        };
+
+        let user_id = match self.current_user_id {
+            Some(id) => id,
+            None => {
+                tracing::warn!("No user ID available for pre-loading inbox activity");
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            tracing::info!("Pre-fetching inbox activity for workspace {} in background", workspace_id);
+
+            match client.get_inbox_activity(&workspace_id, user_id, None).await {
+                Ok(response) => {
+                    let activities = response.activities;
+                    tracing::info!("Fetched {} activity item(s) for workspace {}", activities.len(), workspace_id);
+
+                    // Cache the activity
+                    if let Ok(mut cache) = crate::cache::CacheManager::new(
+                        crate::config::ConfigManager::database_path().unwrap_or_default()
+                    ) {
+                        if let Err(e) = cache.cache_inbox_activity(&workspace_id, &activities) {
+                            tracing::warn!("Failed to cache inbox activity: {}", e);
+                        }
+                        // Store the fetch timestamp
+                        let now = chrono::Utc::now().timestamp_millis();
+                        let _ = cache.store_last_inbox_check(&workspace_id, now);
+                    }
+
+                    let msg = AppMessage::InboxActivityLoaded(Ok(activities));
+                    let _ = tx.send(msg).await;
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to fetch inbox activity for workspace {}: {}", workspace_id, e);
+                    // Don't send error message for background fetch - just log
+                }
+            }
+        });
+    }
+
     /// Detect current user ID from a task's creator or assignee field
     fn detect_user_id_from_task(&mut self, task: &Task) {
         // First try to get user ID from task creator
@@ -2724,6 +3047,9 @@ impl TuiApp {
             }
             Screen::Document => render_document(frame, &self.document, content_area),
             Screen::Inbox => {
+                // Sync inbox_list with inbox_activity before rendering
+                self.inbox_list.set_activities(self.inbox_activity.clone());
+                
                 render_inbox_list(
                     frame,
                     content_area,
@@ -2733,7 +3059,7 @@ impl TuiApp {
 
                 // Render detail panel if showing
                 if self.inbox_showing_detail {
-                    if let Some(notif) = self.inbox_list.selected_notification() {
+                    if let Some(activity) = self.inbox_list.selected_activity() {
                         // Create a centered popup for detail
                         let detail_width = std::cmp::min(80, content_area.width - 4);
                         let detail_height = std::cmp::min(20, content_area.height - 4);
@@ -2744,7 +3070,7 @@ impl TuiApp {
                             detail_height,
                         );
 
-                        render_notification_detail(frame, detail_rect, notif);
+                        render_notification_detail(frame, detail_rect, activity);
                     }
                 }
             }
@@ -2787,9 +3113,9 @@ impl TuiApp {
             Screen::Document => render_document(frame, &self.document, area),
             Screen::Inbox => {
                 // Show loading indicator if fetching
-                if self.inbox_loading {
+                if self.inbox_activity_loading {
                     use ratatui::widgets::Paragraph;
-                    let loading = Paragraph::new("Loading notifications...")
+                    let loading = Paragraph::new("Loading activity...")
                         .style(ratatui::style::Style::default().fg(ratatui::style::Color::Yellow))
                         .block(
                             ratatui::widgets::Block::default()
@@ -2798,11 +3124,14 @@ impl TuiApp {
                         );
                     frame.render_widget(loading, area);
                 } else {
+                    // Sync inbox_list with inbox_activity before rendering
+                    self.inbox_list.set_activities(self.inbox_activity.clone());
+                    
                     render_inbox_list(frame, area, &mut self.inbox_list, self.inbox_showing_detail);
 
                     // Render detail panel if showing
                     if self.inbox_showing_detail {
-                        if let Some(notif) = self.inbox_list.selected_notification() {
+                        if let Some(activity) = self.inbox_list.selected_activity() {
                             // Create a centered popup for detail
                             let detail_width = std::cmp::min(80, area.width - 4);
                             let detail_height = std::cmp::min(20, area.height - 4);
@@ -2813,7 +3142,7 @@ impl TuiApp {
                                 detail_height,
                             );
 
-                            render_notification_detail(frame, detail_rect, notif);
+                            render_notification_detail(frame, detail_rect, activity);
                         }
                     }
                 }
@@ -3230,6 +3559,12 @@ impl TuiApp {
         &mut self.sidebar
     }
 
+    /// Get mutable sidebar (alias for sidebar, for consistency)
+    #[allow(dead_code)]
+    pub fn sidebar_mut(&mut self) -> &mut SidebarState {
+        &mut self.sidebar
+    }
+
     /// Get task list (public for testing)
     #[allow(dead_code)]
     pub fn task_list(&mut self) -> &mut TaskListState {
@@ -3246,6 +3581,44 @@ impl TuiApp {
     #[allow(dead_code)]
     pub fn cache(&mut self) -> &mut crate::cache::CacheManager {
         &mut self.cache
+    }
+
+    /// Get inbox list (public for testing)
+    #[allow(dead_code)]
+    pub fn inbox_list(&self) -> &InboxListState {
+        &self.inbox_list
+    }
+
+    /// Get mutable inbox list (public for testing)
+    #[allow(dead_code)]
+    pub fn inbox_list_mut(&mut self) -> &mut InboxListState {
+        &mut self.inbox_list
+    }
+
+    /// Get inbox error (public for testing)
+    #[allow(dead_code)]
+    pub fn inbox_error(&self) -> Option<&String> {
+        // Note: inbox errors are shown in status bar, not stored separately
+        // Return None for now - can be enhanced to track inbox-specific errors
+        None
+    }
+
+    /// Check if inbox detail view is showing (public for testing)
+    #[allow(dead_code)]
+    pub fn inbox_showing_detail(&self) -> bool {
+        self.inbox_showing_detail
+    }
+
+    /// Check if inbox is loading (public for testing)
+    #[allow(dead_code)]
+    pub fn inbox_loading(&self) -> bool {
+        self.inbox_loading
+    }
+
+    /// Get current workspace ID (public for testing)
+    #[allow(dead_code)]
+    pub fn current_workspace_id(&self) -> Option<&String> {
+        self.current_workspace_id.as_ref()
     }
 }
 

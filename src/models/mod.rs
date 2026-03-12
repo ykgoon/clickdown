@@ -2,6 +2,7 @@
 
 pub mod comment;
 pub mod document;
+pub mod inbox_activity;
 pub mod notification;
 pub mod session;
 pub mod task;
@@ -15,6 +16,7 @@ pub use comment::{
 pub use document::{
     Document, DocumentFilters, DocumentPagesResponse, DocumentsResponse, Page, PageResponse,
 };
+pub use inbox_activity::{ActivityType, InboxActivity, InboxActivityResponse};
 pub use notification::{Notification, NotificationsResponse};
 pub use session::SessionState;
 pub use task::*;

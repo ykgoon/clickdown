@@ -1,4 +1,4 @@
-//! Inbox view widget for displaying notifications
+//! Inbox view widget for displaying activity feed
 
 use ratatui::{
     layout::Rect,
@@ -8,43 +8,49 @@ use ratatui::{
     Frame,
 };
 
-use crate::models::Notification;
+use crate::models::InboxActivity;
 
-/// State for the inbox notification list
+/// State for the inbox activity list
+#[derive(Clone)]
 pub struct InboxListState {
     pub list_state: ListState,
-    pub notifications: Vec<Notification>,
+    pub activities: Vec<InboxActivity>,
 }
 
 impl InboxListState {
     pub fn new() -> Self {
         Self {
             list_state: ListState::default(),
-            notifications: Vec::new(),
+            activities: Vec::new(),
         }
     }
 
-    pub fn set_notifications(&mut self, notifications: Vec<Notification>) {
-        self.notifications = notifications;
-        if self.notifications.is_empty() {
+    pub fn set_activities(&mut self, activities: Vec<InboxActivity>) {
+        self.activities = activities;
+        if self.activities.is_empty() {
             self.list_state.select(None);
         } else if self.list_state.selected().is_none() {
             self.list_state.select(Some(0));
         } else if let Some(selected) = self.list_state.selected() {
-            if selected >= self.notifications.len() {
+            if selected >= self.activities.len() {
                 self.list_state
-                    .select(Some(self.notifications.len().saturating_sub(1)));
+                    .select(Some(self.activities.len().saturating_sub(1)));
             }
         }
     }
 
+    /// Legacy method for backward compatibility (maps to set_activities)
+    pub fn set_notifications(&mut self, activities: Vec<InboxActivity>) {
+        self.set_activities(activities);
+    }
+
     pub fn select_next(&mut self) {
-        if self.notifications.is_empty() {
+        if self.activities.is_empty() {
             return;
         }
         let i = match self.list_state.selected() {
             Some(i) => {
-                if i >= self.notifications.len() - 1 {
+                if i >= self.activities.len() - 1 {
                     0
                 } else {
                     i + 1
@@ -56,13 +62,13 @@ impl InboxListState {
     }
 
     pub fn select_previous(&mut self) {
-        if self.notifications.is_empty() {
+        if self.activities.is_empty() {
             return;
         }
         let i = match self.list_state.selected() {
             Some(i) => {
                 if i == 0 {
-                    self.notifications.len() - 1
+                    self.activities.len() - 1
                 } else {
                     i - 1
                 }
@@ -77,10 +83,33 @@ impl InboxListState {
         self.list_state.selected()
     }
 
-    pub fn selected_notification(&self) -> Option<&Notification> {
+    pub fn selected_activity(&self) -> Option<&InboxActivity> {
         self.list_state
             .selected()
-            .and_then(|i| self.notifications.get(i))
+            .and_then(|i| self.activities.get(i))
+    }
+
+    /// Legacy method for backward compatibility
+    pub fn selected_notification(&self) -> Option<&InboxActivity> {
+        self.selected_activity()
+    }
+
+    /// Get activities (public for testing)
+    #[allow(dead_code)]
+    pub fn activities(&self) -> &Vec<InboxActivity> {
+        &self.activities
+    }
+
+    /// Legacy method for backward compatibility
+    #[allow(dead_code)]
+    pub fn notifications(&self) -> &Vec<InboxActivity> {
+        &self.activities
+    }
+
+    /// Select an activity by index (public for testing)
+    #[allow(dead_code)]
+    pub fn select(&mut self, index: Option<usize>) {
+        self.list_state.select(index);
     }
 }
 
@@ -90,14 +119,14 @@ impl Default for InboxListState {
     }
 }
 
-/// Render the notification list
+/// Render the activity list
 pub fn render_inbox_list(
     frame: &mut Frame,
     area: Rect,
     state: &mut InboxListState,
     _showing_detail: bool,
 ) {
-    if state.notifications.is_empty() {
+    if state.activities.is_empty() {
         // Empty state
         let empty_msg = Paragraph::new("📬 Inbox is empty - All caught up!")
             .style(Style::default().fg(Color::Gray))
@@ -107,26 +136,26 @@ pub fn render_inbox_list(
     }
 
     let items: Vec<ListItem> = state
-        .notifications
+        .activities
         .iter()
         .enumerate()
-        .map(|(i, notif)| {
+        .map(|(i, activity)| {
             let is_selected = state.list_state.selected() == Some(i);
 
+            // Get activity type icon
+            let type_icon = activity.icon();
+
             // Format timestamp
-            let time_str = notif
-                .created_at
-                .map(format_timestamp)
-                .unwrap_or_else(|| "Unknown".to_string());
+            let time_str = format_timestamp(activity.timestamp);
 
             // Truncate description for preview
-            let desc_preview = if notif.description.is_empty() {
+            let desc_preview = if activity.description.is_empty() {
                 String::new()
             } else {
-                let truncated = if notif.description.len() > 60 {
-                    format!("{}...", &notif.description[..57])
+                let truncated = if activity.description.len() > 60 {
+                    format!("{}...", &activity.description[..57])
                 } else {
-                    notif.description.clone()
+                    activity.description.clone()
                 };
                 format!(" - {}", truncated)
             };
@@ -142,10 +171,10 @@ pub fn render_inbox_list(
 
             let line = Line::from(vec![
                 Span::styled(
-                    format!("[{}] ", i + 1),
+                    format!("{} ", type_icon),
                     Style::default().fg(Color::DarkGray),
                 ),
-                Span::styled(&notif.title, style),
+                Span::styled(&activity.title, style),
                 Span::styled(desc_preview, Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     format!(" ({})", time_str),
@@ -170,26 +199,25 @@ pub fn render_inbox_list(
     frame.render_stateful_widget(list, area, &mut state.list_state);
 }
 
-/// Render notification detail panel
-pub fn render_notification_detail(frame: &mut Frame, area: Rect, notification: &Notification) {
+/// Render activity detail panel
+pub fn render_notification_detail(frame: &mut Frame, area: Rect, activity: &InboxActivity) {
     let detail_block = Block::default()
         .borders(Borders::ALL)
-        .title("Notification Details")
+        .title("Activity Details")
         .style(Style::default().bg(Color::DarkGray));
 
-    let time_str = notification
-        .created_at
-        .map(format_timestamp)
-        .unwrap_or_else(|| "Unknown".to_string());
+    let time_str = format_timestamp(activity.timestamp);
 
     let content = format!(
-        "Title: {}\n\nTime: {}\n\nDescription:\n{}",
-        notification.title,
+        "Type: {} {}\n\nTime: {}\n\nTitle:\n{}\n\nDescription:\n{}",
+        activity.icon(),
+        activity.activity_type.label(),
         time_str,
-        if notification.description.is_empty() {
+        activity.title,
+        if activity.description.is_empty() {
             "(No description)".to_string()
         } else {
-            notification.description.clone()
+            activity.description.clone()
         }
     );
 
@@ -218,6 +246,7 @@ fn format_timestamp(ts: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ActivityType;
 
     #[test]
     fn test_inbox_list_state_navigation() {
@@ -227,23 +256,35 @@ mod tests {
         state.select_next();
         assert_eq!(state.selected(), None);
 
-        // Add notifications
-        state.set_notifications(vec![
-            Notification {
+        // Add activities
+        state.set_activities(vec![
+            InboxActivity {
                 id: "1".to_string(),
-                workspace_id: "ws".to_string(),
+                activity_type: ActivityType::Assignment,
                 title: "First".to_string(),
                 description: "".to_string(),
-                created_at: Some(1000),
-                read_at: None,
-            },
-            Notification {
-                id: "2".to_string(),
+                timestamp: 1000,
+                task_id: None,
+                comment_id: None,
                 workspace_id: "ws".to_string(),
+                task_name: String::new(),
+                previous_status: None,
+                new_status: None,
+                due_date: None,
+            },
+            InboxActivity {
+                id: "2".to_string(),
+                activity_type: ActivityType::Comment,
                 title: "Second".to_string(),
                 description: "".to_string(),
-                created_at: Some(2000),
-                read_at: None,
+                timestamp: 2000,
+                task_id: None,
+                comment_id: None,
+                workspace_id: "ws".to_string(),
+                task_name: String::new(),
+                previous_status: None,
+                new_status: None,
+                due_date: None,
             },
         ]);
 

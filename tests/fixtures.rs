@@ -2,6 +2,8 @@
 
 use clickdown::models::comment::Comment;
 use clickdown::models::document::Document;
+use clickdown::models::notification::Notification;
+use clickdown::models::inbox_activity::{InboxActivity, ActivityType};
 use clickdown::models::task::Task;
 use clickdown::models::workspace::{Folder, List, Space, Workspace};
 
@@ -218,5 +220,145 @@ pub fn test_tasks_with_assignees() -> Vec<Task> {
             task.assignees = vec![test_user()];
             task
         },
+    ]
+}
+
+/// Create a test notification
+pub fn test_notification() -> Notification {
+    Notification {
+        id: "notif-1".to_string(),
+        workspace_id: "ws-1".to_string(),
+        title: "Task assigned to you".to_string(),
+        description: "You were assigned to 'Review pull request'".to_string(),
+        created_at: Some(1704067200000),
+        read_at: None,
+    }
+}
+
+/// Create a test notification that has been read
+pub fn test_notification_read() -> Notification {
+    Notification {
+        id: "notif-2".to_string(),
+        workspace_id: "ws-1".to_string(),
+        title: "Status change".to_string(),
+        description: "Task status changed to Complete".to_string(),
+        created_at: Some(1704153600000),
+        read_at: Some(1704240000000),
+    }
+}
+
+/// Create multiple test notifications
+pub fn test_notifications() -> Vec<Notification> {
+    vec![
+        Notification {
+            id: "notif-1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            title: "Task assigned to you".to_string(),
+            description: "You were assigned to 'Review pull request'".to_string(),
+            created_at: Some(1704067200000),
+            read_at: None,
+        },
+        Notification {
+            id: "notif-2".to_string(),
+            workspace_id: "ws-1".to_string(),
+            title: "Comment on task".to_string(),
+            description: "New comment on 'Deploy to production'".to_string(),
+            created_at: Some(1704153600000),
+            read_at: None,
+        },
+        Notification {
+            id: "notif-3".to_string(),
+            workspace_id: "ws-1".to_string(),
+            title: "Status change".to_string(),
+            description: "Task status changed to Complete".to_string(),
+            created_at: Some(1704240000000),
+            read_at: None,
+        },
+    ]
+}
+
+// ============================================================================
+// Inbox Activity Fixtures
+// ============================================================================
+
+/// Create a test inbox activity (assignment)
+pub fn test_inbox_activity_assignment() -> InboxActivity {
+    InboxActivity {
+        id: "activity-1".to_string(),
+        activity_type: ActivityType::Assignment,
+        title: "Task assigned to you".to_string(),
+        description: "You were assigned to 'Review pull request'".to_string(),
+        timestamp: 1704067200000,
+        task_id: Some("task-123".to_string()),
+        comment_id: None,
+        workspace_id: "ws-1".to_string(),
+        task_name: "Review pull request".to_string(),
+        previous_status: None,
+        new_status: None,
+        due_date: None,
+    }
+}
+
+/// Create a test inbox activity (comment)
+pub fn test_inbox_activity_comment() -> InboxActivity {
+    InboxActivity {
+        id: "activity-2".to_string(),
+        activity_type: ActivityType::Comment,
+        title: "New comment on task".to_string(),
+        description: "John added a comment: 'Looks good to me!'".to_string(),
+        timestamp: 1704153600000,
+        task_id: Some("task-456".to_string()),
+        comment_id: Some("comment-789".to_string()),
+        workspace_id: "ws-1".to_string(),
+        task_name: "Deploy to production".to_string(),
+        previous_status: None,
+        new_status: None,
+        due_date: None,
+    }
+}
+
+/// Create a test inbox activity (status change)
+pub fn test_inbox_activity_status_change() -> InboxActivity {
+    InboxActivity {
+        id: "activity-3".to_string(),
+        activity_type: ActivityType::StatusChange,
+        title: "Status changed".to_string(),
+        description: "Task status changed from 'In Progress' to 'Complete'".to_string(),
+        timestamp: 1704240000000,
+        task_id: Some("task-789".to_string()),
+        comment_id: None,
+        workspace_id: "ws-1".to_string(),
+        task_name: "Update documentation".to_string(),
+        previous_status: Some("In Progress".to_string()),
+        new_status: Some("Complete".to_string()),
+        due_date: None,
+    }
+}
+
+/// Create a test inbox activity (due date approaching)
+pub fn test_inbox_activity_due_date() -> InboxActivity {
+    InboxActivity {
+        id: "activity-4".to_string(),
+        activity_type: ActivityType::DueDate,
+        title: "Due date approaching".to_string(),
+        description: "Task is due in 2 days".to_string(),
+        timestamp: 1704326400000,
+        task_id: Some("task-999".to_string()),
+        comment_id: None,
+        workspace_id: "ws-1".to_string(),
+        task_name: "Submit quarterly report".to_string(),
+        previous_status: None,
+        new_status: None,
+        due_date: Some(1704499200000),
+    }
+}
+
+/// Create multiple test inbox activities
+pub fn test_inbox_activities() -> Vec<InboxActivity> {
+    vec![
+        test_inbox_activity_assignment(),
+        test_inbox_activity_comment(),
+        test_inbox_activity_status_change(),
+        test_inbox_activity_due_date(),
     ]
 }

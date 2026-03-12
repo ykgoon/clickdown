@@ -87,6 +87,12 @@ impl SidebarState {
         self.list.select_by(|item| item.id() == id)
     }
 
+    /// Select item by index (public for testing)
+    #[allow(dead_code)]
+    pub fn select(&mut self, index: Option<usize>) {
+        self.list.select(index);
+    }
+
     /// Get sidebar items
     pub fn items(&self) -> &[SidebarItem] {
         self.list.items()

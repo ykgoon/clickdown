@@ -1,11 +1,11 @@
 ---
-source: tests/snapshot_test.rs
+source: tests/snapshot_test_inbox.rs
 expression: snapshot
 ---
 ┌Inbox─────────────────────────────────────────────────────┐
-│  📋  Task assigned to you - You were assigned to 'Review p│
-│▶ 💬  Comment on task - New comment on 'Deploy to productio│
-│  🔄  Status change (Jan 03, 2024 00:00)                   │
+│▶ 🔄  Status changed - Task status changed from 'In Progres│
+│                                                          │
+│                                                          │
 │                                                          │
 │                                                          │
 │                                                          │

@@ -2,7 +2,7 @@
 
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
-    Folder, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
+    Folder, InboxActivityResponse, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
     User, Workspace,
 };
 use anyhow::Result;
@@ -120,7 +120,42 @@ pub trait ClickUpApi: Send + Sync {
     // ==================== Notifications ====================
 
     /// Get notifications for a workspace
+    /// Note: This endpoint doesn't exist in ClickUp API v2 - kept for backward compatibility
+    /// Use get_inbox_activity() instead for the smart inbox feature
     async fn get_notifications(&self, workspace_id: &str) -> Result<Vec<Notification>>;
+
+    // ==================== Smart Inbox / Activity Feed ====================
+
+    /// Get tasks assigned to a user with optional date filter
+    async fn get_tasks_assigned_to_user(
+        &self,
+        team_id: &str,
+        user_id: i32,
+        date_updated_gt: Option<i64>,
+    ) -> Result<Vec<Task>>;
+
+    /// Get comments for multiple tasks (batched fetch)
+    async fn get_comments_for_tasks(
+        &self,
+        task_ids: &[String],
+        date_created_gt: Option<i64>,
+    ) -> Result<Vec<Comment>>;
+
+    /// Get tasks with due dates before a specified timestamp
+    async fn get_tasks_with_due_dates(
+        &self,
+        team_id: &str,
+        due_date_before: i64,
+        date_updated_gt: Option<i64>,
+    ) -> Result<Vec<Task>>;
+
+    /// Get inbox activity by aggregating assignments, comments, status changes, and due dates
+    async fn get_inbox_activity(
+        &self,
+        team_id: &str,
+        user_id: i32,
+        since_timestamp: Option<i64>,
+    ) -> Result<crate::models::InboxActivityResponse>;
 
     // ==================== Assigned Tasks ====================
 

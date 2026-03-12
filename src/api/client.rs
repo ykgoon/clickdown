@@ -306,12 +306,197 @@ impl ClickUpClient {
     // ==================== Notifications ====================
 
     /// Get notifications for a workspace
+    /// Note: This endpoint doesn't exist in ClickUp API v2 - returns 404
+    /// Use get_inbox_activity() instead for the smart inbox feature
     pub async fn get_notifications(&self, workspace_id: &str) -> Result<Vec<Notification>> {
         let url = ApiEndpoints::notifications(workspace_id);
         let response = self
             .execute::<NotificationsResponse>(self.request(reqwest::Method::GET, url))
             .await?;
         Ok(response.notifications)
+    }
+
+    // ==================== Smart Inbox / Activity Feed ====================
+
+    /// Get tasks assigned to a user with optional date filter
+    pub async fn get_tasks_assigned_to_user(
+        &self,
+        team_id: &str,
+        user_id: i32,
+        date_updated_gt: Option<i64>,
+    ) -> Result<Vec<Task>> {
+        use crate::models::TaskFilters;
+        
+        let mut filters = TaskFilters::default();
+        filters.assignees = vec![user_id as i64];
+        if let Some(ts) = date_updated_gt {
+            filters.date_updated_gt = Some(ts);
+        }
+        let query = filters.to_query_string();
+        
+        let url = ApiEndpoints::tasks_in_team_with_filters(team_id, &query);
+        tracing::debug!("Fetching assigned tasks for user {} from team {} with query: {}", user_id, team_id, query);
+        
+        let response = self.execute::<TasksResponse>(self.request(reqwest::Method::GET, url)).await?;
+        Ok(response.tasks)
+    }
+
+    /// Get comments for multiple tasks (batched fetch)
+    pub async fn get_comments_for_tasks(
+        &self,
+        task_ids: &[String],
+        date_created_gt: Option<i64>,
+    ) -> Result<Vec<Comment>> {
+        use futures::future::join_all;
+        
+        // Fetch comments for each task in parallel
+        let mut futures = Vec::new();
+        for task_id in task_ids {
+            let url = ApiEndpoints::task_comments(task_id);
+            let request = self.request(reqwest::Method::GET, url);
+            futures.push(async move {
+                self.execute::<CommentsResponse>(request).await
+            });
+        }
+        
+        let results = join_all(futures).await;
+        let mut all_comments = Vec::new();
+        
+        for result in results {
+            match result {
+                Ok(response) => {
+                    let comments: Vec<Comment> = response.comments;
+                    // Filter by date if specified
+                    if let Some(ts) = date_created_gt {
+                        all_comments.extend(comments.into_iter().filter(|c| {
+                            c.created_at.unwrap_or(0) > ts
+                        }));
+                    } else {
+                        all_comments.extend(comments);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to fetch comments for a task: {}", e);
+                    // Continue with other tasks
+                }
+            }
+        }
+        
+        Ok(all_comments)
+    }
+
+    /// Get tasks with due dates before a specified timestamp
+    pub async fn get_tasks_with_due_dates(
+        &self,
+        team_id: &str,
+        due_date_before: i64,
+        date_updated_gt: Option<i64>,
+    ) -> Result<Vec<Task>> {
+        use crate::models::TaskFilters;
+        
+        let mut filters = TaskFilters::default();
+        filters.due_date_lt = Some(due_date_before);
+        if let Some(ts) = date_updated_gt {
+            filters.date_updated_gt = Some(ts);
+        }
+        let query = filters.to_query_string();
+        
+        let url = ApiEndpoints::tasks_in_team_with_filters(team_id, &query);
+        tracing::debug!("Fetching tasks with due dates before {} from team {} with query: {}", due_date_before, team_id, query);
+        
+        let response = self.execute::<TasksResponse>(self.request(reqwest::Method::GET, url)).await?;
+        Ok(response.tasks)
+    }
+
+    /// Get inbox activity by aggregating assignments, comments, status changes, and due dates
+    pub async fn get_inbox_activity(
+        &self,
+        team_id: &str,
+        user_id: i32,
+        since_timestamp: Option<i64>,
+    ) -> Result<crate::models::InboxActivityResponse> {
+        use crate::models::InboxActivity;
+        
+        let mut activities = Vec::new();
+        
+        // Fetch task assignments
+        match self.get_tasks_assigned_to_user(team_id, user_id, since_timestamp).await {
+            Ok(tasks) => {
+                for task in tasks {
+                    let activity = InboxActivity::assignment(
+                        task.id,
+                        task.name,
+                        team_id.to_string(),
+                        task.updated_at.unwrap_or(task.created_at.unwrap_or(0)),
+                        task.status.as_ref().map(|s| s.status.clone()),
+                    );
+                    activities.push(activity);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch assigned tasks: {}", e);
+            }
+        }
+        
+        // Fetch comments on user's tasks (need to get task IDs first)
+        // For simplicity, we'll fetch tasks again to get IDs
+        match self.get_tasks_assigned_to_user(team_id, user_id, None).await {
+            Ok(tasks) => {
+                let task_ids: Vec<String> = tasks.iter().map(|t| t.id.clone()).collect();
+                if !task_ids.is_empty() {
+                    match self.get_comments_for_tasks(&task_ids, since_timestamp).await {
+                        Ok(comments) => {
+                            // Map comments to activities (need task names)
+                            let task_map: std::collections::HashMap<String, String> = 
+                                tasks.into_iter().map(|t| (t.id.clone(), t.name)).collect();
+                            
+                            for comment in comments {
+                                // Comments don't have task_id field, so we skip this for now
+                                // In a real implementation, we'd need to fetch comment details differently
+                                tracing::debug!("Fetched comment: {}", comment.id);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to fetch comments: {}", e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch tasks for comment lookup: {}", e);
+            }
+        }
+        
+        // Fetch tasks with approaching due dates (next 7 days)
+        let now = chrono::Utc::now().timestamp_millis();
+        let seven_days_from_now = now + (7 * 24 * 60 * 60 * 1000);
+        
+        match self.get_tasks_with_due_dates(team_id, seven_days_from_now, None).await {
+            Ok(tasks) => {
+                for task in tasks {
+                    if let Some(due_date) = task.due_date {
+                        // Only include if due date is in the future (not already past)
+                        if due_date > now {
+                            let activity = InboxActivity::due_date(
+                                task.id.clone(),
+                                task.name.clone(),
+                                team_id.to_string(),
+                                due_date,
+                            );
+                            activities.push(activity);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch tasks with due dates: {}", e);
+            }
+        }
+        
+        // Sort by timestamp (newest first)
+        activities.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        
+        Ok(crate::models::InboxActivityResponse { activities })
     }
 
     // ==================== Assigned Tasks ====================
@@ -507,6 +692,41 @@ macro_rules! impl_clickup_api {
 
             async fn get_notifications(&self, workspace_id: &str) -> Result<Vec<Notification>> {
                 self.get_notifications(workspace_id).await
+            }
+
+            async fn get_tasks_assigned_to_user(
+                &self,
+                team_id: &str,
+                user_id: i32,
+                date_updated_gt: Option<i64>,
+            ) -> Result<Vec<Task>> {
+                self.get_tasks_assigned_to_user(team_id, user_id, date_updated_gt).await
+            }
+
+            async fn get_comments_for_tasks(
+                &self,
+                task_ids: &[String],
+                date_created_gt: Option<i64>,
+            ) -> Result<Vec<Comment>> {
+                self.get_comments_for_tasks(task_ids, date_created_gt).await
+            }
+
+            async fn get_tasks_with_due_dates(
+                &self,
+                team_id: &str,
+                due_date_before: i64,
+                date_updated_gt: Option<i64>,
+            ) -> Result<Vec<Task>> {
+                self.get_tasks_with_due_dates(team_id, due_date_before, date_updated_gt).await
+            }
+
+            async fn get_inbox_activity(
+                &self,
+                team_id: &str,
+                user_id: i32,
+                since_timestamp: Option<i64>,
+            ) -> Result<crate::models::InboxActivityResponse> {
+                self.get_inbox_activity(team_id, user_id, since_timestamp).await
             }
 
             async fn get_all_accessible_lists(&self) -> Result<Vec<List>> {

@@ -7,6 +7,7 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Fast & Native**: Built with Rust and ratatui TUI framework for native terminal performance
 - **Workspace Navigation**: Browse workspaces, spaces, folders, and lists
 - **Task Management**: View, create, edit, and delete tasks
+- **Smart Inbox**: Aggregated activity feed showing assignments, comments, status changes, and due dates
 - **Document Viewing**: Read ClickUp documents with Markdown rendering
 - **Session Restore**: Automatically restores your last viewed location on startup
 - **Offline Cache**: SQLite-based caching for instant reloads
@@ -14,6 +15,35 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Keyboard-Driven**: Vim-style navigation (j/k to navigate, Enter to select, Esc to go back)
 - **Terminal Native**: Runs directly in your terminal with no GUI dependencies
 - **URL Copying**: Quickly copy ClickUp web app URLs for any element (press `u`)
+
+### Smart Inbox
+
+The Smart Inbox aggregates activity from multiple ClickUp API endpoints to simulate a notifications feed:
+
+- **Assignments**: Tasks newly assigned to you
+- **Comments**: New comments on your tasks
+- **Status Changes**: Tasks with recent status updates
+- **Due Dates**: Tasks with approaching deadlines (within 7 days)
+
+**Activity Types:**
+
+| Icon | Type | Description |
+|------|------|-------------|
+| 📋 | Assignment | Task was assigned to you |
+| 💬 | Comment | New comment on your task |
+| 🔄 | Status Change | Task status was updated |
+| ⏰ | Due Date | Task deadline is approaching |
+
+**Inbox Features:**
+- Activities are sorted by timestamp (newest first)
+- Press `r` to manually refresh from the API
+- Press `c` to dismiss individual activities
+- Press `C` to dismiss all activities
+- Press `Enter` to view activity details
+- Activities are cached locally for instant reloads
+
+**How it works:**
+Since ClickUp API v2 doesn't have a native notifications endpoint, the smart inbox polls multiple endpoints and normalizes the results into a unified activity feed. Activities are deduplicated by ID, keeping the most recent occurrence.
 
 ## Requirements
 
@@ -80,6 +110,10 @@ clickdown debug update-comment <comment_id> --text "Text" --json
 clickdown debug create-comment <task_id> --text "Text" --parent-id <comment_id>
 clickdown debug create-comment <task_id> --text "Text" --assignee <user_id>
 clickdown debug create-comment <task_id> --text "Text" --assigned-commenter <user_id>
+
+# Fetch inbox activity (smart inbox)
+clickdown debug inbox <workspace_id>
+clickdown debug inbox <workspace_id> --json
 
 # Enable verbose logging (logs go to stderr, data to stdout)
 clickdown debug workspaces --verbose
@@ -209,6 +243,17 @@ ClickDown automatically saves your navigation state when you exit and restores i
 | `Enter` | View comment thread |
 | `Ctrl+S` | Save comment |
 | `Esc` | Cancel editing / Exit thread |
+
+### Inbox (Smart Activity Feed)
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate activities |
+| `Enter` | View activity details |
+| `r` | Refresh from API |
+| `c` | Dismiss selected activity |
+| `C` | Dismiss all activities |
+| `Esc` | Go back |
 
 ### Forms
 

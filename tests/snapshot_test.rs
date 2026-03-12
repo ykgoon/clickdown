@@ -9,7 +9,7 @@
 
 mod fixtures;
 
-use clickdown::models::{Notification, Task};
+use clickdown::models::{ActivityType, InboxActivity, Notification, Task};
 use clickdown::tui::layout::{generate_screen_title, TuiLayout};
 use clickdown::tui::widgets::{
     auth::{render_auth, AuthState},
@@ -573,32 +573,50 @@ fn test_document_view_with_content() {
 // Inbox View Widget Snapshot Tests (Task 3.7)
 // ============================================================================
 
-/// Create test notifications for inbox snapshots
-fn create_test_notifications() -> Vec<Notification> {
+/// Create test inbox activities for inbox snapshots
+fn create_test_inbox_activities() -> Vec<InboxActivity> {
     vec![
-        Notification {
-            id: "notif-1".to_string(),
-            workspace_id: "ws-1".to_string(),
+        InboxActivity {
+            id: "activity-1".to_string(),
+            activity_type: ActivityType::Assignment,
             title: "Task assigned to you".to_string(),
             description: "You were assigned to 'Review pull request'".to_string(),
-            created_at: Some(1704067200000),
-            read_at: None,
-        },
-        Notification {
-            id: "notif-2".to_string(),
+            timestamp: 1704067200000,
+            task_id: Some("task-123".to_string()),
+            comment_id: None,
             workspace_id: "ws-1".to_string(),
+            task_name: "Review pull request".to_string(),
+            previous_status: None,
+            new_status: None,
+            due_date: None,
+        },
+        InboxActivity {
+            id: "activity-2".to_string(),
+            activity_type: ActivityType::Comment,
             title: "Comment on task".to_string(),
             description: "New comment on 'Deploy to production'".to_string(),
-            created_at: Some(1704153600000),
-            read_at: None,
-        },
-        Notification {
-            id: "notif-3".to_string(),
+            timestamp: 1704153600000,
+            task_id: Some("task-456".to_string()),
+            comment_id: Some("comment-789".to_string()),
             workspace_id: "ws-1".to_string(),
+            task_name: "Deploy to production".to_string(),
+            previous_status: None,
+            new_status: None,
+            due_date: None,
+        },
+        InboxActivity {
+            id: "activity-3".to_string(),
+            activity_type: ActivityType::StatusChange,
             title: "Status change".to_string(),
             description: "".to_string(),
-            created_at: Some(1704240000000),
-            read_at: Some(1704326400000),
+            timestamp: 1704240000000,
+            task_id: Some("task-789".to_string()),
+            comment_id: None,
+            workspace_id: "ws-1".to_string(),
+            task_name: "Update documentation".to_string(),
+            previous_status: Some("In Progress".to_string()),
+            new_status: Some("Complete".to_string()),
+            due_date: None,
         },
     ]
 }
@@ -614,11 +632,11 @@ fn test_inbox_view_empty() {
 }
 
 #[test]
-fn test_inbox_view_with_notifications() {
+fn test_inbox_view_with_activities() {
     let mut inbox = InboxListState::new();
-    inbox.set_notifications(create_test_notifications());
+    inbox.set_activities(create_test_inbox_activities());
 
-    assert_widget_snapshot("inbox_view_with_notifications", 60, 15, |frame| {
+    assert_widget_snapshot("inbox_view_with_activities", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
         render_inbox_list(frame, area, &mut inbox, false);
     });
@@ -627,7 +645,7 @@ fn test_inbox_view_with_notifications() {
 #[test]
 fn test_inbox_view_with_selection() {
     let mut inbox = InboxListState::new();
-    inbox.set_notifications(create_test_notifications());
+    inbox.set_activities(create_test_inbox_activities());
     inbox.list_state.select(Some(1));
 
     assert_widget_snapshot("inbox_view_with_selection", 60, 15, |frame| {

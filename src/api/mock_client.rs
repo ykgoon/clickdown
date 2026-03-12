@@ -3,7 +3,7 @@
 use crate::api::client_trait::ClickUpApi;
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
-    Folder, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
+    Folder, InboxActivityResponse, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
     User, Workspace,
 };
 use anyhow::{anyhow, Result};
@@ -84,6 +84,14 @@ pub struct MockClickUpClient {
     pub update_comment_response: Option<Result<Comment>>,
     /// Override for get_notifications response
     pub notifications_response: Option<Result<Vec<Notification>>>,
+    /// Override for get_tasks_assigned_to_user response
+    pub tasks_assigned_to_user_response: Option<Result<Vec<Task>>>,
+    /// Override for get_comments_for_tasks response
+    pub comments_for_tasks_response: Option<Result<Vec<Comment>>>,
+    /// Override for get_tasks_with_due_dates response
+    pub tasks_with_due_dates_response: Option<Result<Vec<Task>>>,
+    /// Override for get_inbox_activity response
+    pub inbox_activity_response: Option<Result<crate::models::InboxActivityResponse>>,
     /// Override for get_all_accessible_lists response
     pub accessible_lists_response: Option<Result<Vec<List>>>,
     /// Override for get_tasks_with_assignee response
@@ -116,6 +124,10 @@ impl MockClickUpClient {
             create_comment_reply_response: None,
             update_comment_response: None,
             notifications_response: None,
+            tasks_assigned_to_user_response: None,
+            comments_for_tasks_response: None,
+            tasks_with_due_dates_response: None,
+            inbox_activity_response: None,
             accessible_lists_response: None,
             tasks_with_assignee_response: None,
             current_user_response: None,
@@ -243,6 +255,43 @@ impl MockClickUpClient {
     /// Set the notifications error
     pub fn with_notifications_error(mut self, error: String) -> Self {
         self.notifications_response = Some(Err(anyhow!(error)));
+        self
+    }
+
+    /// Set the inbox activity response
+    pub fn with_inbox_activities(mut self, activities: Vec<crate::models::InboxActivity>) -> Self {
+        use crate::models::InboxActivityResponse;
+        self.inbox_activity_response = Some(Ok(InboxActivityResponse { activities }));
+        self
+    }
+
+    /// Set the inbox activity error
+    pub fn with_inbox_activity_error(mut self, error: String) -> Self {
+        self.inbox_activity_response = Some(Err(anyhow!(error)));
+        self
+    }
+
+    /// Set the tasks assigned to user response
+    pub fn with_tasks_assigned_to_user(mut self, tasks: Vec<Task>) -> Self {
+        self.tasks_assigned_to_user_response = Some(Ok(tasks));
+        self
+    }
+
+    /// Set the comments for tasks response
+    pub fn with_comments_for_tasks(mut self, comments: Vec<Comment>) -> Self {
+        self.comments_for_tasks_response = Some(Ok(comments));
+        self
+    }
+
+    /// Set the tasks with due dates response
+    pub fn with_tasks_with_due_dates(mut self, tasks: Vec<Task>) -> Self {
+        self.tasks_with_due_dates_response = Some(Ok(tasks));
+        self
+    }
+
+    /// Set the inbox activity response
+    pub fn with_inbox_activity(mut self, activities: crate::models::InboxActivityResponse) -> Self {
+        self.inbox_activity_response = Some(Ok(activities));
         self
     }
 
@@ -409,6 +458,44 @@ impl ClickUpApi for MockClickUpClient {
 
     async fn get_notifications(&self, _workspace_id: &str) -> Result<Vec<Notification>> {
         return_vec_response(&self.notifications_response)
+    }
+
+    async fn get_tasks_assigned_to_user(
+        &self,
+        _team_id: &str,
+        _user_id: i32,
+        _date_updated_gt: Option<i64>,
+    ) -> Result<Vec<Task>> {
+        return_vec_response(&self.tasks_assigned_to_user_response)
+    }
+
+    async fn get_comments_for_tasks(
+        &self,
+        _task_ids: &[String],
+        _date_created_gt: Option<i64>,
+    ) -> Result<Vec<Comment>> {
+        return_vec_response(&self.comments_for_tasks_response)
+    }
+
+    async fn get_tasks_with_due_dates(
+        &self,
+        _team_id: &str,
+        _due_date_before: i64,
+        _date_updated_gt: Option<i64>,
+    ) -> Result<Vec<Task>> {
+        return_vec_response(&self.tasks_with_due_dates_response)
+    }
+
+    async fn get_inbox_activity(
+        &self,
+        _team_id: &str,
+        _user_id: i32,
+        _since_timestamp: Option<i64>,
+    ) -> Result<crate::models::InboxActivityResponse> {
+        return_response(
+            &self.inbox_activity_response,
+            "Inbox activity not configured",
+        )
     }
 
     async fn get_all_accessible_lists(&self) -> Result<Vec<List>> {
