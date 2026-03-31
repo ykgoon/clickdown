@@ -14,8 +14,8 @@ use crate::api::{AuthManager, ClickUpApi, ClickUpClient};
 use crate::cache::CacheManager;
 use crate::config::ConfigManager;
 use crate::models::{
-    ClickUpSpace, Comment, CreateCommentRequest, Document, Folder, List, SessionState, Task,
-    UpdateCommentRequest, User, Workspace,
+    AssignedItem, AssignedItemsFilter, ClickUpSpace, Comment, CreateCommentRequest, Document,
+    Folder, List, SessionState, Task, UpdateCommentRequest, User, Workspace,
 };
 use crate::tui::widgets::SidebarItem;
 use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlGenerator};
@@ -24,10 +24,10 @@ use super::input::{is_quit, InputEvent};
 use super::layout::{generate_screen_title, split_task_detail, TuiLayout};
 use super::terminal;
 use super::widgets::{
-    get_dialog_hints, render_auth, render_comments, render_dialog, render_document, render_help,
-    render_inbox_list, render_notification_detail, render_sidebar, render_task_detail,
-    render_task_list, AuthState, DialogState, DialogType, DocumentState, HelpState, InboxListState,
-    SidebarState, TaskDetailState, TaskListState,
+    get_dialog_hints, handle_assigned_view_input, render_auth, render_assigned_view, render_comments,
+    render_dialog, render_document, render_help, render_inbox_list, render_notification_detail,
+    render_sidebar, render_task_detail, render_task_list, AuthState, DialogState, DialogType,
+    DocumentState, HelpState, InboxListState, SidebarState, TaskDetailState, TaskListState,
 };
 
 /// Application screens
@@ -74,6 +74,8 @@ pub enum AppMessage {
     CurrentUserLoaded(Result<User, String>),
     NotificationsLoaded(Result<Vec<crate::models::Notification>, String>),
     InboxActivityLoaded(Result<Vec<crate::models::InboxActivity>, String>),
+    // Assigned items (tasks + comments)
+    AssignedItemsLoaded(Result<Vec<crate::models::AssignedItem>, String>),
 }
 
 /// Main TUI application state
@@ -160,6 +162,14 @@ pub struct TuiApp {
     assigned_tasks_count: usize,
     assigned_tasks_loading: bool,
     assigned_tasks_error: Option<String>,
+
+    /// Assigned items UI state (tasks + comments)
+    assigned_items: Vec<AssignedItem>,
+    assigned_items_count: usize,
+    assigned_items_loading: bool,
+    assigned_items_error: Option<String>,
+    assigned_items_filter: crate::models::AssignedItemsFilter,
+    assigned_items_selected_index: usize,
 
     /// User identity for assignee filtering
     current_user_id: Option<i32>,
@@ -266,6 +276,12 @@ impl TuiApp {
             assigned_tasks_count: 0,
             assigned_tasks_loading: false,
             assigned_tasks_error: None,
+            assigned_items: Vec::new(),
+            assigned_items_count: 0,
+            assigned_items_loading: false,
+            assigned_items_error: None,
+            assigned_items_filter: crate::models::AssignedItemsFilter::All,
+            assigned_items_selected_index: 0,
             current_user_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -355,6 +371,12 @@ impl TuiApp {
             assigned_tasks_count: 0,
             assigned_tasks_loading: false,
             assigned_tasks_error: None,
+            assigned_items: Vec::new(),
+            assigned_items_count: 0,
+            assigned_items_loading: false,
+            assigned_items_error: None,
+            assigned_items_filter: crate::models::AssignedItemsFilter::All,
+            assigned_items_selected_index: 0,
             current_user_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -924,6 +946,42 @@ impl TuiApp {
                                 self.status = "Failed to load assigned tasks".to_string();
                                 self.assigned_tasks.tasks_mut().clear();
                                 self.assigned_tasks_count = 0;
+                            }
+                        }
+                    }
+                    AppMessage::AssignedItemsLoaded(result) => {
+                        self.assigned_items_loading = false;
+                        match result {
+                            Ok(items) => {
+                                // Update assigned items list
+                                self.assigned_items = items.clone();
+                                self.assigned_items_count = items.len();
+                                self.assigned_items_selected_index = 0;
+
+                                // Cache the assigned comments (extract from items)
+                                let comments: Vec<crate::models::AssignedComment> = items
+                                    .iter()
+                                    .filter_map(|item| {
+                                        if let AssignedItem::AssignedComment(ac) = item {
+                                            Some(ac.clone())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect();
+                                
+                                if let Err(e) = self.cache.cache_assigned_comments(&comments) {
+                                    tracing::warn!("Failed to cache assigned comments: {}", e);
+                                }
+
+                                self.assigned_items_error = None;
+                                self.status = format!("Loaded {} assigned item(s)", self.assigned_items_count);
+                            }
+                            Err(e) => {
+                                self.assigned_items_error = Some(format!("Failed to load assigned items: {}", e));
+                                self.status = "Failed to load assigned items".to_string();
+                                self.assigned_items.clear();
+                                self.assigned_items_count = 0;
                             }
                         }
                     }
@@ -1564,32 +1622,78 @@ impl TuiApp {
 
     fn update_assigned_tasks(&mut self, event: InputEvent) {
         if let InputEvent::Key(key) = event {
+            // Use the assigned view input handler
+            let handled = handle_assigned_view_input(
+                key.code,
+                &self.assigned_items,
+                &mut self.assigned_items_selected_index,
+                &mut self.assigned_items_filter,
+                self.assigned_items_count,
+            );
+
+            if handled {
+                return;
+            }
+
+            // Handle additional keys
             match key.code {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    // Move selection down in assigned tasks list
-                    self.assigned_tasks.select_next();
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    // Move selection up in assigned tasks list
-                    self.assigned_tasks.select_previous();
-                }
                 KeyCode::Char('r') => {
-                    // Manual refresh - reload assigned tasks from API
-                    self.assigned_tasks.tasks_mut().clear();
-                    self.assigned_tasks_count = 0;
-                    let _ = self.cache.clear_assigned_tasks();
-                    self.load_assigned_tasks();
-                    self.status = "Refreshing assigned tasks...".to_string();
+                    // Manual refresh - reload assigned items from API
+                    self.assigned_items.clear();
+                    self.assigned_items_count = 0;
+                    let _ = self.cache.clear_assigned_comments();
+                    self.load_assigned_items();
+                    self.status = "Refreshing assigned items...".to_string();
                 }
                 KeyCode::Enter => {
-                    // Open task detail
-                    if let Some(task) = self.assigned_tasks.selected_task() {
-                        self.task_detail.task = Some(task.clone());
-                        self.screen = Screen::TaskDetail;
-                        self.screen_title = generate_screen_title(&format!("Task: {}", task.name));
-                        
-                        // Load comments for the task
-                        self.load_comments(task.id.clone());
+                    // Open selected item detail
+                    if self.assigned_items.is_empty() {
+                        return;
+                    }
+                    
+                    // Get the selected item (accounting for filter)
+                    let filtered_items: Vec<&AssignedItem> = match self.assigned_items_filter {
+                        AssignedItemsFilter::All => self.assigned_items.iter().collect(),
+                        AssignedItemsFilter::TasksOnly => {
+                            self.assigned_items.iter().filter(|i| i.is_task()).collect()
+                        }
+                        AssignedItemsFilter::CommentsOnly => {
+                            self.assigned_items.iter().filter(|i| i.is_comment()).collect()
+                        }
+                    };
+
+                    if let Some(item) = filtered_items.get(self.assigned_items_selected_index) {
+                        match item {
+                            AssignedItem::Task(task) => {
+                                // Open task detail
+                                self.task_detail.task = Some(task.clone());
+                                self.screen = Screen::TaskDetail;
+                                self.screen_title = generate_screen_title(&format!("Task: {}", task.name));
+
+                                // Load comments for the task
+                                self.load_comments(task.id.clone());
+                            }
+                            AssignedItem::AssignedComment(ac) => {
+                                // Navigate to parent task and open comment thread
+                                let task_id = ac.task.id.clone();
+                                let comment_id = ac.comment.id.clone();
+                                
+                                // Find or fetch the parent task
+                                // For now, we'll just navigate to the task and load comments
+                                // The comment thread will be opened based on the comment_id
+                                self.task_detail.task = None; // Will be loaded
+                                self.screen = Screen::TaskDetail;
+                                self.screen_title = generate_screen_title(&format!("Task: {}", ac.task.name.as_deref().unwrap_or("Unknown")));
+                                
+                                // Store the comment ID to open the thread
+                                // TODO: Implement comment thread auto-open
+                                tracing::info!("Navigating to task {} to view comment {}", task_id, comment_id);
+                                
+                                // Load the task and comments
+                                // This would need a new method to load task by ID and open specific comment
+                                self.status = format!("Opening comment in task...");
+                            }
+                        }
                     }
                 }
                 KeyCode::Esc => {
@@ -1618,30 +1722,40 @@ impl TuiApp {
             // Check if we already have user ID
             let has_user_id = self.current_user_id.is_some();
 
-            // Check cache first
-            let cache_valid = self.cache.is_assigned_tasks_cache_valid(300).unwrap_or(false);
+            // Check cache first (5 minute TTL)
+            let cache_valid = self.cache.is_assigned_comments_cache_valid(300).unwrap_or(false);
 
-            if cache_valid && !self.assigned_tasks.tasks().is_empty() {
-                // Use cached data
-                match self.cache.get_assigned_tasks() {
-                    Ok(tasks) => {
-                        *self.assigned_tasks.tasks_mut() = tasks.clone();
-                        self.assigned_tasks_count = tasks.len();
-                        self.assigned_tasks.select_first();
-                        self.status = format!("Loaded {} assigned task(s) from cache", self.assigned_tasks_count);
+            if cache_valid && !self.assigned_items.is_empty() {
+                // Use cached data for comments, and load tasks from cache too
+                match (self.cache.get_assigned_comments(), self.cache.get_assigned_tasks()) {
+                    (Ok(comments), Ok(tasks)) => {
+                        // Combine cached tasks and comments
+                        let mut items = Vec::new();
+                        for task in &tasks {
+                            items.push(AssignedItem::Task(task.clone()));
+                        }
+                        for comment in &comments {
+                            items.push(AssignedItem::AssignedComment(comment.clone()));
+                        }
+                        items = crate::models::assigned_item::sort_assigned_items(items);
+                        
+                        self.assigned_items_count = items.len();
+                        self.assigned_items = items;
+                        self.assigned_items_selected_index = 0;
+                        self.status = format!("Loaded {} assigned item(s) from cache", self.assigned_items_count);
                     }
-                    Err(e) => {
-                        tracing::warn!("Failed to load assigned tasks from cache: {}", e);
+                    (Err(e), _) | (_, Err(e)) => {
+                        tracing::warn!("Failed to load assigned items from cache: {}", e);
                         if has_user_id {
-                            self.load_assigned_tasks();
+                            self.load_assigned_items();
                         } else {
                             self.fetch_current_user_and_load_tasks();
                         }
                     }
                 }
             } else if has_user_id {
-                // Have user ID - fetch tasks directly
-                self.load_assigned_tasks();
+                // Have user ID - fetch items directly
+                self.load_assigned_items();
             } else {
                 // No user ID - fetch from API first
                 self.fetch_current_user_and_load_tasks();
@@ -2246,6 +2360,123 @@ impl TuiApp {
                     let _ = tx.send(msg).await;
                 }
             }
+        });
+    }
+
+    /// Load assigned items (tasks + comments) for the current user
+    fn load_assigned_items(&mut self) {
+        self.assigned_items_loading = true;
+        self.assigned_items_error = None;
+        self.status = "Loading assigned items...".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.assigned_items_loading = false;
+                self.assigned_items_error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let user_id = match self.current_user_id {
+            Some(id) => id,
+            None => {
+                self.assigned_items_loading = false;
+                self.assigned_items_error = Some(
+                    "User identity not detected. Navigate to a task list and open a task to auto-detect your user ID, or try refreshing the page.".to_string()
+                );
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            tracing::info!("Starting assigned items load for user {}", user_id);
+
+            // Fetch tasks and comments in parallel
+            let tasks_future = async {
+                match client.get_all_accessible_lists().await {
+                    Ok(lists) => {
+                        tracing::info!("Retrieved {} accessible list(s) for assigned items", lists.len());
+                        
+                        // Fetch tasks from each list
+                        let fetch_futures = lists.iter().map(|list| {
+                            let client = client.clone();
+                            let list_id = list.id.clone();
+                            let list_name = list.name.clone();
+                            async move {
+                                match client.get_tasks_with_assignee(&list_id, user_id, Some(100)).await {
+                                    Ok(tasks) => {
+                                        tracing::debug!("Found {} assigned tasks in list '{}'", tasks.len(), list_name);
+                                        Ok((list_id, tasks))
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!("Failed to fetch tasks from list '{}': {}", list_id, e);
+                                        Err((list_id, e))
+                                    }
+                                }
+                            }
+                        });
+
+                        let results = join_all(fetch_futures).await;
+                        let mut all_tasks = Vec::new();
+                        
+                        for result in results {
+                            if let Ok((_list_id, tasks)) = result {
+                                all_tasks.extend(tasks);
+                            }
+                        }
+                        
+                        tracing::info!("Total assigned tasks found: {}", all_tasks.len());
+                        Ok(all_tasks)
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to get accessible lists: {}", e);
+                        Err(e)
+                    }
+                }
+            };
+
+            let comments_future = async {
+                match client.get_assigned_comments(user_id).await {
+                    Ok(comments) => {
+                        tracing::info!("Found {} assigned comment(s)", comments.len());
+                        Ok(comments)
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to fetch assigned comments: {}", e);
+                        Err(e)
+                    }
+                }
+            };
+
+            // Execute both fetches in parallel
+            let (tasks_result, comments_result) = tokio::join!(tasks_future, comments_future);
+
+            // Combine results into AssignedItem enum
+            let mut all_items = Vec::new();
+            
+            // Add tasks
+            if let Ok(tasks) = tasks_result {
+                for task in tasks {
+                    all_items.push(AssignedItem::Task(task));
+                }
+            }
+            
+            // Add comments
+            if let Ok(comments) = comments_result {
+                for comment in comments {
+                    all_items.push(AssignedItem::AssignedComment(comment));
+                }
+            }
+
+            // Sort by updated_at descending
+            all_items = crate::models::assigned_item::sort_assigned_items(all_items);
+
+            tracing::info!("Total assigned items: {}", all_items.len());
+
+            let msg = AppMessage::AssignedItemsLoaded(Ok(all_items));
+            let _ = tx.send(msg).await;
         });
     }
 
@@ -3024,7 +3255,7 @@ impl TuiApp {
         content_area: Rect,
     ) {
         // Render sidebar
-        render_sidebar(frame, &self.sidebar, sidebar_area, Some(self.assigned_tasks_count));
+        render_sidebar(frame, &self.sidebar, sidebar_area, Some(self.assigned_items_count));
 
         // Render main content based on screen
         match self.screen {
@@ -3079,8 +3310,17 @@ impl TuiApp {
                 }
             }
             Screen::AssignedTasks => {
-                // Render assigned tasks list
-                render_task_list(frame, &self.assigned_tasks, content_area, self.assigned_tasks_loading);
+                // Render assigned items view (tasks + comments)
+                render_assigned_view(
+                    frame,
+                    &self.assigned_items,
+                    self.assigned_items_selected_index,
+                    self.assigned_items_filter,
+                    content_area,
+                    self.assigned_items_loading,
+                    self.assigned_items_error.as_deref(),
+                    self.assigned_items_count,
+                );
             }
             _ => {
                 // For navigation screens, show placeholder

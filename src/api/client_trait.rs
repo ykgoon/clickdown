@@ -176,4 +176,16 @@ pub trait ClickUpApi: Send + Sync {
         user_id: i32,
         limit: Option<i32>,
     ) -> Result<Vec<Task>>;
+
+    // ==================== Assigned Comments ====================
+
+    /// Get comments assigned to a specific user from a task
+    async fn get_comments_with_assigned_commenter(
+        &self,
+        task_id: &str,
+        user_id: i32,
+    ) -> Result<Vec<Comment>>;
+
+    /// Get all comments assigned to a user across all accessible lists
+    async fn get_assigned_comments(&self, user_id: i32) -> Result<Vec<crate::models::AssignedComment>>;
 }

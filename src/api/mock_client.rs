@@ -98,6 +98,8 @@ pub struct MockClickUpClient {
     pub tasks_with_assignee_response: Option<Result<Vec<Task>>>,
     /// Override for get_current_user response
     pub current_user_response: Option<Result<User>>,
+    /// Override for get_assigned_comments response
+    pub assigned_comments_response: Option<Result<Vec<crate::models::AssignedComment>>>,
 }
 
 #[allow(dead_code)]
@@ -131,6 +133,7 @@ impl MockClickUpClient {
             accessible_lists_response: None,
             tasks_with_assignee_response: None,
             current_user_response: None,
+            assigned_comments_response: None,
         }
     }
     /// Set the workspaces response
@@ -316,6 +319,21 @@ impl MockClickUpClient {
     /// Set the current user error
     pub fn with_current_user_error(mut self, error: String) -> Self {
         self.current_user_response = Some(Err(anyhow!(error)));
+        self
+    }
+
+    /// Set the assigned comments response
+    pub fn with_assigned_comments_response(
+        mut self,
+        comments: Vec<crate::models::AssignedComment>,
+    ) -> Self {
+        self.assigned_comments_response = Some(Ok(comments));
+        self
+    }
+
+    /// Set the assigned comments error
+    pub fn with_assigned_comments_error(mut self, error: String) -> Self {
+        self.assigned_comments_response = Some(Err(anyhow!(error)));
         self
     }
 }
@@ -544,5 +562,26 @@ impl ClickUpApi for MockClickUpClient {
         _limit: Option<i32>,
     ) -> Result<Vec<Task>> {
         return_vec_response(&self.tasks_with_assignee_response)
+    }
+
+    async fn get_comments_with_assigned_commenter(
+        &self,
+        _task_id: &str,
+        _user_id: i32,
+    ) -> Result<Vec<Comment>> {
+        // For mock, return empty vec by default
+        // Tests can use task_comments_response and filter manually if needed
+        Ok(vec![])
+    }
+
+    async fn get_assigned_comments(
+        &self,
+        _user_id: i32,
+    ) -> Result<Vec<crate::models::AssignedComment>> {
+        match &self.assigned_comments_response {
+            Some(Ok(comments)) => Ok(comments.clone()),
+            Some(Err(e)) => Err(anyhow!(e.to_string())),
+            None => Ok(vec![]),
+        }
     }
 }

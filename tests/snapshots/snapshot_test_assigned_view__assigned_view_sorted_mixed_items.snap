@@ -1,13 +1,13 @@
 ---
-source: tests/snapshot_test.rs
+source: tests/snapshot_test_assigned_view.rs
 expression: snapshot
 ---
-┌Inbox─────────────────────────────────────────────────────┐
-│  📋  Task assigned to you - You were assigned to 'Review p│
-│▶ 💬  Comment on task - New comment on 'Deploy to productio│
-│  🔄  Status change (Jan 03, 2024 08:00)                   │
-│                                                          │
-│                                                          │
+┌Assigned to Me (5 items) | Filter: All────────────────────┐
+│💬  This is urgent, please prioritize (in: Fix bug in task │
+│💬  Please review this when you get a chance (in: Review Q2│
+│✓ Review Q2 planning doc []                               │
+│✓ Fix bug in task filtering []                            │
+│✓ Update API documentation []                             │
 │                                                          │
 │                                                          │
 │                                                          │

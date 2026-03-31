@@ -583,6 +583,103 @@ impl ClickUpClient {
 
         Ok(tasks)
     }
+
+    // ==================== Assigned Comments ====================
+
+    /// Get comments where a specific user is listed as an assigned commenter
+    pub async fn get_comments_with_assigned_commenter(
+        &self,
+        task_id: &str,
+        user_id: i32,
+    ) -> Result<Vec<Comment>> {
+        // Fetch all comments for the task
+        let all_comments = self.get_task_comments(task_id).await?;
+        
+        // Filter for comments where the user is an assigned commenter
+        let assigned_comments: Vec<Comment> = all_comments
+            .into_iter()
+            .filter(|comment| {
+                comment.assigned_commenter.as_ref().map_or(false, |u| u.id as i32 == user_id)
+            })
+            .collect();
+        
+        tracing::debug!(
+            "Found {} assigned comments for user {} on task {}",
+            assigned_comments.len(),
+            user_id,
+            task_id
+        );
+        
+        Ok(assigned_comments)
+    }
+
+    /// Get all comments assigned to a user across all accessible lists
+    pub async fn get_assigned_comments(
+        &self,
+        user_id: i32,
+    ) -> Result<Vec<crate::models::AssignedComment>> {
+        use crate::models::{AssignedComment, TaskReference};
+        
+        let mut all_assigned_comments = Vec::new();
+        
+        // Get all accessible lists
+        let lists = self.get_all_accessible_lists().await?;
+        tracing::info!("Fetching assigned comments from {} list(s)", lists.len());
+        
+        // For each list, we need to get tasks and then fetch comments for each task
+        // This is inefficient but the ClickUp API doesn't provide a direct way to search
+        // for comments by assigned_commenter across all tasks
+        // TODO: Optimize with batch comment fetching if API supports it
+        for list in &lists {
+            tracing::debug!("Fetching tasks from list '{}' (id={})", list.name, list.id);
+            
+            // Get tasks from this list (we need task IDs to fetch comments)
+            // Use a reasonable limit to avoid too many API calls
+            let mut filters = TaskFilters::default();
+            filters.limit = Some(50); // Limit tasks per list
+            
+            let tasks = match self.get_tasks(&list.id, &filters).await {
+                Ok(tasks) => tasks,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch tasks from list {}: {}", list.id, e);
+                    continue;
+                }
+            };
+            
+            tracing::debug!("  Found {} task(s) in list '{}'", tasks.len(), list.name);
+            
+            // For each task, fetch comments and filter by assigned commenter
+            for task in &tasks {
+                match self.get_comments_with_assigned_commenter(&task.id, user_id).await {
+                    Ok(comments) => {
+                        for comment in comments {
+                            all_assigned_comments.push(AssignedComment {
+                                comment: comment.clone(),
+                                task: TaskReference {
+                                    id: task.id.clone(),
+                                    name: Some(task.name.clone()),
+                                },
+                                assigned_at: comment.created_at,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to fetch assigned comments for task {}: {}",
+                            task.id,
+                            e
+                        );
+                    }
+                }
+            }
+        }
+        
+        tracing::info!(
+            "Total assigned comments found: {}",
+            all_assigned_comments.len()
+        );
+        Ok(all_assigned_comments)
+    }
 }
 
 /// Macro to generate trait implementation that delegates to inherent methods
@@ -740,6 +837,21 @@ macro_rules! impl_clickup_api {
                 limit: Option<i32>,
             ) -> Result<Vec<Task>> {
                 self.get_tasks_with_assignee(list_id, user_id, limit).await
+            }
+
+            async fn get_comments_with_assigned_commenter(
+                &self,
+                task_id: &str,
+                user_id: i32,
+            ) -> Result<Vec<Comment>> {
+                self.get_comments_with_assigned_commenter(task_id, user_id).await
+            }
+
+            async fn get_assigned_comments(
+                &self,
+                user_id: i32,
+            ) -> Result<Vec<crate::models::AssignedComment>> {
+                self.get_assigned_comments(user_id).await
             }
         }
     };

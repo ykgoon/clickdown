@@ -77,6 +77,8 @@ pub enum DebugOperation {
     Notifications { workspace_id: String },
     /// Get assigned tasks for current user
     AssignedTasks,
+    /// Get assigned comments for current user
+    AssignedComments,
 }
 
 /// Parse CLI arguments from environment
@@ -351,6 +353,12 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                 }
                 operation = Some(DebugOperation::AssignedTasks);
             }
+            "assigned-comments" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                operation = Some(DebugOperation::AssignedComments);
+            }
             "--help" | "-h" => {
                 operation = Some(DebugOperation::Help);
             }
@@ -422,6 +430,7 @@ pub fn print_usage() {
     eprintln!("    update-comment <comment_id> Update an existing comment (--text required)");
     eprintln!("    notifications <workspace_id>  Get notifications for a workspace");
     eprintln!("    assigned-tasks          Get all tasks assigned to current user");
+    eprintln!("    assigned-comments       Get all comments assigned to current user");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("    --json                  Output in JSON format");
@@ -461,6 +470,8 @@ pub fn print_usage() {
     eprintln!("    clickdown debug notifications 26408409 --json");
     eprintln!("    clickdown debug assigned-tasks --json");
     eprintln!("    clickdown debug assigned-tasks --verbose");
+    eprintln!("    clickdown debug assigned-comments --json");
+    eprintln!("    clickdown debug assigned-comments --verbose");
 }
 
 #[cfg(test)]

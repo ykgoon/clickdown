@@ -7,6 +7,7 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Fast & Native**: Built with Rust and ratatui TUI framework for native terminal performance
 - **Workspace Navigation**: Browse workspaces, spaces, folders, and lists
 - **Task Management**: View, create, edit, and delete tasks
+- **Assigned to Me**: Unified view showing tasks AND comments assigned to you across all workspaces
 - **Smart Inbox**: Aggregated activity feed showing assignments, comments, status changes, and due dates
 - **Document Viewing**: Read ClickUp documents with Markdown rendering
 - **Session Restore**: Automatically restores your last viewed location on startup
@@ -44,6 +45,37 @@ The Smart Inbox aggregates activity from multiple ClickUp API endpoints to simul
 
 **How it works:**
 Since ClickUp API v2 doesn't have a native notifications endpoint, the smart inbox polls multiple endpoints and normalizes the results into a unified activity feed. Activities are deduplicated by ID, keeping the most recent occurrence.
+
+### Assigned to Me
+
+The "Assigned to Me" view provides a unified list of all work items assigned to you across all workspaces:
+
+- **Assigned Tasks**: Tasks where you are listed as an assignee
+- **Assigned Comments**: Comments where you are listed as an assigned commenter
+
+**Features:**
+- Combined count badge in sidebar showing total assigned items
+- Filter toggle to show All, Tasks Only, or Comments Only (press `f`)
+- Sorted by most recently updated (newest first)
+- Visual distinction: ✓ icon for tasks, 💬 icon for comments
+- Click on a comment to navigate to its parent task
+- Cached locally for instant reloads (5-minute TTL)
+
+**Keyboard Shortcuts:**
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move selection down |
+| `k` / `↑` | Move selection up |
+| `g` | Go to first item |
+| `G` | Go to last item |
+| `f` | Toggle filter (All → Tasks → Comments) |
+| `r` | Refresh from API |
+| `Enter` | Open selected item (task detail or comment's parent task) |
+| `Esc` | Go back |
+
+**How it works:**
+The feature fetches tasks and comments in parallel from all accessible lists across all workspaces. Tasks are filtered by the `assignees` field, and comments are filtered by the `assigned_commenters` field. Results are combined into a single sorted list and cached in SQLite for offline access.
 
 ## Requirements
 

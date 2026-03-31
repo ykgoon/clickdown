@@ -1,5 +1,6 @@
 //! ClickUp API data models
 
+pub mod assigned_item;
 pub mod comment;
 pub mod document;
 pub mod inbox_activity;
@@ -10,6 +11,9 @@ pub mod user;
 pub mod workspace;
 
 // Export specific types to avoid name conflicts with iced
+pub use assigned_item::{
+    sort_assigned_items, AssignedComment, AssignedItem, AssignedItemsFilter,
+};
 pub use comment::{
     Comment, CommentsResponse, CreateCommentRequest, UpdateCommentRequest,
 };

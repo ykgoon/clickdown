@@ -1,9 +1,9 @@
 [package]
 name = "clickdown"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A fast and responsive ClickUp desktop client"
-authors = ["ClickDown Team"]
+authors = ["Y.K. Goon"]
 
 [dependencies]
 # TUI framework

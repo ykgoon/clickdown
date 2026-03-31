@@ -61,6 +61,8 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
             Constraint::Length(1),   // spacer
             Constraint::Length(4),   // actions (title + 3 items)
             Constraint::Length(1),   // spacer
+            Constraint::Length(7),   // assigned (title + 6 items)
+            Constraint::Length(1),   // spacer
             Constraint::Length(10),  // comments (title + 9 items)
             Constraint::Length(1),   // spacer
             Constraint::Length(8),   // inbox (title + 7 items)
@@ -101,6 +103,18 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         Line::from("  n           - Create new item"),
         Line::from("  e           - Edit selected item"),
         Line::from("  d           - Delete selected item"),
+    ]);
+
+    let assigned = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "Assigned to Me:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from("  j/k         - Navigate items"),
+        Line::from("  f           - Toggle filter (All/Tasks/Comments)"),
+        Line::from("  r           - Refresh from API"),
+        Line::from("  Enter       - Open selected item"),
+        Line::from("  Esc         - Go back"),
     ]);
 
     let comments = Paragraph::new(vec![
@@ -153,14 +167,15 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     frame.render_widget(nav, inner[1]);
     frame.render_widget(global, inner[3]);
     frame.render_widget(actions, inner[5]);
-    frame.render_widget(comments, inner[7]);
-    frame.render_widget(inbox, inner[9]);
-    frame.render_widget(forms, inner[11]);
-    frame.render_widget(session, inner[13]);
+    frame.render_widget(assigned, inner[7]);
+    frame.render_widget(comments, inner[9]);
+    frame.render_widget(inbox, inner[11]);
+    frame.render_widget(forms, inner[13]);
+    frame.render_widget(session, inner[15]);
 
     let close_hint =
         Paragraph::new("Press any key to close").style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(close_hint, inner[14]);
+    frame.render_widget(close_hint, inner[16]);
 }
 
 /// Get help hint for status bar

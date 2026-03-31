@@ -362,3 +362,60 @@ pub fn test_inbox_activities() -> Vec<InboxActivity> {
         test_inbox_activity_due_date(),
     ]
 }
+
+// ============================================================================
+// Assigned Comment Fixtures
+// ============================================================================
+
+/// Create a test assigned comment
+pub fn test_assigned_comment() -> clickdown::models::AssignedComment {
+    clickdown::models::AssignedComment {
+        comment: Comment {
+            id: "assigned-comment-1".to_string(),
+            text: "Please review this when you get a chance".to_string(),
+            text_preview: "Please review...".to_string(),
+            commenter: Some(test_comment_user()),
+            created_at: Some(1704067200000),
+            updated_at: None,
+            assigned_commenter: Some(test_user()),
+            assigned_by: None,
+            assigned: true,
+            reaction: String::new(),
+            parent_id: None,
+        },
+        task: clickdown::models::TaskReference {
+            id: "task-parent-1".to_string(),
+            name: Some("Review Q2 planning doc".to_string()),
+        },
+        assigned_at: Some(1704067200000),
+    }
+}
+
+/// Create a test assigned comment (edited)
+pub fn test_assigned_comment_edited() -> clickdown::models::AssignedComment {
+    clickdown::models::AssignedComment {
+        comment: Comment {
+            id: "assigned-comment-2".to_string(),
+            text: "This is urgent, please prioritize".to_string(),
+            text_preview: "This is urgent...".to_string(),
+            commenter: Some(test_comment_user()),
+            created_at: Some(1704153600000),
+            updated_at: Some(1704240000000),
+            assigned_commenter: Some(test_user()),
+            assigned_by: None,
+            assigned: true,
+            reaction: String::new(),
+            parent_id: None,
+        },
+        task: clickdown::models::TaskReference {
+            id: "task-parent-2".to_string(),
+            name: Some("Fix bug in task filtering".to_string()),
+        },
+        assigned_at: Some(1704153600000),
+    }
+}
+
+/// Create multiple test assigned comments
+pub fn test_assigned_comments() -> Vec<clickdown::models::AssignedComment> {
+    vec![test_assigned_comment(), test_assigned_comment_edited()]
+}

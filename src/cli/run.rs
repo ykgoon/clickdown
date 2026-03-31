@@ -203,6 +203,13 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 debug_ops.get_assigned_tasks().await
             }
         }
+        DebugOperation::AssignedComments => {
+            if command.json {
+                debug_ops.get_assigned_comments_json().await
+            } else {
+                debug_ops.get_assigned_comments().await
+            }
+        }
         DebugOperation::Help => {
             // Already handled above
             return exit_codes::SUCCESS;

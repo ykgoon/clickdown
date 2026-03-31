@@ -113,6 +113,24 @@ CREATE INDEX IF NOT EXISTS idx_assigned_tasks_fetched ON assigned_tasks(fetched_
 CREATE INDEX IF NOT EXISTS idx_assigned_tasks_status ON assigned_tasks(status);
 CREATE INDEX IF NOT EXISTS idx_assigned_tasks_due_date ON assigned_tasks(due_date);
 
+-- Assigned comments table for caching comments assigned to current user
+CREATE TABLE IF NOT EXISTS assigned_comments (
+    comment_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    task_name TEXT,
+    text TEXT NOT NULL,
+    commenter_id INTEGER,
+    commenter_name TEXT,
+    assigned_commenter_id INTEGER,
+    assigned_commenter_name TEXT,
+    created_at INTEGER,
+    updated_at INTEGER,
+    assigned_at INTEGER,
+    fetched_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assigned_comments_fetched ON assigned_comments(fetched_at);
+CREATE INDEX IF NOT EXISTS idx_assigned_comments_task ON assigned_comments(task_id);
+
 -- Inbox activity table for smart inbox feature
 CREATE TABLE IF NOT EXISTS inbox_activity (
     id TEXT PRIMARY KEY,

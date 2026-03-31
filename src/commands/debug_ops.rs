@@ -741,6 +741,76 @@ impl DebugOperations {
 
         Ok(())
     }
+
+    /// Get all comments assigned to the current user (human-readable format)
+    pub async fn get_assigned_comments(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+
+        println!("=== Assigned Comments ===\n");
+
+        // First, get current user
+        println!("Fetching current user...");
+        let user = api.get_current_user().await?;
+        println!("Current user: {} (ID: {})\n", user.username, user.id);
+
+        let user_id = user.id as i32;
+
+        // Fetch assigned comments from all lists
+        println!("Fetching assigned comments from all lists...");
+        let comments = api.get_assigned_comments(user_id).await?;
+
+        if comments.is_empty() {
+            println!("\nNo assigned comments found.");
+            return Ok(());
+        }
+
+        println!("\nFound {} assigned comment(s):\n", comments.len());
+        for (i, ac) in comments.iter().enumerate() {
+            let commenter = ac
+                .comment
+                .commenter
+                .as_ref()
+                .map(|c| c.username.as_str())
+                .unwrap_or("Anonymous");
+
+            let date_str = ac
+                .comment
+                .created_at
+                .map(|ts| format_timestamp(ts))
+                .unwrap_or_else(|| "Unknown date".to_string());
+
+            let task_name = ac.task.name.as_deref().unwrap_or("Unknown task");
+
+            println!(
+                "[{}] {} - {} (Task: {})",
+                i + 1,
+                commenter,
+                date_str,
+                task_name
+            );
+            println!("    {}", ac.comment.text);
+            println!();
+        }
+
+        Ok(())
+    }
+
+    /// Get all comments assigned to the current user as JSON
+    pub async fn get_assigned_comments_json(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+
+        // Get current user
+        let user = api.get_current_user().await?;
+        let user_id = user.id as i32;
+
+        // Fetch assigned comments
+        let comments = api.get_assigned_comments(user_id).await?;
+
+        let json = serde_json::to_string_pretty(&comments)?;
+        println!("{}", json);
+
+        Ok(())
+    }
 }
 
 /// Format a Unix timestamp (milliseconds) to a readable date string

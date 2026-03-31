@@ -1,5 +1,6 @@
 //! TUI widgets
 
+pub mod assigned_view;
 pub mod auth;
 pub mod comments;
 pub mod dialog;
@@ -10,6 +11,7 @@ pub mod sidebar;
 pub mod task_detail;
 pub mod task_list;
 
+pub use assigned_view::{handle_assigned_view_input, render_assigned_view};
 pub use auth::{render_auth, AuthState};
 pub use comments::render_comments;
 pub use dialog::{get_dialog_hints, render_dialog, DialogState, DialogType};

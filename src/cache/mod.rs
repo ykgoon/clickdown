@@ -678,6 +678,153 @@ impl CacheManager {
         self.conn.execute("DELETE FROM assigned_tasks", [])?;
         Ok(())
     }
+
+    // ==================== Assigned Comments ====================
+
+    /// Cache assigned comments
+    ///
+    /// Stores assigned comments in the assigned_comments table with the current timestamp.
+    /// Existing assigned comments are deleted before inserting new ones.
+    pub fn cache_assigned_comments(
+        &mut self,
+        comments: &[crate::models::AssignedComment],
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+
+        // Delete existing assigned comments
+        tx.execute("DELETE FROM assigned_comments", [])?;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        for ac in comments {
+            let commenter_id = ac.comment.commenter.as_ref().map(|c| c.id);
+            let commenter_name = ac.comment.commenter.as_ref().map(|c| c.username.clone());
+            let assigned_commenter_id = ac.comment.assigned_commenter.as_ref().map(|c| c.id);
+            let assigned_commenter_name =
+                ac.comment.assigned_commenter.as_ref().map(|c| c.username.clone());
+
+            tx.execute(
+                "INSERT INTO assigned_comments (comment_id, task_id, task_name, text, commenter_id, commenter_name, assigned_commenter_id, assigned_commenter_name, created_at, updated_at, assigned_at, fetched_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    ac.comment.id,
+                    ac.task.id,
+                    ac.task.name,
+                    ac.comment.text,
+                    commenter_id,
+                    commenter_name,
+                    assigned_commenter_id,
+                    assigned_commenter_name,
+                    ac.comment.created_at,
+                    ac.comment.updated_at,
+                    ac.assigned_at,
+                    now
+                ],
+            )?;
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Get cached assigned comments
+    ///
+    /// Retrieves assigned comments from the assigned_comments table, ordered by updated_at DESC.
+    /// Returns an empty vector if no comments are cached.
+    pub fn get_assigned_comments(&self) -> Result<Vec<crate::models::AssignedComment>> {
+        use crate::models::{AssignedComment, Comment, TaskReference, User};
+
+        let mut stmt = self.conn.prepare(
+            "SELECT comment_id, task_id, task_name, text, commenter_id, commenter_name, assigned_commenter_id, assigned_commenter_name, created_at, updated_at, assigned_at FROM assigned_comments ORDER BY updated_at DESC",
+        )?;
+
+        let comments = stmt.query_map([], |row| {
+            let task_id: String = row.get(1)?;
+            let task_name: Option<String> = row.get(2)?;
+            let text: String = row.get(3)?;
+            let commenter_id: Option<i64> = row.get(4)?;
+            let commenter_name: Option<String> = row.get(5)?;
+            let assigned_commenter_id: Option<i64> = row.get(6)?;
+            let assigned_commenter_name: Option<String> = row.get(7)?;
+            let created_at: Option<i64> = row.get(8)?;
+            let updated_at: Option<i64> = row.get(9)?;
+            let assigned_at: Option<i64> = row.get(10)?;
+
+            let commenter = commenter_id.map(|id| User {
+                id,
+                username: commenter_name.unwrap_or_default(),
+                color: None,
+                email: None,
+                profile_picture: None,
+                initials: None,
+            });
+
+            let assigned_commenter = assigned_commenter_id.map(|id| User {
+                id,
+                username: assigned_commenter_name.unwrap_or_default(),
+                color: None,
+                email: None,
+                profile_picture: None,
+                initials: None,
+            });
+
+            Ok(AssignedComment {
+                comment: Comment {
+                    id: row.get(0)?,
+                    text,
+                    text_preview: String::new(),
+                    commenter,
+                    created_at,
+                    updated_at,
+                    assigned_commenter,
+                    assigned_by: None,
+                    assigned: false,
+                    reaction: String::new(),
+                    parent_id: None,
+                },
+                task: TaskReference {
+                    id: task_id,
+                    name: task_name,
+                },
+                assigned_at,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for comment_result in comments {
+            if let Ok(comment) = comment_result {
+                result.push(comment);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Check if the assigned comments cache is valid (not older than TTL)
+    pub fn is_assigned_comments_cache_valid(&self, ttl_secs: i64) -> Result<bool> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let mut stmt = self
+            .conn
+            .prepare("SELECT MAX(fetched_at) FROM assigned_comments")?;
+        let max_fetched: Option<i64> = stmt.query_row([], |row| row.get(0))?;
+
+        match max_fetched {
+            Some(fetched_at) => Ok((now - fetched_at) <= ttl_secs),
+            None => Ok(false), // No cached data
+        }
+    }
+
+    /// Clear cached assigned comments
+    pub fn clear_assigned_comments(&mut self) -> Result<()> {
+        self.conn.execute("DELETE FROM assigned_comments", [])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
