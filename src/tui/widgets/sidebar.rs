@@ -12,8 +12,6 @@ use ratatui::{
 /// Sidebar item types
 #[derive(Debug, Clone)]
 pub enum SidebarItem {
-    AssignedTasks,
-    Inbox,
     Workspace {
         name: String,
         id: String,
@@ -36,8 +34,6 @@ impl SidebarItem {
     /// Get the ID of this sidebar item
     pub fn id(&self) -> &str {
         match self {
-            SidebarItem::AssignedTasks => "assigned-tasks",
-            SidebarItem::Inbox => "inbox",
             SidebarItem::Workspace { id, .. } => id,
             SidebarItem::Space { id, .. } => id,
             SidebarItem::Folder { id, .. } => id,
@@ -116,31 +112,12 @@ impl Default for SidebarState {
 }
 
 /// Render the sidebar
-pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect, assigned_count: Option<usize>) {
+pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
     let items: Vec<ListItem> = state
         .items()
         .iter()
         .map(|item| {
             let (type_label, name, name_style) = match item {
-                SidebarItem::AssignedTasks => {
-                    let count_str = assigned_count
-                        .map(|c| format!(" ({})", c))
-                        .unwrap_or_default();
-                    (
-                        "👤",
-                        format!("Assigned to Me{}", count_str),
-                        Style::default()
-                            .add_modifier(Modifier::BOLD)
-                            .fg(Color::Green),
-                    )
-                }
-                SidebarItem::Inbox => (
-                    "📬",
-                    format!("Inbox"),
-                    Style::default()
-                        .add_modifier(Modifier::BOLD)
-                        .fg(Color::Yellow),
-                ),
                 SidebarItem::Workspace { name, .. } => (
                     "WS",
                     format!("{}", name),

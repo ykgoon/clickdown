@@ -53,14 +53,14 @@ pub enum DebugOperation {
     AuthStatus,
     /// Show help
     Help,
+    /// Get current user info
+    CurrentUser,
     /// List spaces in a workspace
     Spaces { workspace_id: String },
     /// List folders in a space
     Folders { space_id: String },
     /// List lists in a folder or space
     Lists { id: String, in_space: bool },
-    /// List all accessible lists (full hierarchy traversal)
-    ListsAll,
     /// Get a single task
     Task { task_id: String },
     /// Explore full hierarchy
@@ -73,12 +73,6 @@ pub enum DebugOperation {
     CreateReply { comment_id: String },
     /// Update an existing comment
     UpdateComment { comment_id: String },
-    /// Get notifications for a workspace
-    Notifications { workspace_id: String },
-    /// Get assigned tasks for current user
-    AssignedTasks,
-    /// Get assigned comments for current user
-    AssignedComments,
 }
 
 /// Parse CLI arguments from environment
@@ -215,6 +209,12 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                 }
                 operation = Some(DebugOperation::AuthStatus);
             }
+            "current-user" => {
+                if operation.is_some() {
+                    return Err("Multiple operations specified".to_string());
+                }
+                operation = Some(DebugOperation::CurrentUser);
+            }
             "spaces" => {
                 if operation.is_some() {
                     return Err("Multiple operations specified".to_string());
@@ -256,12 +256,6 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                     in_space,
                 });
                 i += 1; // Skip next arg
-            }
-            "lists-all" => {
-                if operation.is_some() {
-                    return Err("Multiple operations specified".to_string());
-                }
-                operation = Some(DebugOperation::ListsAll);
             }
             "task" => {
                 if operation.is_some() {
@@ -335,30 +329,6 @@ fn parse_debug_command(args: &[String]) -> Result<DebugCommand, String> {
                 });
                 i += 1;
             }
-            "notifications" => {
-                if operation.is_some() {
-                    return Err("Multiple operations specified".to_string());
-                }
-                if i + 1 >= args.len() {
-                    return Err("notifications requires a workspace_id argument".to_string());
-                }
-                operation = Some(DebugOperation::Notifications {
-                    workspace_id: args[i + 1].clone(),
-                });
-                i += 1;
-            }
-            "assigned-tasks" => {
-                if operation.is_some() {
-                    return Err("Multiple operations specified".to_string());
-                }
-                operation = Some(DebugOperation::AssignedTasks);
-            }
-            "assigned-comments" => {
-                if operation.is_some() {
-                    return Err("Multiple operations specified".to_string());
-                }
-                operation = Some(DebugOperation::AssignedComments);
-            }
             "--help" | "-h" => {
                 operation = Some(DebugOperation::Help);
             }
@@ -416,21 +386,18 @@ pub fn print_usage() {
     eprintln!("    tasks <list_id>         Fetch tasks from a list");
     eprintln!("    docs <query>            Search documents");
     eprintln!("    auth-status             Check authentication status");
+    eprintln!("    current-user            Get current user info");
     eprintln!("    spaces <workspace_id>   List spaces in a workspace");
     eprintln!("    folders <space_id>      List folders in a space");
     eprintln!(
         "    lists <id>              List lists in a folder (use --in-space for space lists)"
     );
-    eprintln!("    lists-all               List ALL accessible lists (traverses full hierarchy)");
     eprintln!("    task <task_id>          Get a single task");
     eprintln!("    comments <task_id>      Get comments for a task");
     eprintln!("    explore <workspace_id>  Explore full hierarchy (spaces->folders->lists->tasks)");
     eprintln!("    create-comment <task_id>  Create a new comment (--text required)");
     eprintln!("    create-reply <comment_id> Create a reply to a comment (--text required)");
     eprintln!("    update-comment <comment_id> Update an existing comment (--text required)");
-    eprintln!("    notifications <workspace_id>  Get notifications for a workspace");
-    eprintln!("    assigned-tasks          Get all tasks assigned to current user");
-    eprintln!("    assigned-comments       Get all comments assigned to current user");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("    --json                  Output in JSON format");
@@ -459,19 +426,12 @@ pub fn print_usage() {
     eprintln!("    clickdown debug spaces 26408409 --json");
     eprintln!("    clickdown debug folders space123 --json");
     eprintln!("    clickdown debug lists folder123 --json");
-    eprintln!("    clickdown debug lists-all");
-    eprintln!("    clickdown debug lists-all --json");
     eprintln!("    clickdown debug task task123 --json");
     eprintln!("    clickdown debug comments task123 --json");
     eprintln!("    clickdown debug explore 26408409");
     eprintln!("    clickdown debug create-comment task123 --text \"Hello world\"");
     eprintln!("    clickdown debug create-reply comment456 --text \"Reply text\" --json");
     eprintln!("    clickdown debug update-comment comment789 --text \"Updated\" --verbose");
-    eprintln!("    clickdown debug notifications 26408409 --json");
-    eprintln!("    clickdown debug assigned-tasks --json");
-    eprintln!("    clickdown debug assigned-tasks --verbose");
-    eprintln!("    clickdown debug assigned-comments --json");
-    eprintln!("    clickdown debug assigned-comments --verbose");
 }
 
 #[cfg(test)]

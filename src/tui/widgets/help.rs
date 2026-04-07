@@ -61,11 +61,9 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
             Constraint::Length(1),   // spacer
             Constraint::Length(4),   // actions (title + 3 items)
             Constraint::Length(1),   // spacer
-            Constraint::Length(7),   // assigned (title + 6 items)
+            Constraint::Length(5),   // task list (title + 4 items)
             Constraint::Length(1),   // spacer
             Constraint::Length(10),  // comments (title + 9 items)
-            Constraint::Length(1),   // spacer
-            Constraint::Length(8),   // inbox (title + 7 items)
             Constraint::Length(1),   // spacer
             Constraint::Length(3),   // forms (title + 2 items)
             Constraint::Length(1),   // spacer
@@ -107,14 +105,12 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
 
     let assigned = Paragraph::new(vec![
         Line::from(Span::styled(
-            "Assigned to Me:",
+            "Task List:",
             Style::default().add_modifier(Modifier::BOLD),
         )),
-        Line::from("  j/k         - Navigate items"),
-        Line::from("  f           - Toggle filter (All/Tasks/Comments)"),
-        Line::from("  r           - Refresh from API"),
-        Line::from("  Enter       - Open selected item"),
-        Line::from("  Esc         - Go back"),
+        Line::from("  a           - Toggle Assigned to Me filter"),
+        Line::from("  n           - Create new task"),
+        Line::from("  d           - Delete selected task"),
     ]);
 
     let comments = Paragraph::new(vec![
@@ -130,19 +126,6 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         Line::from("  Enter       - View thread"),
         Line::from("  Ctrl+S      - Save comment"),
         Line::from("  Esc         - Cancel editing / Exit thread"),
-    ]);
-
-    let inbox = Paragraph::new(vec![
-        Line::from(Span::styled(
-            "Inbox (Notifications):",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from("  j/k         - Navigate notifications"),
-        Line::from("  Enter       - View details"),
-        Line::from("  r           - Refresh notifications"),
-        Line::from("  c           - Mark as read (clear)"),
-        Line::from("  C           - Mark all as read (clear all)"),
-        Line::from("  Esc         - Go back"),
     ]);
 
     let forms = Paragraph::new(vec![
@@ -169,13 +152,12 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     frame.render_widget(actions, inner[5]);
     frame.render_widget(assigned, inner[7]);
     frame.render_widget(comments, inner[9]);
-    frame.render_widget(inbox, inner[11]);
-    frame.render_widget(forms, inner[13]);
-    frame.render_widget(session, inner[15]);
+    frame.render_widget(forms, inner[11]);
+    frame.render_widget(session, inner[13]);
 
     let close_hint =
         Paragraph::new("Press any key to close").style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(close_hint, inner[16]);
+    frame.render_widget(close_hint, inner[14]);
 }
 
 /// Get help hint for status bar

@@ -152,6 +152,15 @@ impl DebugOperations {
         Ok(())
     }
 
+    /// Get a single task
+    pub async fn get_task_json(&self, task_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let task = api.get_task(task_id).await?;
+        let json = serde_json::to_string_pretty(&task)?;
+        println!("{}", json);
+        Ok(())
+    }
+
     /// Check authentication status
     pub async fn check_auth_status(&self) -> Result<bool, Box<dyn std::error::Error>> {
         // Try to get workspaces to verify auth
@@ -165,6 +174,29 @@ impl DebugOperations {
                 println!("Authenticated: no");
                 eprintln!("Error: {}", e);
                 Ok(false)
+            }
+        }
+    }
+
+    /// Get current user info
+    pub async fn get_current_user(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        match api.get_current_user().await {
+            Ok(user) => {
+                println!("Current User:");
+                println!("  ID: {}", user.id);
+                println!("  Username: {}", user.username);
+                if let Some(email) = &user.email {
+                    println!("  Email: {}", email);
+                }
+                if let Some(color) = &user.color {
+                    println!("  Color: {}", color);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Error getting current user: {}", e);
+                Err(e.into())
             }
         }
     }
@@ -294,159 +326,68 @@ impl DebugOperations {
         Ok(())
     }
 
-    /// List all accessible lists by traversing the full hierarchy
-    pub async fn list_accessible_lists(&self) -> Result<(), Box<dyn std::error::Error>> {
+    /// Explore full workspace hierarchy
+    pub async fn explore_hierarchy(&self, workspace_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
-        let lists = api.get_all_accessible_lists().await?;
-
-        if lists.is_empty() {
-            println!("No accessible lists found.");
-            println!("\nThis could mean:");
-            println!("  - No workspaces exist");
-            println!("  - Workspaces have no spaces");
-            println!("  - Spaces have no folders or lists");
-            println!("\nUse 'clickdown debug workspaces' to check your workspaces.");
-            return Ok(());
-        }
-
-        println!("Found {} accessible list(s):\n", lists.len());
-        for list in &lists {
-            let archived = if list.archived { " (archived)" } else { "" };
-            let hidden = if list.hidden { " (hidden)" } else { "" };
-            println!("{} - {}{}{}", list.id, list.name, archived, hidden);
-        }
-
-        Ok(())
-    }
-
-    /// List all accessible lists as JSON
-    pub async fn list_accessible_lists_json(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let api = self.get_api();
-        let lists = api.get_all_accessible_lists().await?;
-
-        let json = serde_json::to_string_pretty(&lists)?;
-        println!("{}", json);
-
-        Ok(())
-    }
-
-    /// Get a single task as JSON
-    pub async fn get_task_json(&self, task_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let api = self.get_api();
-        let task = api.get_task(task_id).await?;
-
-        let json = serde_json::to_string_pretty(&task)?;
-        println!("{}", json);
-
-        Ok(())
-    }
-
-    /// Explore full hierarchy: workspace -> spaces -> folders -> lists -> tasks
-    pub async fn explore_hierarchy(
-        &self,
-        workspace_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let api = self.get_api();
-
-        println!("=== Exploring Workspace: {} ===\n", workspace_id);
-
-        // Get spaces
         let spaces = api.get_spaces(workspace_id).await?;
-        println!("Found {} space(s)\n", spaces.len());
-
+        println!("Workspace: {}", workspace_id);
+        println!("  Spaces: {}", spaces.len());
         for space in &spaces {
-            println!("--- Space: {} ({}) ---", space.name, space.id);
-
-            // Get folders in space
+            println!("  Space: {} - {}", space.id, space.name);
             let folders = api.get_folders(&space.id).await?;
-            println!("  Folders: {}", folders.len());
-
+            println!("    Folders: {}", folders.len());
             for folder in &folders {
-                println!("    Folder: {} ({})", folder.name, folder.id);
-
-                // Get lists in folder
+                println!("    Folder: {} - {}", folder.id, folder.name);
                 let lists = api.get_lists_in_folder(&folder.id, None).await?;
                 println!("      Lists: {}", lists.len());
-
                 for list in &lists {
-                    println!("        List: {} ({})", list.name, list.id);
-
-                    // Get sample tasks from first list
-                    let filters = TaskFilters::default();
-                    let tasks = api.get_tasks(&list.id, &filters).await?;
-                    println!("          Tasks: {}", tasks.len());
-
-                    if !tasks.is_empty() {
-                        println!("          Sample task ID: {}", tasks[0].id);
-                    }
+                    println!("      List: {} - {}", list.id, list.name);
                 }
             }
-
-            // Also check folderless lists in space
-            let space_lists = api.get_lists_in_space(&space.id, None).await?;
-            if !space_lists.is_empty() {
-                println!("  Folderless Lists: {}", space_lists.len());
-                for list in &space_lists {
-                    println!("    List: {} ({})", list.name, list.id);
-                }
-            }
-
-            println!();
         }
-
         Ok(())
     }
 
-    /// Get comments for a task (human-readable format)
+    /// Get comments for a task (human-readable)
     pub async fn get_comments(&self, task_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let comments = api.get_task_comments(task_id).await?;
-
-        if comments.is_empty() {
-            println!("No comments found for task {}.", task_id);
-            return Ok(());
+        println!("=== Comments for task {} ===\n", task_id);
+        for comment in &comments {
+            println!("[{}] {} ({})", comment.id, comment.text, comment.commenter.as_ref().map(|c| c.username.as_str()).unwrap_or("unknown"));
         }
-
-        println!("Comments for task {}:\n", task_id);
-        for (i, comment) in comments.iter().enumerate() {
-            let author = comment
-                .commenter
-                .as_ref()
-                .map(|c| c.username.as_str())
-                .unwrap_or("Anonymous");
-
-            let date_str = comment
-                .created_at
-                .map(|ts| format_timestamp(ts))
-                .unwrap_or_else(|| "Unknown date".to_string());
-
-            let edited = if comment.updated_at.is_some() && comment.updated_at != comment.created_at
-            {
-                " (edited)"
-            } else {
-                ""
-            };
-
-            println!("[{}] {} - {}{}", i + 1, author, date_str, edited);
-            println!("    {}", comment.text);
-            println!();
-        }
-
         Ok(())
     }
 
-    /// Get comments for a task as JSON
+    /// Get comments for a task (JSON)
     pub async fn get_comments_json(&self, task_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let comments = api.get_task_comments(task_id).await?;
-
         let json = serde_json::to_string_pretty(&comments)?;
         println!("{}", json);
-
         Ok(())
     }
 
-    /// Create a new comment on a task (human-readable format)
+    /// Update a comment (human-readable)
+    pub async fn update_comment(&self, comment_id: &str, text: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let req = crate::models::UpdateCommentRequest { comment_text: Some(text.to_string()), assigned: None, assignee: None, assigned_commenter: None };
+        let result = api.update_comment(comment_id, &req).await?;
+        println!("Comment updated: {}", result.id);
+        Ok(())
+    }
+
+    /// Update a comment (JSON)
+    pub async fn update_comment_json(&self, comment_id: &str, text: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let api = self.get_api();
+        let req = crate::models::UpdateCommentRequest { comment_text: Some(text.to_string()), assigned: None, assignee: None, assigned_commenter: None };
+        let result = api.update_comment(comment_id, &req).await?;
+        let json = serde_json::to_string_pretty(&result)?;
+        println!("{}", json);
+        Ok(())
+    }
+
+    /// Create a comment on a task (human-readable)
     pub async fn create_comment(
         &self,
         task_id: &str,
@@ -456,32 +397,22 @@ impl DebugOperations {
         assigned_commenter: Option<i64>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
-        use crate::models::CreateCommentRequest;
-
-        let request = CreateCommentRequest {
+        let req = crate::models::CreateCommentRequest {
             comment_text: text.to_string(),
+            parent_id: parent_id.map(|s| s.to_string()),
             assignee,
             assigned_commenter,
-            parent_id: parent_id.map(String::from),
         };
-
-        let comment = if let Some(id) = parent_id {
-            api.create_comment_reply(id, &request).await?
+        let result = if parent_id.is_some() {
+            api.create_comment_reply(task_id, &req).await
         } else {
-            api.create_comment(task_id, &request).await?
-        };
-
-        println!("Comment created: {}", comment.id);
-        println!("Text: {}", comment.text);
-
-        if let Some(user) = &comment.commenter {
-            println!("Author: {}", user.username);
-        }
-
+            api.create_comment(task_id, &req).await
+        }?;
+        println!("Comment created: {}", result.id);
         Ok(())
     }
 
-    /// Create a new comment on a task (JSON format)
+    /// Create a comment on a task (JSON)
     pub async fn create_comment_json(
         &self,
         task_id: &str,
@@ -491,28 +422,23 @@ impl DebugOperations {
         assigned_commenter: Option<i64>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
-        use crate::models::CreateCommentRequest;
-
-        let request = CreateCommentRequest {
+        let req = crate::models::CreateCommentRequest {
             comment_text: text.to_string(),
+            parent_id: parent_id.map(|s| s.to_string()),
             assignee,
             assigned_commenter,
-            parent_id: parent_id.map(String::from),
         };
-
-        let comment = if let Some(id) = parent_id {
-            api.create_comment_reply(id, &request).await?
+        let result = if parent_id.is_some() {
+            api.create_comment_reply(task_id, &req).await
         } else {
-            api.create_comment(task_id, &request).await?
-        };
-
-        let json = serde_json::to_string_pretty(&comment)?;
+            api.create_comment(task_id, &req).await
+        }?;
+        let json = serde_json::to_string_pretty(&result)?;
         println!("{}", json);
-
         Ok(())
     }
 
-    /// Create a reply to an existing comment (human-readable format)
+    /// Create a reply to a comment (human-readable)
     pub async fn create_reply(
         &self,
         comment_id: &str,
@@ -520,12 +446,19 @@ impl DebugOperations {
         assignee: Option<i64>,
         assigned_commenter: Option<i64>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // create_reply is a convenience wrapper that calls create_comment with parent_id set
-        self.create_comment("", text, Some(comment_id), assignee, assigned_commenter)
-            .await
+        let api = self.get_api();
+        let req = crate::models::CreateCommentRequest {
+            comment_text: text.to_string(),
+            parent_id: Some(comment_id.to_string()),
+            assignee,
+            assigned_commenter,
+        };
+        let result = api.create_comment_reply(comment_id, &req).await?;
+        println!("Reply created: {}", result.id);
+        Ok(())
     }
 
-    /// Create a reply to an existing comment (JSON format)
+    /// Create a reply to a comment (JSON)
     pub async fn create_reply_json(
         &self,
         comment_id: &str,
@@ -533,282 +466,16 @@ impl DebugOperations {
         assignee: Option<i64>,
         assigned_commenter: Option<i64>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // create_reply_json is a convenience wrapper
-        self.create_comment_json("", text, Some(comment_id), assignee, assigned_commenter)
-            .await
-    }
-
-    /// Update an existing comment (human-readable format)
-    pub async fn update_comment(
-        &self,
-        comment_id: &str,
-        text: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
-        use crate::models::UpdateCommentRequest;
-
-        let request = UpdateCommentRequest {
-            comment_text: Some(text.to_string()),
-            assigned: None,
-            assignee: None,
-            assigned_commenter: None,
+        let req = crate::models::CreateCommentRequest {
+            comment_text: text.to_string(),
+            parent_id: Some(comment_id.to_string()),
+            assignee,
+            assigned_commenter,
         };
-
-        let comment = api.update_comment(comment_id, &request).await?;
-
-        println!("Comment updated: {}", comment.id);
-        println!("Text: {}", comment.text);
-
-        Ok(())
-    }
-
-    /// Update an existing comment (JSON format)
-    pub async fn update_comment_json(
-        &self,
-        comment_id: &str,
-        text: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let api = self.get_api();
-        use crate::models::UpdateCommentRequest;
-
-        let request = UpdateCommentRequest {
-            comment_text: Some(text.to_string()),
-            assigned: None,
-            assignee: None,
-            assigned_commenter: None,
-        };
-
-        let comment = api.update_comment(comment_id, &request).await?;
-
-        let json = serde_json::to_string_pretty(&comment)?;
+        let result = api.create_comment_reply(comment_id, &req).await?;
+        let json = serde_json::to_string_pretty(&result)?;
         println!("{}", json);
-
-        Ok(())
-    }
-
-    /// Get notifications for a workspace (human-readable format)
-    pub async fn get_notifications(
-        &self,
-        workspace_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let api = self.get_api();
-        let notifications = api.get_notifications(workspace_id).await?;
-
-        if notifications.is_empty() {
-            println!("No notifications found for workspace {}.", workspace_id);
-            return Ok(());
-        }
-
-        println!("Notifications for workspace {}:\n", workspace_id);
-        for (i, notif) in notifications.iter().enumerate() {
-            let date_str = notif
-                .created_at
-                .map(|ts| format_timestamp(ts))
-                .unwrap_or_else(|| "Unknown date".to_string());
-
-            let read_status = if notif.read_at.is_some() {
-                "[read]"
-            } else {
-                "[unread]"
-            };
-
-            println!("[{}] {} {} - {}", i + 1, read_status, date_str, notif.title);
-            if !notif.description.is_empty() {
-                println!("    {}", notif.description);
-            }
-            println!();
-        }
-
-        Ok(())
-    }
-
-    /// Get notifications for a workspace as JSON
-    pub async fn get_notifications_json(
-        &self,
-        workspace_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let api = self.get_api();
-        let notifications = api.get_notifications(workspace_id).await?;
-
-        let json = serde_json::to_string_pretty(&notifications)?;
-        println!("{}", json);
-
-        Ok(())
-    }
-
-    /// Get all tasks assigned to the current user
-    pub async fn get_assigned_tasks(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let api = self.get_api();
-
-        println!("=== Assigned Tasks ===\n");
-
-        // First, get current user
-        println!("Fetching current user...");
-        let user = api.get_current_user().await?;
-        println!("Current user: {} (ID: {})\n", user.username, user.id);
-
-        let user_id = user.id as i32;
-
-        // Get all accessible lists
-        println!("Fetching all accessible lists (traversing hierarchy)...");
-        let lists = api.get_all_accessible_lists().await?;
-
-        if lists.is_empty() {
-            println!("\nNo accessible lists found.");
-            println!("\nThis could mean:");
-            println!("  - No workspaces exist");
-            println!("  - Workspaces have no spaces");
-            println!("  - Spaces have no folders or lists");
-            println!("\nUse 'clickdown debug workspaces' to check your workspaces.");
-            return Ok(());
-        }
-
-        println!("Found {} accessible list(s)\n", lists.len());
-
-        // Fetch tasks from each list
-        let mut all_tasks = Vec::new();
-        let mut failed_lists = Vec::new();
-
-        for list in &lists {
-            match api.get_tasks_with_assignee(&list.id, user_id, Some(100)).await {
-                Ok(tasks) => {
-                    if !tasks.is_empty() {
-                        println!("List '{}': {} assigned task(s)", list.name, tasks.len());
-                        all_tasks.extend(tasks);
-                    }
-                }
-                Err(e) => {
-                    println!("List '{}': Failed to fetch - {}", list.name, e);
-                    failed_lists.push((&list.id, e.to_string()));
-                }
-            }
-        }
-
-        println!("\n=== Summary ===");
-        println!("Total lists checked: {}", lists.len());
-        println!("Total assigned tasks: {}", all_tasks.len());
-
-        if !failed_lists.is_empty() {
-            println!("\nFailed to fetch from {} list(s):", failed_lists.len());
-            for (list_id, error) in &failed_lists {
-                println!("  - {}: {}", list_id, error);
-            }
-        }
-
-        if !all_tasks.is_empty() {
-            println!("\n=== Assigned Tasks ===");
-            for task in &all_tasks {
-                let status = task.status.as_ref().map(|s| s.status.as_str()).unwrap_or("Unknown");
-                println!("  [{}] {} (ID: {})", status, task.name, task.id);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Get all tasks assigned to the current user as JSON
-    pub async fn get_assigned_tasks_json(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let api = self.get_api();
-
-        // Get current user
-        let user = api.get_current_user().await?;
-        let user_id = user.id as i32;
-
-        // Get all accessible lists
-        let lists = api.get_all_accessible_lists().await?;
-
-        // Fetch tasks from each list in parallel
-        use futures::future::join_all;
-        let fetch_futures = lists.iter().map(|list| {
-            let api = api.clone();
-            let list_id = list.id.clone();
-            async move {
-                api.get_tasks_with_assignee(&list_id, user_id, Some(100)).await
-            }
-        });
-
-        let results = join_all(fetch_futures).await;
-        let mut all_tasks = Vec::new();
-
-        for result in results {
-            if let Ok(tasks) = result {
-                all_tasks.extend(tasks);
-            }
-        }
-
-        let json = serde_json::to_string_pretty(&all_tasks)?;
-        println!("{}", json);
-
-        Ok(())
-    }
-
-    /// Get all comments assigned to the current user (human-readable format)
-    pub async fn get_assigned_comments(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let api = self.get_api();
-
-        println!("=== Assigned Comments ===\n");
-
-        // First, get current user
-        println!("Fetching current user...");
-        let user = api.get_current_user().await?;
-        println!("Current user: {} (ID: {})\n", user.username, user.id);
-
-        let user_id = user.id as i32;
-
-        // Fetch assigned comments from all lists
-        println!("Fetching assigned comments from all lists...");
-        let comments = api.get_assigned_comments(user_id).await?;
-
-        if comments.is_empty() {
-            println!("\nNo assigned comments found.");
-            return Ok(());
-        }
-
-        println!("\nFound {} assigned comment(s):\n", comments.len());
-        for (i, ac) in comments.iter().enumerate() {
-            let commenter = ac
-                .comment
-                .commenter
-                .as_ref()
-                .map(|c| c.username.as_str())
-                .unwrap_or("Anonymous");
-
-            let date_str = ac
-                .comment
-                .created_at
-                .map(|ts| format_timestamp(ts))
-                .unwrap_or_else(|| "Unknown date".to_string());
-
-            let task_name = ac.task.name.as_deref().unwrap_or("Unknown task");
-
-            println!(
-                "[{}] {} - {} (Task: {})",
-                i + 1,
-                commenter,
-                date_str,
-                task_name
-            );
-            println!("    {}", ac.comment.text);
-            println!();
-        }
-
-        Ok(())
-    }
-
-    /// Get all comments assigned to the current user as JSON
-    pub async fn get_assigned_comments_json(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let api = self.get_api();
-
-        // Get current user
-        let user = api.get_current_user().await?;
-        let user_id = user.id as i32;
-
-        // Fetch assigned comments
-        let comments = api.get_assigned_comments(user_id).await?;
-
-        let json = serde_json::to_string_pretty(&comments)?;
-        println!("{}", json);
-
         Ok(())
     }
 }

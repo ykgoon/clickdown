@@ -787,6 +787,7 @@ mod tests {
         assert!(query.contains("assignees[]=123"));
         assert!(query.contains("assignees[]=456"));
         assert!(query.contains("assignees[]=789"));
+        assert!(!query.contains("assignees=123,456"));
     }
 
     #[test]
@@ -835,5 +836,25 @@ mod tests {
         assert!(query.contains("assignees[]=456"));
         assert!(query.contains("statuses[]=todo"));
         assert!(query.contains("statuses[]=in progress"));
+    }
+
+    #[test]
+    fn test_task_filters_assigned_with_include_closed() {
+        let mut filters = TaskFilters::default();
+        filters.assignees = vec![42];
+        filters.include_closed = Some(true);
+
+        let query = filters.to_query_string();
+
+        assert!(
+            query.contains("assignees[]=42"),
+            "Should include assignee: {}",
+            query
+        );
+        assert!(
+            query.contains("include_closed=true"),
+            "Should include include_closed: {}",
+            query
+        );
     }
 }

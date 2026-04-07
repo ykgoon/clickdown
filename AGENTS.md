@@ -7,7 +7,7 @@
 ### Key Features
 - Workspace navigation (Workspaces → Spaces → Folders → Lists)
 - Task management (view, create, edit, delete)
-- **Assigned to Me**: Unified view showing tasks AND comments assigned to you
+- **Assigned to Me**: Per-list task filter (press 'a' in task list to filter tasks assigned to you)
 - Document viewing with Markdown rendering
 - SQLite-based offline caching
 - Dark theme TUI with vim-style keyboard navigation
@@ -361,12 +361,10 @@ See `src/api/` for implementation details.
 - Workspace navigation hierarchy
 - Task list viewing with status/priority indicators
 - Task CRUD operations
-- **Assigned to Me**: Unified view showing tasks and comments assigned to you
-  - Combined fetch from all workspaces (parallel tasks + comments)
-  - Filter toggle (All/Tasks/Comments) with 'f' key
-  - Visual distinction: ✓ for tasks, 💬 for comments
-  - Navigation to parent task from assigned comments
-  - SQLite caching with 5-minute TTL
+- **Assigned to Me**: Per-list task filter (press 'a' in task list to filter tasks assigned to you)
+  - Toggle filter with 'a' key within a list's task view
+  - Includes closed/completed tasks in results
+  - User ID fetched on startup for filtering
 - Document viewing with Markdown rendering
 - SQLite caching layer
 - Configuration and token management

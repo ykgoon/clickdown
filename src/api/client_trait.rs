@@ -120,54 +120,7 @@ pub trait ClickUpApi: Send + Sync {
         comment: &UpdateCommentRequest,
     ) -> Result<Comment>;
 
-    // ==================== Notifications ====================
-
-    /// Get notifications for a workspace
-    /// Note: This endpoint doesn't exist in ClickUp API v2 - kept for backward compatibility
-    /// Use get_inbox_activity() instead for the smart inbox feature
-    #[allow(dead_code)]
-    async fn get_notifications(&self, workspace_id: &str) -> Result<Vec<Notification>>;
-
-    // ==================== Smart Inbox / Activity Feed ====================
-
-    /// Get tasks assigned to a user with optional date filter
-    #[allow(dead_code)]
-    async fn get_tasks_assigned_to_user(
-        &self,
-        team_id: &str,
-        user_id: i32,
-        date_updated_gt: Option<i64>,
-    ) -> Result<Vec<Task>>;
-
-    /// Get comments for multiple tasks (batched fetch)
-    #[allow(dead_code)]
-    async fn get_comments_for_tasks(
-        &self,
-        task_ids: &[String],
-        date_created_gt: Option<i64>,
-    ) -> Result<Vec<Comment>>;
-
-    /// Get tasks with due dates before a specified timestamp
-    #[allow(dead_code)]
-    async fn get_tasks_with_due_dates(
-        &self,
-        team_id: &str,
-        due_date_before: i64,
-        date_updated_gt: Option<i64>,
-    ) -> Result<Vec<Task>>;
-
-    /// Get inbox activity by aggregating assignments, comments, status changes, and due dates
-    async fn get_inbox_activity(
-        &self,
-        team_id: &str,
-        user_id: i32,
-        since_timestamp: Option<i64>,
-    ) -> Result<crate::models::InboxActivityResponse>;
-
     // ==================== Assigned Tasks ====================
-
-    /// Get all lists accessible to the user (for fetching assigned tasks)
-    async fn get_all_accessible_lists(&self) -> Result<Vec<List>>;
 
     /// Get tasks assigned to a specific user from a list
     async fn get_tasks_with_assignee(
@@ -185,7 +138,4 @@ pub trait ClickUpApi: Send + Sync {
         task_id: &str,
         user_id: i32,
     ) -> Result<Vec<Comment>>;
-
-    /// Get all comments assigned to a user across all accessible lists
-    async fn get_assigned_comments(&self, user_id: i32) -> Result<Vec<crate::models::AssignedComment>>;
 }

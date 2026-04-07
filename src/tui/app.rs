@@ -3,7 +3,6 @@
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::event::{KeyCode, KeyModifiers};
-use futures::future::join_all;
 use ratatui::prelude::Rect;
 use ratatui::Frame;
 use std::sync::Arc;
@@ -14,7 +13,7 @@ use crate::api::{AuthManager, ClickUpApi, ClickUpClient};
 use crate::cache::CacheManager;
 use crate::config::ConfigManager;
 use crate::models::{
-    AssignedItem, AssignedItemsFilter, ClickUpSpace, Comment, CreateCommentRequest, Document,
+    ClickUpSpace, Comment, CreateCommentRequest, Document,
     Folder, List, SessionState, Task, UpdateCommentRequest, User, Workspace,
 };
 use crate::tui::widgets::SidebarItem;
@@ -24,10 +23,10 @@ use super::input::{is_quit, InputEvent};
 use super::layout::{generate_screen_title, split_task_detail, TuiLayout};
 use super::terminal;
 use super::widgets::{
-    get_dialog_hints, handle_assigned_view_input, render_auth, render_assigned_view, render_comments,
-    render_dialog, render_document, render_help, render_inbox_list, render_notification_detail,
+    get_dialog_hints, render_auth, render_comments,
+    render_dialog, render_document, render_help,
     render_sidebar, render_task_detail, render_task_list, AuthState, DialogState, DialogType,
-    DocumentState, HelpState, InboxListState, SidebarState, TaskDetailState, TaskListState,
+    DocumentState, HelpState, SidebarState, TaskDetailState, TaskListState,
 };
 
 /// Application screens
@@ -42,8 +41,6 @@ pub enum Screen {
     TaskDetail,
     #[allow(dead_code)]
     Document,
-    Inbox,
-    AssignedTasks,
 }
 
 /// Comment view mode for threaded comments
@@ -69,13 +66,7 @@ pub enum AppMessage {
     CommentsLoaded(Result<Vec<Comment>, String>),
     CommentCreated(Result<Comment, String>, bool), // bool = is_reply
     CommentUpdated(Result<Comment, String>),
-    AssignedTasksLoaded(Result<Vec<Task>, String>),
-    AssignedTasksPreloaded(Result<Vec<Task>, String>), // Pre-loaded at startup (no loading indicator)
     CurrentUserLoaded(Result<User, String>),
-    NotificationsLoaded(Result<Vec<crate::models::Notification>, String>),
-    InboxActivityLoaded(Result<Vec<crate::models::InboxActivity>, String>),
-    // Assigned items (tasks + comments)
-    AssignedItemsLoaded(Result<Vec<crate::models::AssignedItem>, String>),
 }
 
 /// Main TUI application state
@@ -136,7 +127,6 @@ pub struct TuiApp {
     tasks: Vec<Task>,
     documents: Vec<Document>,
     comments: Vec<Comment>,
-    notifications: Vec<crate::models::Notification>,
 
     /// Comment UI state
     comment_selected_index: usize,
@@ -148,28 +138,8 @@ pub struct TuiApp {
     comment_view_mode: CommentViewMode,
     comment_previous_selection: Option<usize>, // Store selection when entering thread
 
-    /// Inbox UI state
-    inbox_showing_detail: bool,
-    inbox_loading: bool,
-    inbox_list: InboxListState,
-    /// Smart inbox activity feed
-    inbox_activity: Vec<crate::models::InboxActivity>,
-    inbox_activity_loading: bool,
-    inbox_activity_error: Option<String>,
-
-    /// Assigned tasks UI state
-    assigned_tasks: TaskListState,
-    assigned_tasks_count: usize,
-    assigned_tasks_loading: bool,
-    assigned_tasks_error: Option<String>,
-
-    /// Assigned items UI state (tasks + comments)
-    assigned_items: Vec<AssignedItem>,
-    assigned_items_count: usize,
-    assigned_items_loading: bool,
-    assigned_items_error: Option<String>,
-    assigned_items_filter: crate::models::AssignedItemsFilter,
-    assigned_items_selected_index: usize,
+    /// Per-list assigned filter state
+    assigned_filter_active: bool,
 
     /// User identity for assignee filtering
     current_user_id: Option<i32>,
@@ -213,6 +183,51 @@ pub enum AppState {
     Initializing,
     Unauthenticated,
     Main,
+}
+
+/// Test-only methods
+impl TuiApp {
+    /// Get the current user ID (for testing)
+    #[allow(dead_code)]
+    pub fn current_user_id(&self) -> Option<i32> {
+        self.current_user_id
+    }
+
+    /// Get the message sender for testing (sending async messages)
+    #[allow(dead_code)]
+    pub fn message_tx_for_testing(&self) -> mpsc::Sender<AppMessage> {
+        self.message_tx.clone().expect("message_tx should be set")
+    }
+
+    /// Set the assigned filter active state (for testing)
+    #[allow(dead_code)]
+    pub fn set_assigned_filter_active(&mut self, active: bool) {
+        self.assigned_filter_active = active;
+    }
+
+    /// Set the current list ID (for testing)
+    #[allow(dead_code)]
+    pub fn set_current_list_id(&mut self, list_id: Option<String>) {
+        self.current_list_id = list_id;
+    }
+
+    /// Set the current user ID (for testing)
+    #[allow(dead_code)]
+    pub fn set_current_user_id(&mut self, user_id: Option<i32>) {
+        self.current_user_id = user_id;
+    }
+
+    /// Check if loading is in progress (for testing)
+    #[allow(dead_code)]
+    pub fn is_loading(&self) -> bool {
+        self.loading
+    }
+
+    /// Get the current status message (for testing)
+    #[allow(dead_code)]
+    pub fn status_message(&self) -> &str {
+        &self.status
+    }
 }
 
 impl TuiApp {
@@ -259,29 +274,13 @@ impl TuiApp {
             tasks: Vec::new(),
             documents: Vec::new(),
             comments: Vec::new(),
-            notifications: Vec::new(),
             comment_selected_index: 0,
             comment_editing_index: None,
             comment_new_text: String::new(),
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
-            inbox_showing_detail: false,
-            inbox_loading: false,
-            inbox_list: InboxListState::new(),
-            inbox_activity: Vec::new(),
-            inbox_activity_loading: false,
-            inbox_activity_error: None,
-            assigned_tasks: TaskListState::new(),
-            assigned_tasks_count: 0,
-            assigned_tasks_loading: false,
-            assigned_tasks_error: None,
-            assigned_items: Vec::new(),
-            assigned_items_count: 0,
-            assigned_items_loading: false,
-            assigned_items_error: None,
-            assigned_items_filter: crate::models::AssignedItemsFilter::All,
-            assigned_items_selected_index: 0,
+            assigned_filter_active: false,
             current_user_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -312,6 +311,22 @@ impl TuiApp {
             if let Ok(Some(token)) = app.auth.load_token() {
                 app.client = Some(Arc::new(ClickUpClient::new(token)));
                 app.load_workspaces();
+
+                // Fetch current user profile in background for assignee filtering
+                if let Some(client) = &app.client {
+                    let client = client.clone();
+                    let tx = app.message_tx.clone().unwrap();
+                    tokio::spawn(async move {
+                        match client.get_current_user().await {
+                            Ok(user) => {
+                                let _ = tx.send(AppMessage::CurrentUserLoaded(Ok(user))).await;
+                            }
+                            Err(e) => {
+                                let _ = tx.send(AppMessage::CurrentUserLoaded(Err(e.to_string()))).await;
+                            }
+                        }
+                    });
+                }
             } else {
                 app.state = AppState::Unauthenticated;
                 app.screen = Screen::Auth;
@@ -354,29 +369,83 @@ impl TuiApp {
             tasks: Vec::new(),
             documents: Vec::new(),
             comments: Vec::new(),
-            notifications: Vec::new(),
             comment_selected_index: 0,
             comment_editing_index: None,
             comment_new_text: String::new(),
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
-            inbox_showing_detail: false,
-            inbox_loading: false,
-            inbox_list: InboxListState::new(),
-            inbox_activity: Vec::new(),
-            inbox_activity_loading: false,
-            inbox_activity_error: None,
-            assigned_tasks: TaskListState::new(),
-            assigned_tasks_count: 0,
-            assigned_tasks_loading: false,
-            assigned_tasks_error: None,
-            assigned_items: Vec::new(),
-            assigned_items_count: 0,
-            assigned_items_loading: false,
-            assigned_items_error: None,
-            assigned_items_filter: crate::models::AssignedItemsFilter::All,
-            assigned_items_selected_index: 0,
+            assigned_filter_active: false,
+            current_user_id: None,
+            message_rx: Some(message_rx),
+            message_tx: Some(message_tx.clone()),
+            clipboard: ClipboardService::new(),
+            url_copy_status: None,
+            url_copy_status_time: None,
+            current_workspace_id: None,
+            current_space_id: None,
+            current_folder_id: None,
+            current_list_id: None,
+            restoring_session: false,
+            restored_workspace_id: None,
+            restored_space_id: None,
+            restored_folder_id: None,
+            restored_list_id: None,
+            restored_task_id: None,
+        };
+
+        Ok(app)
+    }
+
+    /// Create a new TUI app with a custom client and in-memory cache (for testing)
+    #[allow(dead_code)]
+    pub fn with_client_and_test_cache(client: Arc<dyn ClickUpApi>) -> Result<Self> {
+        use std::env;
+
+        // Use a unique temporary database file for tests to avoid FK conflicts
+        let temp_dir = env::temp_dir();
+        let db_path = temp_dir.join(format!("clickdown_test_{}.db", std::process::id()));
+        
+        // Remove existing file if present
+        let _ = std::fs::remove_file(&db_path);
+        
+        let cache = CacheManager::new(db_path)?;
+        let auth = AuthManager::new().unwrap_or_default();
+
+        // Create channel for async messages
+        let (message_tx, message_rx) = mpsc::channel(32);
+
+        let app = Self {
+            screen: Screen::Workspaces,
+            state: AppState::Main,
+            client: Some(client),
+            cache,
+            auth,
+            error: None,
+            loading: false,
+            sidebar: SidebarState::new(),
+            task_list: TaskListState::new(),
+            task_detail: TaskDetailState::new(),
+            auth_state: AuthState::new(),
+            document: DocumentState::new(),
+            dialog: DialogState::new(),
+            help: HelpState::new(),
+            screen_title: generate_screen_title("Workspaces"),
+            status: String::new(),
+            workspaces: Vec::new(),
+            spaces: Vec::new(),
+            folders: Vec::new(),
+            lists: Vec::new(),
+            tasks: Vec::new(),
+            documents: Vec::new(),
+            comments: Vec::new(),
+            comment_selected_index: 0,
+            comment_editing_index: None,
+            comment_new_text: String::new(),
+            comment_focus: false,
+            comment_view_mode: CommentViewMode::TopLevel,
+            comment_previous_selection: None,
+            assigned_filter_active: false,
             current_user_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -462,8 +531,8 @@ impl TuiApp {
                         match result {
                             Ok(workspaces) => {
                                 self.workspaces = workspaces.clone();
-                                // Populate sidebar with assigned tasks at top, then inbox, then workspaces
-                                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                                // Populate sidebar with workspaces
+                                let mut items = Vec::new();
                                 items.extend(self.workspaces.iter().map(|w| {
                                     SidebarItem::Workspace {
                                         name: w.name.clone(),
@@ -525,14 +594,6 @@ impl TuiApp {
                                 self.state = AppState::Main;
                                 // Clear any previous error state
                                 self.error = None;
-
-                                // Pre-load assigned tasks after workspaces are loaded
-                                self.pre_load_assigned_tasks();
-                                
-                                // Pre-load notifications in background
-                                if let Some(workspace_id) = &self.current_workspace_id.clone() {
-                                    self.pre_load_notifications_background(workspace_id.clone());
-                                }
                             }
                             Err(e) => {
                                 self.loading = false;
@@ -549,8 +610,8 @@ impl TuiApp {
                         match result {
                             Ok(spaces) => {
                                 self.spaces = spaces.clone();
-                                // Populate sidebar with assigned tasks, inbox, then spaces
-                                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                                // Populate sidebar with spaces
+                                let mut items = Vec::new();
                                 items.extend(self.spaces.iter().map(|s| SidebarItem::Space {
                                     name: s.name.clone(),
                                     id: s.id.clone(),
@@ -621,8 +682,8 @@ impl TuiApp {
                         match result {
                             Ok(folders) => {
                                 self.folders = folders.clone();
-                                // Populate sidebar with assigned tasks, inbox, then folders
-                                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                                // Populate sidebar with folders
+                                let mut items = Vec::new();
                                 items.extend(self.folders.iter().map(|f| SidebarItem::Folder {
                                     name: f.name.clone(),
                                     id: f.id.clone(),
@@ -694,8 +755,8 @@ impl TuiApp {
                         match result {
                             Ok(lists) => {
                                 self.lists = lists.clone();
-                                // Populate sidebar with assigned tasks, inbox, then lists
-                                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                                // Populate sidebar with lists
+                                let mut items = Vec::new();
                                 items.extend(self.lists.iter().map(|l| SidebarItem::List {
                                     name: l.name.clone(),
                                     id: l.id.clone(),
@@ -914,174 +975,22 @@ impl TuiApp {
                             }
                         }
                     }
-                    AppMessage::AssignedTasksLoaded(result) => {
-                        self.assigned_tasks_loading = false;
-                        match result {
-                            Ok(tasks) => {
-                                // Sort tasks by status priority and recency
-                                let sorted_tasks = crate::models::task::sort_tasks(tasks);
-
-                                // Update assigned tasks list
-                                *self.assigned_tasks.tasks_mut() = sorted_tasks.clone();
-                                self.assigned_tasks_count = sorted_tasks.len();
-
-                                // Cache the assigned tasks
-                                if let Err(e) = self.cache.cache_assigned_tasks(&sorted_tasks) {
-                                    tracing::warn!("Failed to cache assigned tasks: {}", e);
-                                }
-
-                                self.assigned_tasks.select_first();
-                                self.assigned_tasks_error = None;
-                                self.status = format!("Loaded {} assigned task(s)", self.assigned_tasks_count);
-
-                                // Try to detect user ID from the first task if not already set
-                                if self.current_user_id.is_none() {
-                                    if let Some(task) = sorted_tasks.first() {
-                                        self.detect_user_id_from_task(task);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                self.assigned_tasks_error = Some(format!("Failed to load assigned tasks: {}", e));
-                                self.status = "Failed to load assigned tasks".to_string();
-                                self.assigned_tasks.tasks_mut().clear();
-                                self.assigned_tasks_count = 0;
-                            }
-                        }
-                    }
-                    AppMessage::AssignedItemsLoaded(result) => {
-                        self.assigned_items_loading = false;
-                        match result {
-                            Ok(items) => {
-                                // Update assigned items list
-                                self.assigned_items = items.clone();
-                                self.assigned_items_count = items.len();
-                                self.assigned_items_selected_index = 0;
-
-                                // Cache the assigned comments (extract from items)
-                                let comments: Vec<crate::models::AssignedComment> = items
-                                    .iter()
-                                    .filter_map(|item| {
-                                        if let AssignedItem::AssignedComment(ac) = item {
-                                            Some(ac.clone())
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .collect();
-                                
-                                if let Err(e) = self.cache.cache_assigned_comments(&comments) {
-                                    tracing::warn!("Failed to cache assigned comments: {}", e);
-                                }
-
-                                self.assigned_items_error = None;
-                                self.status = format!("Loaded {} assigned item(s)", self.assigned_items_count);
-                            }
-                            Err(e) => {
-                                self.assigned_items_error = Some(format!("Failed to load assigned items: {}", e));
-                                self.status = "Failed to load assigned items".to_string();
-                                self.assigned_items.clear();
-                                self.assigned_items_count = 0;
-                            }
-                        }
-                    }
-                    AppMessage::AssignedTasksPreloaded(result) => {
-                        // Pre-loaded tasks don't show loading indicators
-                        match result {
-                            Ok(tasks) => {
-                                // Sort tasks by status priority and recency
-                                let sorted_tasks = crate::models::task::sort_tasks(tasks);
-
-                                // Update assigned tasks list (only if not already populated)
-                                if self.assigned_tasks.tasks().is_empty() {
-                                    *self.assigned_tasks.tasks_mut() = sorted_tasks.clone();
-                                    self.assigned_tasks_count = sorted_tasks.len();
-                                    self.assigned_tasks.select_first();
-                                    self.status = format!("Pre-loaded {} assigned task(s)", self.assigned_tasks_count);
-                                } else {
-                                    // Already have data from cache, just update in background
-                                    self.assigned_tasks_count = sorted_tasks.len();
-                                    tracing::debug!("Background refresh completed: {} assigned task(s)", sorted_tasks.len());
-                                }
-
-                                // Cache the assigned tasks
-                                if let Err(e) = self.cache.cache_assigned_tasks(&sorted_tasks) {
-                                    tracing::warn!("Failed to cache assigned tasks: {}", e);
-                                }
-
-                                // Try to detect user ID from the first task if not already set
-                                if self.current_user_id.is_none() {
-                                    if let Some(task) = sorted_tasks.first() {
-                                        self.detect_user_id_from_task(task);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                // Don't show error for pre-load failures, just log
-                                tracing::warn!("Failed to pre-load assigned tasks: {}", e);
-                            }
-                        }
-                    }
                     AppMessage::CurrentUserLoaded(result) => {
                         match result {
                             Ok(user) => {
-                                // Store user ID for filtering assigned tasks
                                 self.current_user_id = Some(user.id as i32);
                                 tracing::info!("Detected current user ID from API: {} ({})", user.id, user.username);
 
-                                // Now load assigned tasks with the user ID
-                                self.load_assigned_tasks();
+                                // If assigned filter is active, re-fetch with the fresh user ID
+                                // to replace any stale results from a cached ID
+                                if self.assigned_filter_active {
+                                    if let Some(list_id) = &self.current_list_id {
+                                        self.load_tasks_with_assigned_filter(list_id.clone());
+                                    }
+                                }
                             }
                             Err(e) => {
-                                self.assigned_tasks_loading = false;
-                                self.assigned_tasks_error = Some(format!("Failed to load user profile: {}", e));
-                                self.status = "Failed to load user profile".to_string();
-                            }
-                        }
-                    }
-                    AppMessage::NotificationsLoaded(result) => {
-                        self.inbox_loading = false;
-                        match result {
-                            Ok(notifications) => {
-                                self.notifications = notifications.clone();
-                                // Convert notifications to activities for display
-                                let activities: Vec<crate::models::InboxActivity> = notifications
-                                    .iter()
-                                    .map(|n| crate::models::InboxActivity {
-                                        id: format!("notification_{}", n.id),
-                                        activity_type: crate::models::ActivityType::Assignment,
-                                        title: n.title.clone(),
-                                        description: n.description.clone(),
-                                        timestamp: n.created_at.unwrap_or(0),
-                                        task_id: None,
-                                        comment_id: None,
-                                        workspace_id: n.workspace_id.clone(),
-                                        task_name: String::new(),
-                                        previous_status: None,
-                                        new_status: None,
-                                        due_date: None,
-                                    })
-                                    .collect();
-                                self.inbox_list.set_activities(activities);
-                                self.status = format!("Loaded {} notification(s)", self.notifications.len());
-                            }
-                            Err(e) => {
-                                self.status = format!("Failed to load notifications: {}", e);
-                                // Keep existing cached data if available
-                            }
-                        }
-                    }
-                    AppMessage::InboxActivityLoaded(result) => {
-                        self.inbox_activity_loading = false;
-                        match result {
-                            Ok(activities) => {
-                                self.inbox_activity = activities.clone();
-                                self.status = format!("Loaded {} activity item(s)", self.inbox_activity.len());
-                            }
-                            Err(e) => {
-                                self.inbox_activity_error = Some(e.clone());
-                                self.status = format!("Failed to load inbox activity: {}", e);
-                                // Keep existing cached data if available
+                                tracing::warn!("Background user profile fetch failed: {}", e);
                             }
                         }
                     }
@@ -1189,8 +1098,6 @@ impl TuiApp {
             Screen::Tasks => self.update_tasks(event),
             Screen::TaskDetail => self.update_task_detail(event),
             Screen::Document => self.update_document(event),
-            Screen::Inbox => self.update_inbox(event),
-            Screen::AssignedTasks => self.update_assigned_tasks(event),
         }
     }
 
@@ -1292,6 +1199,19 @@ impl TuiApp {
                 KeyCode::Char('d') => {
                     if self.task_list.selected_task().is_some() {
                         self.dialog.show(DialogType::ConfirmDelete);
+                    }
+                }
+                KeyCode::Char('a') => {
+                    // Toggle "Assigned to Me" filter
+                    self.assigned_filter_active = !self.assigned_filter_active;
+                    if let Some(list_id) = &self.current_list_id {
+                        if self.assigned_filter_active {
+                            self.status = "Filtering: Assigned to Me".to_string();
+                            self.load_tasks_with_assigned_filter(list_id.clone());
+                        } else {
+                            self.status = "Showing all tasks".to_string();
+                            self.load_tasks(list_id.clone());
+                        }
                     }
                 }
                 KeyCode::Esc => {
@@ -1567,227 +1487,16 @@ impl TuiApp {
         }
     }
 
-    fn update_inbox(&mut self, event: InputEvent) {
-        if let InputEvent::Key(key) = event {
-            match key.code {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    // Move selection down in inbox list
-                    self.inbox_list.select_next();
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    // Move selection up in inbox list
-                    self.inbox_list.select_previous();
-                }
-                KeyCode::Char('r') => {
-                    // Manual refresh - fetch activity from API
-                    self.status = "Refreshing activity...".to_string();
-                    self.load_inbox_activity();
-                }
-                KeyCode::Char('c') => {
-                    // Dismiss single activity (remove from list)
-                    if let Some(activity) = self.inbox_list.selected_activity() {
-                        let activity_id = activity.id.clone();
-                        // Remove from list
-                        self.inbox_activity.retain(|a| a.id != activity_id);
-                        self.inbox_list
-                            .set_activities(self.inbox_activity.clone());
-                        self.status = "Activity dismissed".to_string();
-                    } else {
-                        self.status = "No activity selected".to_string();
-                    }
-                }
-                KeyCode::Char('C') => {
-                    // Dismiss all activities (clear inbox)
-                    self.inbox_activity.clear();
-                    self.inbox_list.set_activities(Vec::new());
-                    self.status = "All activities dismissed".to_string();
-                }
-                KeyCode::Enter => {
-                    // Show activity detail
-                    self.inbox_showing_detail = true;
-                }
-                KeyCode::Esc => {
-                    if self.inbox_showing_detail {
-                        // Close detail view
-                        self.inbox_showing_detail = false;
-                    } else {
-                        // Navigate back
-                        self.navigate_back();
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn update_assigned_tasks(&mut self, event: InputEvent) {
-        if let InputEvent::Key(key) = event {
-            // Use the assigned view input handler
-            let handled = handle_assigned_view_input(
-                key.code,
-                &self.assigned_items,
-                &mut self.assigned_items_selected_index,
-                &mut self.assigned_items_filter,
-                self.assigned_items_count,
-            );
-
-            if handled {
-                return;
-            }
-
-            // Handle additional keys
-            match key.code {
-                KeyCode::Char('r') => {
-                    // Manual refresh - reload assigned items from API
-                    self.assigned_items.clear();
-                    self.assigned_items_count = 0;
-                    let _ = self.cache.clear_assigned_comments();
-                    self.load_assigned_items();
-                    self.status = "Refreshing assigned items...".to_string();
-                }
-                KeyCode::Enter => {
-                    // Open selected item detail
-                    if self.assigned_items.is_empty() {
-                        return;
-                    }
-                    
-                    // Get the selected item (accounting for filter)
-                    let filtered_items: Vec<&AssignedItem> = match self.assigned_items_filter {
-                        AssignedItemsFilter::All => self.assigned_items.iter().collect(),
-                        AssignedItemsFilter::TasksOnly => {
-                            self.assigned_items.iter().filter(|i| i.is_task()).collect()
-                        }
-                        AssignedItemsFilter::CommentsOnly => {
-                            self.assigned_items.iter().filter(|i| i.is_comment()).collect()
-                        }
-                    };
-
-                    if let Some(item) = filtered_items.get(self.assigned_items_selected_index) {
-                        match item {
-                            AssignedItem::Task(task) => {
-                                // Open task detail
-                                self.task_detail.task = Some(task.clone());
-                                self.screen = Screen::TaskDetail;
-                                self.screen_title = generate_screen_title(&format!("Task: {}", task.name));
-
-                                // Load comments for the task
-                                self.load_comments(task.id.clone());
-                            }
-                            AssignedItem::AssignedComment(ac) => {
-                                // Navigate to parent task and open comment thread
-                                let task_id = ac.task.id.clone();
-                                let comment_id = ac.comment.id.clone();
-                                
-                                // Find or fetch the parent task
-                                // For now, we'll just navigate to the task and load comments
-                                // The comment thread will be opened based on the comment_id
-                                self.task_detail.task = None; // Will be loaded
-                                self.screen = Screen::TaskDetail;
-                                self.screen_title = generate_screen_title(&format!("Task: {}", ac.task.name.as_deref().unwrap_or("Unknown")));
-                                
-                                // Store the comment ID to open the thread
-                                // TODO: Implement comment thread auto-open
-                                tracing::info!("Navigating to task {} to view comment {}", task_id, comment_id);
-                                
-                                // Load the task and comments
-                                // This would need a new method to load task by ID and open specific comment
-                                self.status = format!("Opening comment in task...");
-                            }
-                        }
-                    }
-                }
-                KeyCode::Esc => {
-                    // Navigate back to previous screen
-                    self.navigate_back();
-                }
-                _ => {}
-            }
-        }
-    }
-
     /// Navigate into the selected item (public for testing)
     pub fn navigate_into(&mut self) {
         // Navigate based on current screen and selection
         // Clone the selected item to avoid borrow checker issues
         let selected_item = self.sidebar.selected_item().cloned();
 
-        // Handle Assigned Tasks navigation from any screen
-        if let Some(SidebarItem::AssignedTasks) = selected_item {
-            self.screen = Screen::AssignedTasks;
-            self.screen_title = generate_screen_title("Assigned to Me");
-
-            // Try to detect user ID if not already set
-            self.try_detect_user_id();
-
-            // Check if we already have user ID
-            let has_user_id = self.current_user_id.is_some();
-
-            // Check cache first (5 minute TTL)
-            let cache_valid = self.cache.is_assigned_comments_cache_valid(300).unwrap_or(false);
-
-            if cache_valid && !self.assigned_items.is_empty() {
-                // Use cached data for comments, and load tasks from cache too
-                match (self.cache.get_assigned_comments(), self.cache.get_assigned_tasks()) {
-                    (Ok(comments), Ok(tasks)) => {
-                        // Combine cached tasks and comments
-                        let mut items = Vec::new();
-                        for task in &tasks {
-                            items.push(AssignedItem::Task(task.clone()));
-                        }
-                        for comment in &comments {
-                            items.push(AssignedItem::AssignedComment(comment.clone()));
-                        }
-                        items = crate::models::assigned_item::sort_assigned_items(items);
-                        
-                        self.assigned_items_count = items.len();
-                        self.assigned_items = items;
-                        self.assigned_items_selected_index = 0;
-                        self.status = format!("Loaded {} assigned item(s) from cache", self.assigned_items_count);
-                    }
-                    (Err(e), _) | (_, Err(e)) => {
-                        tracing::warn!("Failed to load assigned items from cache: {}", e);
-                        if has_user_id {
-                            self.load_assigned_items();
-                        } else {
-                            self.fetch_current_user_and_load_tasks();
-                        }
-                    }
-                }
-            } else if has_user_id {
-                // Have user ID - fetch items directly
-                self.load_assigned_items();
-            } else {
-                // No user ID - fetch from API first
-                self.fetch_current_user_and_load_tasks();
-            }
-            return;
-        }
-
+        // Handle navigation based on current screen
         match &self.screen {
             Screen::Workspaces => {
-                if let Some(SidebarItem::Inbox) = selected_item {
-                    // Navigate to Inbox view
-                    self.screen = Screen::Inbox;
-                    self.screen_title = generate_screen_title("Inbox");
-                    // Load inbox activity from API
-                    if self.current_workspace_id.is_some() {
-                        // Need user ID for smart inbox
-                        if self.current_user_id.is_some() {
-                            self.load_inbox_activity();
-                        } else {
-                            // Try to detect user ID first
-                            self.try_detect_user_id();
-                            if self.current_user_id.is_some() {
-                                self.load_inbox_activity();
-                            } else {
-                                self.status = "Loading user profile...".to_string();
-                                self.fetch_current_user_and_load_tasks();
-                            }
-                        }
-                    } else {
-                        self.status = "Select a workspace first to view inbox".to_string();
-                    }
-                } else if let Some(SidebarItem::Workspace { id, name }) = selected_item {
+                if let Some(SidebarItem::Workspace { id, name }) = selected_item {
                     self.current_workspace_id = Some(id.clone());
                     self.current_space_id = None;
                     self.current_folder_id = None;
@@ -1798,27 +1507,7 @@ impl TuiApp {
                 }
             }
             Screen::Spaces => {
-                if let Some(SidebarItem::Inbox) = selected_item {
-                    // Navigate to Inbox view
-                    self.screen = Screen::Inbox;
-                    self.screen_title = generate_screen_title("Inbox");
-                    // Load inbox activity from API
-                    if self.current_workspace_id.is_some() {
-                        if self.current_user_id.is_some() {
-                            self.load_inbox_activity();
-                        } else {
-                            self.try_detect_user_id();
-                            if self.current_user_id.is_some() {
-                                self.load_inbox_activity();
-                            } else {
-                                self.status = "Loading user profile...".to_string();
-                                self.fetch_current_user_and_load_tasks();
-                            }
-                        }
-                    } else {
-                        self.status = "Select a workspace first to view inbox".to_string();
-                    }
-                } else if let Some(SidebarItem::Space { id, name, .. }) = selected_item {
+                if let Some(SidebarItem::Space { id, name, .. }) = selected_item {
                     self.current_space_id = Some(id.clone());
                     self.current_folder_id = None;
                     self.current_list_id = None;
@@ -1828,27 +1517,7 @@ impl TuiApp {
                 }
             }
             Screen::Folders => {
-                if let Some(SidebarItem::Inbox) = selected_item {
-                    // Navigate to Inbox view
-                    self.screen = Screen::Inbox;
-                    self.screen_title = generate_screen_title("Inbox");
-                    // Load inbox activity from API
-                    if self.current_workspace_id.is_some() {
-                        if self.current_user_id.is_some() {
-                            self.load_inbox_activity();
-                        } else {
-                            self.try_detect_user_id();
-                            if self.current_user_id.is_some() {
-                                self.load_inbox_activity();
-                            } else {
-                                self.status = "Loading user profile...".to_string();
-                                self.fetch_current_user_and_load_tasks();
-                            }
-                        }
-                    } else {
-                        self.status = "Select a workspace first to view inbox".to_string();
-                    }
-                } else if let Some(SidebarItem::Folder { id, name, .. }) = selected_item {
+                if let Some(SidebarItem::Folder { id, name, .. }) = selected_item {
                     self.current_folder_id = Some(id.clone());
                     self.current_list_id = None;
                     self.load_lists(id.clone());
@@ -1857,52 +1526,11 @@ impl TuiApp {
                 }
             }
             Screen::Lists => {
-                if let Some(SidebarItem::Inbox) = selected_item {
-                    // Navigate to Inbox view
-                    self.screen = Screen::Inbox;
-                    self.screen_title = generate_screen_title("Inbox");
-                    // Load inbox activity from API
-                    if self.current_workspace_id.is_some() {
-                        if self.current_user_id.is_some() {
-                            self.load_inbox_activity();
-                        } else {
-                            self.try_detect_user_id();
-                            if self.current_user_id.is_some() {
-                                self.load_inbox_activity();
-                            } else {
-                                self.status = "Loading user profile...".to_string();
-                                self.fetch_current_user_and_load_tasks();
-                            }
-                        }
-                    } else {
-                        self.status = "Select a workspace first to view inbox".to_string();
-                    }
-                } else if let Some(SidebarItem::List { id, name, .. }) = selected_item {
+                if let Some(SidebarItem::List { id, name, .. }) = selected_item {
                     self.current_list_id = Some(id.clone());
                     self.load_tasks(id.clone());
                     self.screen = Screen::Tasks;
                     self.screen_title = generate_screen_title(&format!("Tasks: {}", name));
-                }
-            }
-            Screen::Inbox => {
-                // Open inbox view
-                self.screen = Screen::Inbox;
-                self.screen_title = generate_screen_title("Inbox");
-                // Load inbox activity from API
-                if self.current_workspace_id.is_some() {
-                    if self.current_user_id.is_some() {
-                        self.load_inbox_activity();
-                    } else {
-                        self.try_detect_user_id();
-                        if self.current_user_id.is_some() {
-                            self.load_inbox_activity();
-                        } else {
-                            self.status = "Loading user profile...".to_string();
-                            self.fetch_current_user_and_load_tasks();
-                        }
-                    }
-                } else {
-                    self.status = "Select a workspace first to view inbox".to_string();
                 }
             }
             _ => {}
@@ -1914,19 +1542,14 @@ impl TuiApp {
         match self.screen {
             Screen::Auth => {}       // Can't go back from auth
             Screen::Workspaces => {} // Can't go back from workspaces
-            Screen::AssignedTasks => {
-                // Navigate back to Workspaces (or stay at top level)
-                self.screen = Screen::Workspaces;
-                self.screen_title = generate_screen_title("Workspaces");
-            }
             Screen::Spaces => {
                 // Navigate back to Workspaces
                 self.current_space_id = None;
                 self.current_folder_id = None;
                 self.current_list_id = None;
 
-                // Repopulate sidebar with assigned tasks, inbox, then workspaces
-                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                // Repopulate sidebar with workspaces
+                let mut items = Vec::new();
                 items.extend(self.workspaces.iter().map(|w| SidebarItem::Workspace {
                     name: w.name.clone(),
                     id: w.id.clone(),
@@ -1952,8 +1575,8 @@ impl TuiApp {
                 self.current_folder_id = None;
                 self.current_list_id = None;
 
-                // Repopulate sidebar with assigned tasks, inbox, then spaces
-                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                // Repopulate sidebar with spaces
+                let mut items = Vec::new();
                 items.extend(self.spaces.iter().map(|s| SidebarItem::Space {
                     name: s.name.clone(),
                     id: s.id.clone(),
@@ -1989,8 +1612,8 @@ impl TuiApp {
                 // Navigate back to Folders
                 self.current_list_id = None;
 
-                // Repopulate sidebar with assigned tasks, inbox, then folders
-                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                // Repopulate sidebar with folders
+                let mut items = Vec::new();
                 items.extend(self.folders.iter().map(|f| SidebarItem::Folder {
                     name: f.name.clone(),
                     id: f.id.clone(),
@@ -2025,8 +1648,8 @@ impl TuiApp {
                 // Navigate back to Lists
                 self.current_list_id = None;
 
-                // Repopulate sidebar with assigned tasks, inbox, then lists
-                let mut items = vec![SidebarItem::AssignedTasks, SidebarItem::Inbox];
+                // Repopulate sidebar with lists
+                let mut items = Vec::new();
                 items.extend(self.lists.iter().map(|l| SidebarItem::List {
                     name: l.name.clone(),
                     id: l.id.clone(),
@@ -2065,11 +1688,6 @@ impl TuiApp {
                 }
             }
             Screen::Document => {
-                self.screen = Screen::Tasks;
-                self.update_screen_title();
-            }
-            Screen::Inbox => {
-                // Navigate back to Tasks (or last viewed screen)
                 self.screen = Screen::Tasks;
                 self.update_screen_title();
             }
@@ -2220,7 +1838,47 @@ impl TuiApp {
         });
     }
 
+    /// Load tasks filtered by the current user as assignee
+    fn load_tasks_with_assigned_filter(&mut self, list_id: String) {
+        self.loading = true;
+        self.status = "Loading assigned tasks...".to_string();
+
+        let user_id = match self.current_user_id {
+            Some(id) => id,
+            None => {
+                self.loading = false;
+                self.status = "User ID not available for filtering".to_string();
+                return;
+            }
+        };
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client.get_tasks_with_assignee(&list_id, user_id, Some(100)).await;
+            let msg = match result {
+                Ok(tasks) => AppMessage::TasksLoaded(Ok(tasks)),
+                Err(e) => AppMessage::TasksLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
     fn load_tasks(&mut self, list_id: String) {
+        // If the assigned filter is active, use the filtered version
+        if self.assigned_filter_active {
+            self.load_tasks_with_assigned_filter(list_id);
+            return;
+        }
+
         self.loading = true;
         self.status = "Loading tasks...".to_string();
 
@@ -2244,757 +1902,6 @@ impl TuiApp {
             };
             let _ = tx.send(msg).await;
         });
-    }
-
-    /// Load assigned tasks for the current user
-    fn load_assigned_tasks(&mut self) {
-        self.assigned_tasks_loading = true;
-        self.assigned_tasks_error = None;
-        self.status = "Loading assigned tasks...".to_string();
-
-        let client = match &self.client {
-            Some(c) => c.clone(),
-            None => {
-                self.assigned_tasks_loading = false;
-                self.assigned_tasks_error = Some("Not authenticated".to_string());
-                return;
-            }
-        };
-
-        let user_id = match self.current_user_id {
-            Some(id) => id,
-            None => {
-                self.assigned_tasks_loading = false;
-                self.assigned_tasks_error = Some(
-                    "User identity not detected. Navigate to a task list and open a task to auto-detect your user ID, or try refreshing the page.".to_string()
-                );
-                return;
-            }
-        };
-
-        let tx = self.message_tx.clone().unwrap();
-        tokio::spawn(async move {
-            // Get all accessible lists
-            tracing::info!("Starting assigned tasks load for user {}", user_id);
-            let lists_result = client.get_all_accessible_lists().await;
-
-            match lists_result {
-                Ok(lists) => {
-                    tracing::info!("Retrieved {} accessible list(s) for assigned tasks", lists.len());
-
-                    // Check if lists are empty - this was causing the "zero tasks" bug
-                    if lists.is_empty() {
-                        tracing::warn!("No accessible lists found for assigned tasks");
-                        let msg = AppMessage::AssignedTasksLoaded(Err(
-                            "No accessible lists found. This means:\n  • Your workspaces have no spaces, OR\n  • Your spaces have no folders or lists, OR\n  • You don't have access to any lists\n\nUse 'clickdown debug lists-all' to diagnose.".to_string()
-                        ));
-                        let _ = tx.send(msg).await;
-                        return;
-                    }
-
-                    // Fetch tasks from each list in parallel using join_all
-                    tracing::info!("Fetching tasks assigned to user {} from {} list(s) in parallel", user_id, lists.len());
-                    
-                    // Create a list of futures for fetching tasks from each list
-                    let fetch_futures = lists.iter().map(|list| {
-                        let client = client.clone();
-                        let list_id = list.id.clone();
-                        let list_name = list.name.clone();
-                        async move {
-                            match client.get_tasks_with_assignee(&list_id, user_id, Some(100)).await {
-                                Ok(tasks) => {
-                                    tracing::debug!("Found {} assigned tasks in list '{}'", tasks.len(), list_name);
-                                    Ok((list_id, tasks))
-                                }
-                                Err(e) => {
-                                    tracing::warn!("Failed to fetch tasks from list '{}': {}", list_id, e);
-                                    Err((list_id, e))
-                                }
-                            }
-                        }
-                    });
-
-                    // Execute all fetches in parallel
-                    let results = join_all(fetch_futures).await;
-
-                    // Collect all successful tasks
-                    let mut all_tasks = Vec::new();
-                    let mut failed_lists = Vec::new();
-                    
-                    for result in results {
-                        match result {
-                            Ok((_list_id, tasks)) => {
-                                all_tasks.extend(tasks);
-                            }
-                            Err((list_id, error)) => {
-                                failed_lists.push((list_id, error));
-                            }
-                        }
-                    }
-
-                    // Log summary
-                    if !failed_lists.is_empty() {
-                        tracing::warn!("Failed to fetch tasks from {} list(s): {:?}", 
-                            failed_lists.len(), 
-                            failed_lists.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>());
-                    }
-
-                    tracing::info!("Total assigned tasks found: {}", all_tasks.len());
-                    
-                    // Provide helpful message if no tasks found
-                    if all_tasks.is_empty() {
-                        tracing::warn!("No assigned tasks found in any list");
-                        let msg = AppMessage::AssignedTasksLoaded(Ok(all_tasks));
-                        let _ = tx.send(msg).await;
-                    } else {
-                        let msg = AppMessage::AssignedTasksLoaded(Ok(all_tasks));
-                        let _ = tx.send(msg).await;
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Failed to get accessible lists: {}", e);
-                    let msg = AppMessage::AssignedTasksLoaded(Err(format!(
-                        "Failed to fetch lists: {}\n\nThis could be due to:\n  • API connectivity issues\n  • Insufficient permissions\n  • Invalid API token\n\nTry: clickdown debug auth-status",
-                        e
-                    )));
-                    let _ = tx.send(msg).await;
-                }
-            }
-        });
-    }
-
-    /// Load assigned items (tasks + comments) for the current user
-    fn load_assigned_items(&mut self) {
-        self.assigned_items_loading = true;
-        self.assigned_items_error = None;
-        self.status = "Loading assigned items...".to_string();
-
-        let client = match &self.client {
-            Some(c) => c.clone(),
-            None => {
-                self.assigned_items_loading = false;
-                self.assigned_items_error = Some("Not authenticated".to_string());
-                return;
-            }
-        };
-
-        let user_id = match self.current_user_id {
-            Some(id) => id,
-            None => {
-                self.assigned_items_loading = false;
-                self.assigned_items_error = Some(
-                    "User identity not detected. Navigate to a task list and open a task to auto-detect your user ID, or try refreshing the page.".to_string()
-                );
-                return;
-            }
-        };
-
-        let tx = self.message_tx.clone().unwrap();
-        tokio::spawn(async move {
-            tracing::info!("Starting assigned items load for user {}", user_id);
-
-            // Fetch tasks and comments in parallel
-            let tasks_future = async {
-                match client.get_all_accessible_lists().await {
-                    Ok(lists) => {
-                        tracing::info!("Retrieved {} accessible list(s) for assigned items", lists.len());
-                        
-                        // Fetch tasks from each list
-                        let fetch_futures = lists.iter().map(|list| {
-                            let client = client.clone();
-                            let list_id = list.id.clone();
-                            let list_name = list.name.clone();
-                            async move {
-                                match client.get_tasks_with_assignee(&list_id, user_id, Some(100)).await {
-                                    Ok(tasks) => {
-                                        tracing::debug!("Found {} assigned tasks in list '{}'", tasks.len(), list_name);
-                                        Ok((list_id, tasks))
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!("Failed to fetch tasks from list '{}': {}", list_id, e);
-                                        Err((list_id, e))
-                                    }
-                                }
-                            }
-                        });
-
-                        let results = join_all(fetch_futures).await;
-                        let mut all_tasks = Vec::new();
-                        
-                        for result in results {
-                            if let Ok((_list_id, tasks)) = result {
-                                all_tasks.extend(tasks);
-                            }
-                        }
-                        
-                        tracing::info!("Total assigned tasks found: {}", all_tasks.len());
-                        Ok(all_tasks)
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to get accessible lists: {}", e);
-                        Err(e)
-                    }
-                }
-            };
-
-            let comments_future = async {
-                match client.get_assigned_comments(user_id).await {
-                    Ok(comments) => {
-                        tracing::info!("Found {} assigned comment(s)", comments.len());
-                        Ok(comments)
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to fetch assigned comments: {}", e);
-                        Err(e)
-                    }
-                }
-            };
-
-            // Execute both fetches in parallel
-            let (tasks_result, comments_result) = tokio::join!(tasks_future, comments_future);
-
-            // Combine results into AssignedItem enum
-            let mut all_items = Vec::new();
-            
-            // Add tasks
-            if let Ok(tasks) = tasks_result {
-                for task in tasks {
-                    all_items.push(AssignedItem::Task(task));
-                }
-            }
-            
-            // Add comments
-            if let Ok(comments) = comments_result {
-                for comment in comments {
-                    all_items.push(AssignedItem::AssignedComment(comment));
-                }
-            }
-
-            // Sort by updated_at descending
-            all_items = crate::models::assigned_item::sort_assigned_items(all_items);
-
-            tracing::info!("Total assigned items: {}", all_items.len());
-
-            let msg = AppMessage::AssignedItemsLoaded(Ok(all_items));
-            let _ = tx.send(msg).await;
-        });
-    }
-
-    /// Pre-load assigned tasks at application startup
-    ///
-    /// This method is called during application initialization to pre-fetch assigned tasks
-    /// so they're ready when the user navigates to the "Assigned to Me" view.
-    /// 
-    /// Strategy:
-    /// 1. If user_id is available from session restore, use it
-    /// 2. Check cache validity (TTL: 5 minutes)
-    /// 3. If cache is valid and has data, load from cache immediately
-    /// 4. If cache is invalid or empty, fetch from API in background
-    pub fn pre_load_assigned_tasks(&mut self) {
-        // Try to get user ID from session restore first
-        let user_id = match self.current_user_id {
-            Some(id) => id,
-            None => {
-                // No user ID available yet - will need to fetch from API first
-                // This will be done when user navigates to Assigned Tasks view
-                tracing::debug!("No user ID available for pre-loading assigned tasks");
-                return;
-            }
-        };
-
-        // Check if cache is valid (5 minute TTL)
-        let cache_valid = self.cache.is_assigned_tasks_cache_valid(300).unwrap_or(false);
-        
-        if cache_valid {
-            // Try to load from cache
-            match self.cache.get_assigned_tasks() {
-                Ok(tasks) if !tasks.is_empty() => {
-                    tracing::info!("Pre-loaded {} assigned task(s) from cache", tasks.len());
-                    let sorted_tasks = crate::models::task::sort_tasks(tasks.clone());
-                    *self.assigned_tasks.tasks_mut() = sorted_tasks;
-                    self.assigned_tasks_count = tasks.len();
-                    self.assigned_tasks.select_first();
-                    self.status = format!("Loaded {} assigned task(s) from cache", self.assigned_tasks_count);
-                    
-                    // Still refresh in background to get latest data
-                    self.pre_load_assigned_tasks_background(user_id);
-                    return;
-                }
-                Ok(_) => {
-                    tracing::debug!("Assigned tasks cache is empty, fetching from API");
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to load assigned tasks from cache: {}", e);
-                }
-            }
-        }
-        
-        // Cache invalid or empty - fetch from API in background
-        self.pre_load_assigned_tasks_background(user_id);
-    }
-
-    /// Background task for pre-loading assigned tasks from API
-    ///
-    /// This is similar to load_assigned_tasks but uses AssignedTasksPreloaded message
-    /// to avoid showing loading indicators during startup.
-    fn pre_load_assigned_tasks_background(&mut self, user_id: i32) {
-        let client = match &self.client {
-            Some(c) => c.clone(),
-            None => {
-                tracing::warn!("No API client available for pre-loading assigned tasks");
-                return;
-            }
-        };
-
-        let tx = self.message_tx.clone().unwrap();
-        tokio::spawn(async move {
-            tracing::info!("Pre-fetching assigned tasks for user {} in background", user_id);
-            
-            // Get all accessible lists
-            let lists_result = client.get_all_accessible_lists().await;
-
-            match lists_result {
-                Ok(lists) => {
-                    tracing::info!("Retrieved {} accessible list(s) for pre-loading assigned tasks", lists.len());
-
-                    if lists.is_empty() {
-                        tracing::warn!("No accessible lists found for pre-loading assigned tasks");
-                        let msg = AppMessage::AssignedTasksPreloaded(Ok(vec![]));
-                        let _ = tx.send(msg).await;
-                        return;
-                    }
-
-                    // Fetch tasks from each list in parallel
-                    let fetch_futures = lists.iter().map(|list| {
-                        let client = client.clone();
-                        let list_id = list.id.clone();
-                        async move {
-                            match client.get_tasks_with_assignee(&list_id, user_id, Some(100)).await {
-                                Ok(tasks) => tasks,
-                                Err(e) => {
-                                    tracing::debug!("Failed to fetch tasks from list '{}': {}", list_id, e);
-                                    Vec::new()
-                                }
-                            }
-                        }
-                    });
-
-                    let results: Vec<Vec<Task>> = join_all(fetch_futures).await;
-
-                    let mut all_tasks = Vec::new();
-                    for tasks in results {
-                        all_tasks.extend(tasks);
-                    }
-
-                    tracing::info!("Pre-fetched {} assigned task(s) in background", all_tasks.len());
-
-                    // Cache the results
-                    if let Ok(cache_manager) = crate::cache::CacheManager::new(
-                        crate::config::ConfigManager::database_path().unwrap_or_default()
-                    ) {
-                        let mut cache = cache_manager;
-                        if let Err(e) = cache.cache_assigned_tasks(&all_tasks) {
-                            tracing::warn!("Failed to cache assigned tasks: {}", e);
-                        }
-                    }
-
-                    let msg = AppMessage::AssignedTasksPreloaded(Ok(all_tasks));
-                    let _ = tx.send(msg).await;
-                }
-                Err(e) => {
-                    tracing::error!("Failed to get accessible lists for pre-loading: {}", e);
-                    let msg = AppMessage::AssignedTasksPreloaded(Err(format!(
-                        "Failed to fetch lists: {}",
-                        e
-                    )));
-                    let _ = tx.send(msg).await;
-                }
-            }
-        });
-    }
-
-    /// Fetch current user from API and then load assigned tasks
-    fn fetch_current_user_and_load_tasks(&mut self) {
-        self.assigned_tasks_loading = true;
-        self.assigned_tasks_error = None;
-        self.status = "Fetching user profile...".to_string();
-
-        let client = match &self.client {
-            Some(c) => c.clone(),
-            None => {
-                self.assigned_tasks_loading = false;
-                self.assigned_tasks_error = Some("Not authenticated".to_string());
-                return;
-            }
-        };
-
-        let tx = self.message_tx.clone().unwrap();
-        tokio::spawn(async move {
-            match client.get_current_user().await {
-                Ok(user) => {
-                    let msg = AppMessage::CurrentUserLoaded(Ok(user));
-                    let _ = tx.send(msg).await;
-                }
-                Err(e) => {
-                    let msg = AppMessage::CurrentUserLoaded(Err(e.to_string()));
-                    let _ = tx.send(msg).await;
-                }
-            }
-        });
-    }
-
-    /// Load notifications from API and cache them
-    ///
-    /// This method fetches notifications from the ClickUp API for the current workspace,
-    /// caches them locally, and updates the inbox UI state.
-    #[allow(dead_code)]
-    fn load_notifications(&mut self) {
-        self.inbox_loading = true;
-        self.status = "Loading notifications...".to_string();
-
-        let client = match &self.client {
-            Some(c) => c.clone(),
-            None => {
-                self.inbox_loading = false;
-                self.status = "Not authenticated".to_string();
-                return;
-            }
-        };
-
-        let workspace_id = match &self.current_workspace_id {
-            Some(id) => id.clone(),
-            None => {
-                self.inbox_loading = false;
-                self.status = "No workspace selected".to_string();
-                return;
-            }
-        };
-
-        let tx = self.message_tx.clone().unwrap();
-        tokio::spawn(async move {
-            match client.get_notifications(&workspace_id).await {
-                Ok(notifications) => {
-                    // Cache the notifications
-                    if let Ok(cache_manager) = crate::cache::CacheManager::new(
-                        crate::config::ConfigManager::database_path().unwrap_or_default()
-                    ) {
-                        let mut cache = cache_manager;
-                        if let Err(e) = cache.cache_notifications(&workspace_id, &notifications) {
-                            tracing::warn!("Failed to cache notifications: {}", e);
-                        }
-                    }
-                    let msg = AppMessage::NotificationsLoaded(Ok(notifications));
-                    let _ = tx.send(msg).await;
-                }
-                Err(e) => {
-                    let msg = AppMessage::NotificationsLoaded(Err(e.to_string()));
-                    let _ = tx.send(msg).await;
-                }
-            }
-        });
-    }
-
-    /// Pre-load notifications from cache or fetch from API if needed
-    ///
-    /// This method checks the cache first and fetches from API if cache is empty or stale.
-    /// Used when navigating to the inbox to provide instant display if cache is valid.
-    #[allow(dead_code)]
-    pub fn pre_load_notifications(&mut self) {
-        let workspace_id = match &self.current_workspace_id {
-            Some(id) => id.clone(),
-            None => {
-                tracing::debug!("No workspace selected for pre-loading notifications");
-                return;
-            }
-        };
-
-        // Check if cache is valid (5 minute TTL)
-        let cache_valid = self.cache.is_notifications_cache_valid(&workspace_id, 300).unwrap_or(false);
-
-        if cache_valid {
-            // Try to load from cache
-            match self.cache.get_unread_notifications(&workspace_id, None) {
-                Ok(notifications) if !notifications.is_empty() => {
-                    tracing::info!("Pre-loaded {} notification(s) from cache", notifications.len());
-                    self.notifications = notifications.clone();
-                    // Convert notifications to activities for display
-                    let activities: Vec<crate::models::InboxActivity> = notifications
-                        .iter()
-                        .map(|n| crate::models::InboxActivity {
-                            id: format!("notification_{}", n.id),
-                            activity_type: crate::models::ActivityType::Assignment,
-                            title: n.title.clone(),
-                            description: n.description.clone(),
-                            timestamp: n.created_at.unwrap_or(0),
-                            task_id: None,
-                            comment_id: None,
-                            workspace_id: n.workspace_id.clone(),
-                            task_name: String::new(),
-                            previous_status: None,
-                            new_status: None,
-                            due_date: None,
-                        })
-                        .collect();
-                    self.inbox_list.set_activities(activities);
-                    self.status = format!("Loaded {} notification(s) from cache", self.notifications.len());
-
-                    // Still refresh in background to get latest data
-                    self.pre_load_notifications_background(workspace_id);
-                    return;
-                }
-                Ok(_) => {
-                    tracing::debug!("Notifications cache is empty, fetching from API");
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to load notifications from cache: {}", e);
-                }
-            }
-        }
-
-        // Cache invalid or empty - fetch from API in background
-        self.pre_load_notifications_background(workspace_id);
-    }
-
-    /// Background task for pre-loading notifications from API
-    ///
-    /// This is similar to load_notifications but used for background refresh
-    /// without showing loading indicators.
-    fn pre_load_notifications_background(&mut self, workspace_id: String) {
-        let client = match &self.client {
-            Some(c) => c.clone(),
-            None => {
-                tracing::warn!("No API client available for pre-loading notifications");
-                return;
-            }
-        };
-
-        let tx = self.message_tx.clone().unwrap();
-        tokio::spawn(async move {
-            tracing::info!("Pre-fetching notifications for workspace {} in background", workspace_id);
-
-            match client.get_notifications(&workspace_id).await {
-                Ok(notifications) => {
-                    tracing::info!("Fetched {} notification(s) for workspace {}", notifications.len(), workspace_id);
-
-                    // Cache the notifications
-                    if let Ok(cache_manager) = crate::cache::CacheManager::new(
-                        crate::config::ConfigManager::database_path().unwrap_or_default()
-                    ) {
-                        let mut cache = cache_manager;
-                        if let Err(e) = cache.cache_notifications(&workspace_id, &notifications) {
-                            tracing::warn!("Failed to cache notifications: {}", e);
-                        }
-                    }
-
-                    let msg = AppMessage::NotificationsLoaded(Ok(notifications));
-                    let _ = tx.send(msg).await;
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to fetch notifications for workspace {}: {}", workspace_id, e);
-                    // Don't send error message for background fetch - just log
-                }
-            }
-        });
-    }
-
-    /// Load inbox activity from API and cache it
-    ///
-    /// This method fetches activity from the ClickUp API for the current workspace,
-    /// caches it locally, and updates the smart inbox UI state.
-    fn load_inbox_activity(&mut self) {
-        self.inbox_activity_loading = true;
-        self.status = "Loading activity...".to_string();
-
-        let client = match &self.client {
-            Some(c) => c.clone(),
-            None => {
-                self.inbox_activity_loading = false;
-                self.status = "Not authenticated".to_string();
-                return;
-            }
-        };
-
-        let workspace_id = match &self.current_workspace_id {
-            Some(id) => id.clone(),
-            None => {
-                self.inbox_activity_loading = false;
-                self.status = "No workspace selected".to_string();
-                return;
-            }
-        };
-
-        let user_id = match self.current_user_id {
-            Some(id) => id,
-            None => {
-                self.inbox_activity_loading = false;
-                self.status = "User ID not available".to_string();
-                return;
-            }
-        };
-
-        let tx = self.message_tx.clone().unwrap();
-        tokio::spawn(async move {
-            match client.get_inbox_activity(&workspace_id, user_id, None).await {
-                Ok(response) => {
-                    let activities = response.activities;
-                    tracing::info!("Fetched {} activity item(s) for workspace {}", activities.len(), workspace_id);
-
-                    // Cache the activity
-                    if let Ok(mut cache) = crate::cache::CacheManager::new(
-                        crate::config::ConfigManager::database_path().unwrap_or_default()
-                    ) {
-                        if let Err(e) = cache.cache_inbox_activity(&workspace_id, &activities) {
-                            tracing::warn!("Failed to cache inbox activity: {}", e);
-                        }
-                        // Store the fetch timestamp
-                        let now = chrono::Utc::now().timestamp_millis();
-                        let _ = cache.store_last_inbox_check(&workspace_id, now);
-                    }
-
-                    let msg = AppMessage::InboxActivityLoaded(Ok(activities));
-                    let _ = tx.send(msg).await;
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to fetch inbox activity for workspace {}: {}", workspace_id, e);
-                    let msg = AppMessage::InboxActivityLoaded(Err(e.to_string()));
-                    let _ = tx.send(msg).await;
-                }
-            }
-        });
-    }
-
-    /// Pre-load inbox activity from cache or fetch from API if needed
-    ///
-    /// This method checks the cache first and fetches from API if cache is empty or stale.
-    /// Used when navigating to the inbox to provide instant display if cache is valid.
-    #[allow(dead_code)]
-    pub fn pre_load_inbox_activity(&mut self) {
-        let workspace_id = match &self.current_workspace_id {
-            Some(id) => id.clone(),
-            None => {
-                tracing::debug!("No workspace selected for pre-loading inbox activity");
-                return;
-            }
-        };
-
-        // Check if cache is valid (5 minute TTL)
-        let cache_valid = self.cache.is_inbox_activity_cache_valid(&workspace_id, 300).unwrap_or(false);
-
-        if cache_valid {
-            // Try to load from cache
-            match self.cache.get_cached_inbox_activity(&workspace_id) {
-                Ok(activities) if !activities.is_empty() => {
-                    tracing::info!("Pre-loaded {} activity item(s) from cache", activities.len());
-                    self.inbox_activity = activities.clone();
-                    self.status = format!("Loaded {} activity item(s) from cache", self.inbox_activity.len());
-
-                    // Still refresh in background to get latest data
-                    self.pre_load_inbox_activity_background(workspace_id);
-                    return;
-                }
-                Ok(_) => {
-                    tracing::debug!("Inbox activity cache is empty, fetching from API");
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to load inbox activity from cache: {}", e);
-                }
-            }
-        }
-
-        // Cache invalid or empty - fetch from API in background
-        self.pre_load_inbox_activity_background(workspace_id);
-    }
-
-    /// Background task for pre-loading inbox activity from API
-    ///
-    /// This is similar to load_inbox_activity but used for background refresh
-    /// without showing loading indicators.
-    #[allow(dead_code)]
-    fn pre_load_inbox_activity_background(&mut self, workspace_id: String) {
-        let client = match &self.client {
-            Some(c) => c.clone(),
-            None => {
-                tracing::warn!("No API client available for pre-loading inbox activity");
-                return;
-            }
-        };
-
-        let user_id = match self.current_user_id {
-            Some(id) => id,
-            None => {
-                tracing::warn!("No user ID available for pre-loading inbox activity");
-                return;
-            }
-        };
-
-        let tx = self.message_tx.clone().unwrap();
-        tokio::spawn(async move {
-            tracing::info!("Pre-fetching inbox activity for workspace {} in background", workspace_id);
-
-            match client.get_inbox_activity(&workspace_id, user_id, None).await {
-                Ok(response) => {
-                    let activities = response.activities;
-                    tracing::info!("Fetched {} activity item(s) for workspace {}", activities.len(), workspace_id);
-
-                    // Cache the activity
-                    if let Ok(mut cache) = crate::cache::CacheManager::new(
-                        crate::config::ConfigManager::database_path().unwrap_or_default()
-                    ) {
-                        if let Err(e) = cache.cache_inbox_activity(&workspace_id, &activities) {
-                            tracing::warn!("Failed to cache inbox activity: {}", e);
-                        }
-                        // Store the fetch timestamp
-                        let now = chrono::Utc::now().timestamp_millis();
-                        let _ = cache.store_last_inbox_check(&workspace_id, now);
-                    }
-
-                    let msg = AppMessage::InboxActivityLoaded(Ok(activities));
-                    let _ = tx.send(msg).await;
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to fetch inbox activity for workspace {}: {}", workspace_id, e);
-                    // Don't send error message for background fetch - just log
-                }
-            }
-        });
-    }
-
-    /// Detect current user ID from a task's creator or assignee field
-    fn detect_user_id_from_task(&mut self, task: &Task) {
-        // First try to get user ID from task creator
-        if let Some(creator) = &task.creator {
-            self.current_user_id = Some(creator.id as i32);
-            tracing::info!("Detected user ID from task creator: {}", creator.id);
-            return;
-        }
-
-        // If no creator, try to get user ID from assignees
-        // Use the first assignee as a fallback
-        if let Some(assignee) = task.assignees.first() {
-            self.current_user_id = Some(assignee.id as i32);
-            tracing::info!("Detected user ID from task assignee: {}", assignee.id);
-        }
-    }
-
-    /// Try to detect user ID from any available task (public for testing)
-    pub fn try_detect_user_id(&mut self) {
-        // If we already have a user ID, skip detection
-        if self.current_user_id.is_some() {
-            return;
-        }
-
-        // Try to get user ID from tasks in the current list
-        // Clone the task to avoid borrow checker issues
-        if let Some(task) = self.task_list.tasks().first().cloned() {
-            self.detect_user_id_from_task(&task);
-        }
-
-        // If still no user ID, try from assigned tasks if available
-        if self.current_user_id.is_none() {
-            if let Some(task) = self.assigned_tasks.tasks().first().cloned() {
-                self.detect_user_id_from_task(&task);
-            }
-        }
     }
 
     /// Load comments for a task (top-level + replies)
@@ -3160,9 +2067,18 @@ impl TuiApp {
             }
             Screen::Tasks => {
                 if let Some(list) = self.lists.first() {
-                    generate_screen_title(&format!("Tasks: {}", list.name))
+                    let base = format!("Tasks: {}", list.name);
+                    if self.assigned_filter_active {
+                        generate_screen_title(&format!("{} (Assigned to Me)", base))
+                    } else {
+                        generate_screen_title(&base)
+                    }
                 } else {
-                    generate_screen_title("Tasks")
+                    if self.assigned_filter_active {
+                        generate_screen_title("Tasks (Assigned to Me)")
+                    } else {
+                        generate_screen_title("Tasks")
+                    }
                 }
             }
             Screen::TaskDetail => {
@@ -3179,8 +2095,6 @@ impl TuiApp {
                     generate_screen_title("Document")
                 }
             }
-            Screen::Inbox => generate_screen_title("Inbox"),
-            Screen::AssignedTasks => generate_screen_title("Assigned to Me"),
         };
     }
 
@@ -3231,12 +2145,6 @@ impl TuiApp {
             } else if let Some(ref url_status) = self.url_copy_status {
                 // Show URL copy status (takes priority over regular status)
                 url_status.clone()
-            } else if self.screen == Screen::AssignedTasks && self.assigned_tasks_error.is_some() {
-                // Show assigned tasks error when on AssignedTasks screen
-                self.assigned_tasks_error.clone().unwrap()
-            } else if self.screen == Screen::AssignedTasks && self.assigned_tasks_loading {
-                // Show assigned tasks loading state
-                "Loading assigned tasks...".to_string()
             } else if self.loading {
                 "Loading...".to_string()
             } else {
@@ -3255,7 +2163,7 @@ impl TuiApp {
         content_area: Rect,
     ) {
         // Render sidebar
-        render_sidebar(frame, &self.sidebar, sidebar_area, Some(self.assigned_items_count));
+        render_sidebar(frame, &self.sidebar, sidebar_area);
 
         // Render main content based on screen
         match self.screen {
@@ -3281,47 +2189,6 @@ impl TuiApp {
                 );
             }
             Screen::Document => render_document(frame, &self.document, content_area),
-            Screen::Inbox => {
-                // Sync inbox_list with inbox_activity before rendering
-                self.inbox_list.set_activities(self.inbox_activity.clone());
-                
-                render_inbox_list(
-                    frame,
-                    content_area,
-                    &mut self.inbox_list,
-                    self.inbox_showing_detail,
-                );
-
-                // Render detail panel if showing
-                if self.inbox_showing_detail {
-                    if let Some(activity) = self.inbox_list.selected_activity() {
-                        // Create a centered popup for detail
-                        let detail_width = std::cmp::min(80, content_area.width - 4);
-                        let detail_height = std::cmp::min(20, content_area.height - 4);
-                        let detail_rect = Rect::new(
-                            (content_area.width - detail_width) / 2,
-                            (content_area.height - detail_height) / 2,
-                            detail_width,
-                            detail_height,
-                        );
-
-                        render_notification_detail(frame, detail_rect, activity);
-                    }
-                }
-            }
-            Screen::AssignedTasks => {
-                // Render assigned items view (tasks + comments)
-                render_assigned_view(
-                    frame,
-                    &self.assigned_items,
-                    self.assigned_items_selected_index,
-                    self.assigned_items_filter,
-                    content_area,
-                    self.assigned_items_loading,
-                    self.assigned_items_error.as_deref(),
-                    self.assigned_items_count,
-                );
-            }
             _ => {
                 // For navigation screens, show placeholder
                 use ratatui::widgets::Paragraph;
@@ -3355,42 +2222,6 @@ impl TuiApp {
                 );
             }
             Screen::Document => render_document(frame, &self.document, area),
-            Screen::Inbox => {
-                // Show loading indicator if fetching
-                if self.inbox_activity_loading {
-                    use ratatui::widgets::Paragraph;
-                    let loading = Paragraph::new("Loading activity...")
-                        .style(ratatui::style::Style::default().fg(ratatui::style::Color::Yellow))
-                        .block(
-                            ratatui::widgets::Block::default()
-                                .title(" Inbox ")
-                                .borders(ratatui::widgets::Borders::ALL),
-                        );
-                    frame.render_widget(loading, area);
-                } else {
-                    // Sync inbox_list with inbox_activity before rendering
-                    self.inbox_list.set_activities(self.inbox_activity.clone());
-                    
-                    render_inbox_list(frame, area, &mut self.inbox_list, self.inbox_showing_detail);
-
-                    // Render detail panel if showing
-                    if self.inbox_showing_detail {
-                        if let Some(activity) = self.inbox_list.selected_activity() {
-                            // Create a centered popup for detail
-                            let detail_width = std::cmp::min(80, area.width - 4);
-                            let detail_height = std::cmp::min(20, area.height - 4);
-                            let detail_rect = Rect::new(
-                                (area.width - detail_width) / 2,
-                                (area.height - detail_height) / 2,
-                                detail_width,
-                                detail_height,
-                            );
-
-                            render_notification_detail(frame, detail_rect, activity);
-                        }
-                    }
-                }
-            }
             _ => {
                 use ratatui::widgets::Paragraph;
                 let placeholder = Paragraph::new(format!("Navigate to see {}", self.screen_title));
@@ -3423,13 +2254,6 @@ impl TuiApp {
                     }
                 }
                 Screen::Document => "j/k: Scroll | Esc: Close | ? - Help",
-                Screen::Inbox => {
-                    if self.inbox_showing_detail {
-                        "Esc: Close detail | j/k: Navigate | ? - Help"
-                    } else {
-                        "j/k: Navigate | Enter: View | r: Refresh | c: Mark read | C: Mark all read | Esc: Back | ? - Help"
-                    }
-                }
                 _ => "j/k: Navigate | Enter: Select | Tab: Toggle | Ctrl+Q: Quit | ? - Help",
             }
         }
@@ -3442,8 +2266,6 @@ impl TuiApp {
         // Helper to get ID from sidebar item
         fn get_sidebar_id(item: &SidebarItem) -> &str {
             match item {
-                SidebarItem::AssignedTasks => "assigned-tasks",
-                SidebarItem::Inbox => "inbox",
                 SidebarItem::Workspace { id, .. } => id,
                 SidebarItem::Space { id, .. } => id,
                 SidebarItem::Folder { id, .. } => id,
@@ -3548,14 +2370,6 @@ impl TuiApp {
                     return;
                 }
             }
-            Screen::Inbox => {
-                self.url_copy_status = Some("URL copy not available for inbox".to_string());
-                return;
-            }
-            Screen::AssignedTasks => {
-                self.url_copy_status = Some("URL copy not available for assigned tasks view".to_string());
-                return;
-            }
         };
 
         // Handle URL generation result
@@ -3643,8 +2457,15 @@ impl TuiApp {
         self.current_folder_id = saved_state.folder_id.clone();
         self.current_list_id = saved_state.list_id.clone();
         
-        // Restore user ID for assignee filtering
-        self.current_user_id = saved_state.user_id;
+        // Restore user ID for assignee filtering (only if valid - not 0)
+        if let Some(uid) = saved_state.user_id {
+            if uid != 0 {
+                self.current_user_id = Some(uid);
+                tracing::debug!("Restored user_id from session cache: {}", uid);
+            } else {
+                tracing::debug!("Ignoring invalid cached user_id: 0, will fetch fresh");
+            }
+        }
 
         // Start at Workspaces - the navigation chain will replay from here
         // The async handlers will navigate through each level and select the restored items
@@ -3738,63 +2559,13 @@ impl TuiApp {
                 // Always valid
                 (Screen::Workspaces, None)
             }
-            Screen::Inbox => {
-                if saved_state.workspace_id.is_some() {
-                    return (Screen::Inbox, None);
-                }
-                // Fall back to Workspaces
-                (
-                    Screen::Workspaces,
-                    Some("No workspace selected for inbox".to_string()),
-                )
-            }
-            Screen::AssignedTasks => {
-                // Assigned tasks view is always valid - will fetch from API or cache
-                (Screen::AssignedTasks, None)
-            }
         }
-    }
-
-    /// Get the current user ID (public for testing)
-    #[allow(dead_code)]
-    pub fn current_user_id(&self) -> Option<i32> {
-        self.current_user_id
-    }
-
-    /// Set the current user ID (public for testing)
-    #[allow(dead_code)]
-    pub fn set_current_user_id(&mut self, id: Option<i32>) {
-        self.current_user_id = id;
     }
 
     /// Get the current screen (public for testing)
     #[allow(dead_code)]
     pub fn screen(&self) -> Screen {
         self.screen.clone()
-    }
-
-    /// Get assigned tasks error (public for testing)
-    #[allow(dead_code)]
-    pub fn assigned_tasks_error(&self) -> Option<&String> {
-        self.assigned_tasks_error.as_ref()
-    }
-
-    /// Get assigned tasks list (public for testing)
-    #[allow(dead_code)]
-    pub fn assigned_tasks(&self) -> &TaskListState {
-        &self.assigned_tasks
-    }
-
-    /// Get assigned tasks count (public for testing)
-    #[allow(dead_code)]
-    pub fn assigned_tasks_count(&self) -> usize {
-        self.assigned_tasks_count
-    }
-
-    /// Check if assigned tasks are loading (public for testing)
-    #[allow(dead_code)]
-    pub fn assigned_tasks_loading(&self) -> bool {
-        self.assigned_tasks_loading
     }
 
     /// Get sidebar (public for testing)
@@ -3827,38 +2598,6 @@ impl TuiApp {
         &mut self.cache
     }
 
-    /// Get inbox list (public for testing)
-    #[allow(dead_code)]
-    pub fn inbox_list(&self) -> &InboxListState {
-        &self.inbox_list
-    }
-
-    /// Get mutable inbox list (public for testing)
-    #[allow(dead_code)]
-    pub fn inbox_list_mut(&mut self) -> &mut InboxListState {
-        &mut self.inbox_list
-    }
-
-    /// Get inbox error (public for testing)
-    #[allow(dead_code)]
-    pub fn inbox_error(&self) -> Option<&String> {
-        // Note: inbox errors are shown in status bar, not stored separately
-        // Return None for now - can be enhanced to track inbox-specific errors
-        None
-    }
-
-    /// Check if inbox detail view is showing (public for testing)
-    #[allow(dead_code)]
-    pub fn inbox_showing_detail(&self) -> bool {
-        self.inbox_showing_detail
-    }
-
-    /// Check if inbox is loading (public for testing)
-    #[allow(dead_code)]
-    pub fn inbox_loading(&self) -> bool {
-        self.inbox_loading
-    }
-
     /// Get current workspace ID (public for testing)
     #[allow(dead_code)]
     pub fn current_workspace_id(&self) -> Option<&String> {
@@ -3878,129 +2617,6 @@ mod tests {
     use crate::api::mock_client::MockClickUpClient;
     use crate::models::task::Task;
     use std::sync::Arc;
-
-    /// Test that pre_load_assigned_tasks does nothing without user ID
-    #[test]
-    fn test_pre_load_assigned_tasks_no_fetch_without_user_id() {
-        let mock_client = MockClickUpClient::new();
-        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
-        
-        // Ensure no user ID is set
-        app.set_current_user_id(None);
-        
-        // Call pre_load_assigned_tasks - should return early without error
-        app.pre_load_assigned_tasks();
-        
-        // Assigned tasks should remain empty
-        assert!(app.assigned_tasks.tasks().is_empty());
-        assert!(!app.assigned_tasks_loading);
-    }
-
-    /// Test that pre_load_assigned_tasks uses cache when valid
-    #[tokio::test]
-    async fn test_pre_load_assigned_tasks_uses_cache_when_valid() {
-        // Create test tasks
-        let test_tasks = vec![
-            Task {
-                id: "test-task-1".to_string(),
-                name: "Test Task 1".to_string(),
-                ..Default::default()
-            },
-            Task {
-                id: "test-task-2".to_string(),
-                name: "Test Task 2".to_string(),
-                ..Default::default()
-            },
-        ];
-
-        // Create app with mock client
-        let mock_client = MockClickUpClient::new();
-        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
-
-        // Set user ID
-        app.set_current_user_id(Some(123));
-
-        // Cache the test tasks
-        let cache_result = app.cache.cache_assigned_tasks(&test_tasks);
-        assert!(cache_result.is_ok(), "Failed to cache tasks: {:?}", cache_result);
-
-        // Verify cache was written
-        let cached = app.cache.get_assigned_tasks();
-        assert!(cached.is_ok(), "Failed to read cached tasks: {:?}", cached);
-        assert_eq!(cached.unwrap().len(), 2, "Cache should have 2 tasks");
-
-        // Call pre_load_assigned_tasks - should use cache
-        app.pre_load_assigned_tasks();
-
-        // Process async messages
-        app.process_async_messages();
-
-        // Should have loaded tasks from cache immediately
-        assert_eq!(app.assigned_tasks.tasks().len(), 2, "Should have 2 tasks loaded from cache");
-        assert_eq!(app.assigned_tasks_count, 2);
-    }
-
-    /// Test that pre_load_assigned_tasks fetches when cache is invalid
-    #[tokio::test]
-    async fn test_pre_load_assigned_tasks_fetches_when_cache_invalid() {
-        // Create test tasks for mock client to return
-        let test_tasks = vec![
-            Task {
-                id: "api-task-1".to_string(),
-                name: "API Task 1".to_string(),
-                ..Default::default()
-            },
-        ];
-        
-        // Create mock client that returns test tasks
-        let mock_client = MockClickUpClient::new()
-            .with_tasks(test_tasks.clone());
-        
-        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
-        
-        // Set user ID
-        app.set_current_user_id(Some(123));
-        
-        // Invalidate cache by clearing it
-        let _ = app.cache.clear_assigned_tasks();
-        
-        // Call pre_load_assigned_tasks - should fetch from API
-        app.pre_load_assigned_tasks();
-        
-        // Process async messages to get the pre-loaded tasks
-        app.process_async_messages();
-        
-        // Tasks should be pre-loaded (may be empty if mock doesn't support get_all_accessible_lists)
-        // The key is that no error occurs
-        assert!(!app.assigned_tasks_loading);
-    }
-
-    /// Test AssignedTasksPreloaded message handler
-    #[test]
-    fn test_assigned_tasks_preloaded_message_handler() {
-        let mock_client = MockClickUpClient::new();
-        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
-        
-        // Create test tasks
-        let test_tasks = vec![
-            Task {
-                id: "msg-task-1".to_string(),
-                name: "Message Task 1".to_string(),
-                ..Default::default()
-            },
-        ];
-        
-        // Simulate receiving AssignedTasksPreloaded message
-        app.process_async_messages(); // Clear any pending messages first
-        
-        // Manually handle the message (simulating what the async handler would do)
-        let sorted_tasks = crate::models::task::sort_tasks(test_tasks.clone());
-        *app.assigned_tasks.tasks_mut() = sorted_tasks.clone();
-        app.assigned_tasks_count = sorted_tasks.len();
-        
-        assert_eq!(app.assigned_tasks.tasks().len(), 1);
-        assert_eq!(app.assigned_tasks.tasks()[0].id, "msg-task-1");
-    }
 
     /// Test that session state includes user_id
     #[test]
@@ -4040,7 +2656,8 @@ mod tests {
         
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: SessionState = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(state.user_id, deserialized.user_id);
     }
+
 }

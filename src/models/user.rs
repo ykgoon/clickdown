@@ -41,7 +41,10 @@ mod tests {
         assert_eq!(user.username, "testuser");
         assert_eq!(user.color, Some("#7b68ee".to_string()));
         assert_eq!(user.email, Some("test@example.com".to_string()));
-        assert_eq!(user.profile_picture, Some("https://example.com/pic.jpg".to_string()));
+        assert_eq!(
+            user.profile_picture,
+            Some("https://example.com/pic.jpg".to_string())
+        );
         assert_eq!(user.initials, Some("TU".to_string()));
     }
 

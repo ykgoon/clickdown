@@ -82,24 +82,10 @@ pub struct MockClickUpClient {
     pub create_comment_reply_response: Option<Result<Comment>>,
     /// Override for update_comment response
     pub update_comment_response: Option<Result<Comment>>,
-    /// Override for get_notifications response
-    pub notifications_response: Option<Result<Vec<Notification>>>,
-    /// Override for get_tasks_assigned_to_user response
-    pub tasks_assigned_to_user_response: Option<Result<Vec<Task>>>,
-    /// Override for get_comments_for_tasks response
-    pub comments_for_tasks_response: Option<Result<Vec<Comment>>>,
-    /// Override for get_tasks_with_due_dates response
-    pub tasks_with_due_dates_response: Option<Result<Vec<Task>>>,
-    /// Override for get_inbox_activity response
-    pub inbox_activity_response: Option<Result<crate::models::InboxActivityResponse>>,
-    /// Override for get_all_accessible_lists response
-    pub accessible_lists_response: Option<Result<Vec<List>>>,
     /// Override for get_tasks_with_assignee response
     pub tasks_with_assignee_response: Option<Result<Vec<Task>>>,
     /// Override for get_current_user response
     pub current_user_response: Option<Result<User>>,
-    /// Override for get_assigned_comments response
-    pub assigned_comments_response: Option<Result<Vec<crate::models::AssignedComment>>>,
 }
 
 #[allow(dead_code)]
@@ -125,15 +111,8 @@ impl MockClickUpClient {
             create_comment_response: None,
             create_comment_reply_response: None,
             update_comment_response: None,
-            notifications_response: None,
-            tasks_assigned_to_user_response: None,
-            comments_for_tasks_response: None,
-            tasks_with_due_dates_response: None,
-            inbox_activity_response: None,
-            accessible_lists_response: None,
             tasks_with_assignee_response: None,
             current_user_response: None,
-            assigned_comments_response: None,
         }
     }
     /// Set the workspaces response
@@ -246,94 +225,6 @@ impl MockClickUpClient {
     /// Set the create comment reply response
     pub fn with_create_comment_reply_response(mut self, comment: Comment) -> Self {
         self.create_comment_reply_response = Some(Ok(comment));
-        self
-    }
-
-    /// Set the notifications response
-    pub fn with_notifications(mut self, notifications: Vec<Notification>) -> Self {
-        self.notifications_response = Some(Ok(notifications));
-        self
-    }
-
-    /// Set the notifications error
-    pub fn with_notifications_error(mut self, error: String) -> Self {
-        self.notifications_response = Some(Err(anyhow!(error)));
-        self
-    }
-
-    /// Set the inbox activity response
-    pub fn with_inbox_activities(mut self, activities: Vec<crate::models::InboxActivity>) -> Self {
-        use crate::models::InboxActivityResponse;
-        self.inbox_activity_response = Some(Ok(InboxActivityResponse { activities }));
-        self
-    }
-
-    /// Set the inbox activity error
-    pub fn with_inbox_activity_error(mut self, error: String) -> Self {
-        self.inbox_activity_response = Some(Err(anyhow!(error)));
-        self
-    }
-
-    /// Set the tasks assigned to user response
-    pub fn with_tasks_assigned_to_user(mut self, tasks: Vec<Task>) -> Self {
-        self.tasks_assigned_to_user_response = Some(Ok(tasks));
-        self
-    }
-
-    /// Set the comments for tasks response
-    pub fn with_comments_for_tasks(mut self, comments: Vec<Comment>) -> Self {
-        self.comments_for_tasks_response = Some(Ok(comments));
-        self
-    }
-
-    /// Set the tasks with due dates response
-    pub fn with_tasks_with_due_dates(mut self, tasks: Vec<Task>) -> Self {
-        self.tasks_with_due_dates_response = Some(Ok(tasks));
-        self
-    }
-
-    /// Set the inbox activity response
-    pub fn with_inbox_activity(mut self, activities: crate::models::InboxActivityResponse) -> Self {
-        self.inbox_activity_response = Some(Ok(activities));
-        self
-    }
-
-    /// Set the accessible lists response
-    pub fn with_accessible_lists(mut self, lists: Vec<List>) -> Self {
-        self.accessible_lists_response = Some(Ok(lists));
-        self
-    }
-
-    /// Set the tasks with assignee response
-    pub fn with_tasks_with_assignee_response(mut self, tasks: Vec<Task>) -> Self {
-        self.tasks_with_assignee_response = Some(Ok(tasks));
-        self
-    }
-
-    /// Set the current user response
-    pub fn with_current_user(mut self, user: User) -> Self {
-        self.current_user_response = Some(Ok(user));
-        self
-    }
-
-    /// Set the current user error
-    pub fn with_current_user_error(mut self, error: String) -> Self {
-        self.current_user_response = Some(Err(anyhow!(error)));
-        self
-    }
-
-    /// Set the assigned comments response
-    pub fn with_assigned_comments_response(
-        mut self,
-        comments: Vec<crate::models::AssignedComment>,
-    ) -> Self {
-        self.assigned_comments_response = Some(Ok(comments));
-        self
-    }
-
-    /// Set the assigned comments error
-    pub fn with_assigned_comments_error(mut self, error: String) -> Self {
-        self.assigned_comments_response = Some(Err(anyhow!(error)));
         self
     }
 }
@@ -474,87 +365,6 @@ impl ClickUpApi for MockClickUpClient {
         )
     }
 
-    async fn get_notifications(&self, _workspace_id: &str) -> Result<Vec<Notification>> {
-        return_vec_response(&self.notifications_response)
-    }
-
-    async fn get_tasks_assigned_to_user(
-        &self,
-        _team_id: &str,
-        _user_id: i32,
-        _date_updated_gt: Option<i64>,
-    ) -> Result<Vec<Task>> {
-        return_vec_response(&self.tasks_assigned_to_user_response)
-    }
-
-    async fn get_comments_for_tasks(
-        &self,
-        _task_ids: &[String],
-        _date_created_gt: Option<i64>,
-    ) -> Result<Vec<Comment>> {
-        return_vec_response(&self.comments_for_tasks_response)
-    }
-
-    async fn get_tasks_with_due_dates(
-        &self,
-        _team_id: &str,
-        _due_date_before: i64,
-        _date_updated_gt: Option<i64>,
-    ) -> Result<Vec<Task>> {
-        return_vec_response(&self.tasks_with_due_dates_response)
-    }
-
-    async fn get_inbox_activity(
-        &self,
-        _team_id: &str,
-        _user_id: i32,
-        _since_timestamp: Option<i64>,
-    ) -> Result<crate::models::InboxActivityResponse> {
-        return_response(
-            &self.inbox_activity_response,
-            "Inbox activity not configured",
-        )
-    }
-
-    async fn get_all_accessible_lists(&self) -> Result<Vec<List>> {
-        // If accessible_lists_response is explicitly set, use it (for direct mocking)
-        if let Some(ref result) = self.accessible_lists_response {
-            match result {
-                Ok(lists) => return Ok(lists.clone()),
-                Err(e) => return Err(anyhow!(e.to_string())),
-            }
-        }
-
-        // Otherwise, traverse the hierarchy like the real client does
-        let mut all_lists = Vec::new();
-
-        // Get all workspaces
-        let workspaces = self.get_workspaces().await?;
-
-        // For each workspace, get spaces
-        for workspace in &workspaces {
-            let spaces = self.get_spaces(&workspace.id).await?;
-
-            // For each space, get folders and folderless lists
-            for space in &spaces {
-                // Get folderless lists in space
-                let space_lists = self.get_lists_in_space(&space.id, None).await?;
-                all_lists.extend(space_lists);
-
-                // Get folders in space
-                let folders = self.get_folders(&space.id).await?;
-
-                // For each folder, get lists
-                for folder in &folders {
-                    let folder_lists = self.get_lists_in_folder(&folder.id, None).await?;
-                    all_lists.extend(folder_lists);
-                }
-            }
-        }
-
-        Ok(all_lists)
-    }
-
     async fn get_tasks_with_assignee(
         &self,
         _list_id: &str,
@@ -569,19 +379,6 @@ impl ClickUpApi for MockClickUpClient {
         _task_id: &str,
         _user_id: i32,
     ) -> Result<Vec<Comment>> {
-        // For mock, return empty vec by default
-        // Tests can use task_comments_response and filter manually if needed
         Ok(vec![])
-    }
-
-    async fn get_assigned_comments(
-        &self,
-        _user_id: i32,
-    ) -> Result<Vec<crate::models::AssignedComment>> {
-        match &self.assigned_comments_response {
-            Some(Ok(comments)) => Ok(comments.clone()),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Ok(vec![]),
-        }
     }
 }

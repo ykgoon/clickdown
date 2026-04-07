@@ -4,11 +4,11 @@ expression: combined_snapshot
 ---
 === Level 1: Workspaces (Down) ===
 ┌ Navigation ──────────────────────────┐
-│▸ 👤  Assigned to Me (3)               │
-│  📬  Inbox                            │
-│  WS Engineering                      │
+│▸ WS Engineering                      │
 │  WS Marketing                        │
 │  WS Design                           │
+│                                      │
+│                                      │
 │                                      │
 │                                      │
 │                                      │
@@ -21,11 +21,11 @@ expression: combined_snapshot
 
 === Level 2: Spaces (Down) ===
 ┌ Navigation ──────────────────────────┐
-│▸ 👤  Assigned to Me (3)               │
-│  📬  Inbox                            │
-│  SP Backend Team                     │
+│▸ SP Backend Team                     │
 │  SP Frontend Team                    │
 │  SP DevOps Team                      │
+│                                      │
+│                                      │
 │                                      │
 │                                      │
 │                                      │
@@ -38,11 +38,11 @@ expression: combined_snapshot
 
 === Level 3: Folders (Down) ===
 ┌ Navigation ──────────────────────────┐
-│▸ 👤  Assigned to Me (3)               │
-│  📬  Inbox                            │
-│  FL Q1 Projects                      │
+│▸ FL Q1 Projects                      │
 │  FL Q2 Projects                      │
 │  FL Q3 Projects                      │
+│                                      │
+│                                      │
 │                                      │
 │                                      │
 │                                      │
@@ -55,11 +55,11 @@ expression: combined_snapshot
 
 === Level 4: Lists (Down) ===
 ┌ Navigation ──────────────────────────┐
-│▸ 👤  Assigned to Me (3)               │
-│  📬  Inbox                            │
-│  LI Sprint Planning                  │
+│▸ LI Sprint Planning                  │
 │  LI Bug Fixes                        │
 │  LI Feature Requests                 │
+│                                      │
+│                                      │
 │                                      │
 │                                      │
 │                                      │
@@ -72,11 +72,11 @@ expression: combined_snapshot
 
 === Level 5: Tasks (Down) ===
 ┌ Navigation ──────────────────────────┐
-│  👤  Assigned to Me (3)               │
-│  📬  Inbox                            │
 │▸ LI Sprint Planning                  │
 │  LI Bug Fixes                        │
 │  LI Feature Requests                 │
+│                                      │
+│                                      │
 │                                      │
 │                                      │
 │                                      │
@@ -89,11 +89,11 @@ expression: combined_snapshot
 
 === Level 6: Lists (Up) ===
 ┌ Navigation ──────────────────────────┐
-│▸ 👤  Assigned to Me (3)               │
-│  📬  Inbox                            │
-│  LI Sprint Planning                  │
+│▸ LI Sprint Planning                  │
 │  LI Bug Fixes                        │
 │  LI Feature Requests                 │
+│                                      │
+│                                      │
 │                                      │
 │                                      │
 │                                      │
@@ -106,11 +106,11 @@ expression: combined_snapshot
 
 === Level 7: Folders (Up) ===
 ┌ Navigation ──────────────────────────┐
-│  👤  Assigned to Me (3)               │
-│  📬  Inbox                            │
 │▸ FL Q1 Projects                      │
 │  FL Q2 Projects                      │
 │  FL Q3 Projects                      │
+│                                      │
+│                                      │
 │                                      │
 │                                      │
 │                                      │
@@ -123,11 +123,11 @@ expression: combined_snapshot
 
 === Level 8: Spaces (Up) ===
 ┌ Navigation ──────────────────────────┐
-│  👤  Assigned to Me (3)               │
-│  📬  Inbox                            │
 │▸ SP Backend Team                     │
 │  SP Frontend Team                    │
 │  SP DevOps Team                      │
+│                                      │
+│                                      │
 │                                      │
 │                                      │
 │                                      │
@@ -140,11 +140,11 @@ expression: combined_snapshot
 
 === Level 9: Workspaces (Up) ===
 ┌ Navigation ──────────────────────────┐
-│  👤  Assigned to Me (3)               │
-│  📬  Inbox                            │
 │▸ WS Engineering                      │
 │  WS Marketing                        │
 │  WS Design                           │
+│                                      │
+│                                      │
 │                                      │
 │                                      │
 │                                      │

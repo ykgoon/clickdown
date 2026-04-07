@@ -89,6 +89,15 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 return exit_codes::GENERAL_ERROR;
             }
         },
+        DebugOperation::CurrentUser => {
+            match debug_ops.get_current_user().await {
+                Ok(()) => return exit_codes::SUCCESS,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    return exit_codes::GENERAL_ERROR;
+                }
+            }
+        }
         DebugOperation::Spaces { ref workspace_id } => {
             if command.json {
                 debug_ops.list_spaces_json(workspace_id).await
@@ -110,13 +119,6 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 debug_ops.list_lists_in_space(id).await
             } else {
                 debug_ops.list_lists_in_folder(id).await
-            }
-        }
-        DebugOperation::ListsAll => {
-            if command.json {
-                debug_ops.list_accessible_lists_json().await
-            } else {
-                debug_ops.list_accessible_lists().await
             }
         }
         DebugOperation::Task { ref task_id } => {
@@ -187,27 +189,6 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 debug_ops.update_comment_json(comment_id, text).await
             } else {
                 debug_ops.update_comment(comment_id, text).await
-            }
-        }
-        DebugOperation::Notifications { ref workspace_id } => {
-            if command.json {
-                debug_ops.get_notifications_json(workspace_id).await
-            } else {
-                debug_ops.get_notifications(workspace_id).await
-            }
-        }
-        DebugOperation::AssignedTasks => {
-            if command.json {
-                debug_ops.get_assigned_tasks_json().await
-            } else {
-                debug_ops.get_assigned_tasks().await
-            }
-        }
-        DebugOperation::AssignedComments => {
-            if command.json {
-                debug_ops.get_assigned_comments_json().await
-            } else {
-                debug_ops.get_assigned_comments().await
             }
         }
         DebugOperation::Help => {

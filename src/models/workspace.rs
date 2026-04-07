@@ -1,6 +1,7 @@
 //! Workspace, Space, Folder, and List models
 
 use crate::models::Priority;
+use crate::models::User;
 use serde::{Deserialize, Serialize};
 
 /// A ClickUp Workspace (also called Team in the API)
@@ -119,6 +120,12 @@ pub struct Avatar {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspacesResponse {
     pub teams: Vec<Workspace>,
+}
+
+/// API response for getting current user
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserResponse {
+    pub user: User,
 }
 
 /// API response for getting spaces
