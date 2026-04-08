@@ -1,8 +1,9 @@
 //! Help overlay widget
 
+use crate::tui::theme::Theme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
@@ -46,7 +47,7 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     let block = Block::default()
         .title(" Keyboard Shortcuts ")
         .borders(Borders::ALL)
-        .style(Style::default().bg(Color::Black).fg(Color::Cyan));
+        .style(Style::default().bg(Theme::BACKGROUND).fg(Theme::PRIMARY));
 
     frame.render_widget(block, help_area);
 
@@ -170,7 +171,7 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     frame.render_widget(session, inner[15]);
 
     let close_hint =
-        Paragraph::new("Press any key to close").style(Style::default().fg(Color::DarkGray));
+        Paragraph::new("Press any key to close").style(Style::default().fg(Theme::SECONDARY));
     frame.render_widget(close_hint, inner[16]);
 }
 

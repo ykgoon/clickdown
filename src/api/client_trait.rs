@@ -2,7 +2,7 @@
 
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
-    Folder, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
+    Folder, List, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
     User, Workspace,
 };
 use anyhow::Result;
@@ -134,13 +134,4 @@ pub trait ClickUpApi: Send + Sync {
         user_id: i32,
         limit: Option<i32>,
     ) -> Result<Vec<Task>>;
-
-    // ==================== Assigned Comments ====================
-
-    /// Get comments assigned to a specific user from a task
-    async fn get_comments_with_assigned_commenter(
-        &self,
-        task_id: &str,
-        user_id: i32,
-    ) -> Result<Vec<Comment>>;
 }

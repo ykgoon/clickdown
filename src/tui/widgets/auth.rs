@@ -1,8 +1,9 @@
 //! Authentication widget
 
+use crate::tui::theme::Theme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
@@ -60,7 +61,7 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
     let block = Block::default()
         .title(" Authentication ")
         .borders(Borders::ALL)
-        .style(Style::default().bg(Color::Blue));
+        .style(Style::default().bg(Theme::PRIMARY));
 
     frame.render_widget(block, auth_area);
 
@@ -84,7 +85,7 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
 
     // Help text
     let help = Paragraph::new("Get your token from ClickUp Settings → Apps → ClickUp API")
-        .style(Style::default().fg(Color::DarkGray));
+        .style(Style::default().fg(Theme::SECONDARY));
     frame.render_widget(help, inner[1]);
 
     // Token input (partially masked: first 4 chars visible, rest masked)
@@ -125,25 +126,25 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
     // Use bright white for better visibility
     let input = Paragraph::new(format!("Token: {}", input_display)).style(
         Style::default()
-            .fg(Color::White)
+            .fg(Theme::TEXT)
             .add_modifier(Modifier::BOLD),
     );
     frame.render_widget(input, inner[2]);
 
     // Show token length for debugging
     let token_len_info = Paragraph::new(format!("({} characters)", state.token_input.len()))
-        .style(Style::default().fg(Color::Gray));
+        .style(Style::default().fg(Theme::TEXT_DIM));
     frame.render_widget(token_len_info, inner[3]);
 
     // Error message
     if let Some(ref error) = state.error {
-        let error_para = Paragraph::new(error.as_str()).style(Style::default().fg(Color::Red));
+        let error_para = Paragraph::new(error.as_str()).style(Style::default().fg(Theme::ERROR));
         frame.render_widget(error_para, inner[4]);
     }
 
     // Instructions
     let instructions = Paragraph::new("Press Enter to connect, Esc to cancel")
-        .style(Style::default().fg(Color::DarkGray));
+        .style(Style::default().fg(Theme::SECONDARY));
     frame.render_widget(instructions, inner[5]);
 }
 

@@ -1,9 +1,10 @@
 //! Assignee picker widget - overlay dialog for selecting task assignees
 
 use crate::models::User;
+use crate::tui::theme::Theme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
@@ -41,7 +42,7 @@ pub fn render_assignee_picker(
     };
 
     // Render dimmed background behind overlay
-    let dim_block = Block::default().style(Style::default().bg(Color::DarkGray));
+    let dim_block = Block::default().style(Style::default().bg(Theme::SECONDARY));
 
     // Clear the overlay area first
     frame.render_widget(dim_block, picker_area);
@@ -50,7 +51,7 @@ pub fn render_assignee_picker(
     let block = Block::default()
         .title(" Select Assignees ")
         .borders(Borders::ALL)
-        .style(Style::default().bg(Color::Black));
+        .style(Style::default().bg(Theme::BACKGROUND));
 
     frame.render_widget(&block, picker_area);
 
@@ -77,10 +78,10 @@ pub fn render_assignee_picker(
 
             let checkbox_style = if is_selected {
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(Theme::SUCCESS)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Gray)
+                Style::default().fg(Theme::TEXT_DIM)
             };
 
             let mut spans = vec![
@@ -88,7 +89,7 @@ pub fn render_assignee_picker(
                 Span::styled(
                     &member.username,
                     Style::default()
-                        .fg(Color::White)
+                        .fg(Theme::TEXT)
                         .add_modifier(Modifier::BOLD),
                 ),
             ];
@@ -97,7 +98,7 @@ pub fn render_assignee_picker(
                 if !email.is_empty() {
                     spans.push(Span::styled(
                         format!(" <{}>", email),
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(Theme::SECONDARY),
                     ));
                 }
             }
@@ -106,7 +107,7 @@ pub fn render_assignee_picker(
                 if !initials.is_empty() {
                     spans.push(Span::styled(
                         format!(" ({})", initials),
-                        Style::default().fg(Color::Cyan),
+                        Style::default().fg(Theme::PRIMARY),
                     ));
                 }
             }
@@ -115,7 +116,7 @@ pub fn render_assignee_picker(
 
             let item_style = if is_cursor {
                 Style::default()
-                    .bg(Color::DarkGray)
+                    .bg(Theme::SECONDARY)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -130,6 +131,6 @@ pub fn render_assignee_picker(
 
     // Render hint line
     let hint = Paragraph::new("Space: toggle | j/k: navigate | Ctrl+S: save | Esc: cancel")
-        .style(Style::default().fg(Color::Yellow));
+        .style(Style::default().fg(Theme::WARNING));
     frame.render_widget(hint, layout[1]);
 }

@@ -427,14 +427,6 @@ impl ClickUpApi for MockClickUpClient {
         return_vec_response(&self.tasks_with_assignee_response)
     }
 
-    async fn get_comments_with_assigned_commenter(
-        &self,
-        _task_id: &str,
-        _user_id: i32,
-    ) -> Result<Vec<Comment>> {
-        Ok(vec![])
-    }
-
     async fn get_list_members(&self, _list_id: &str) -> Result<Vec<User>> {
         return_vec_response(&self.list_members_response)
     }

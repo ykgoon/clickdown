@@ -2416,40 +2416,8 @@ impl TuiApp {
         sidebar_area: Rect,
         content_area: Rect,
     ) {
-        // Render sidebar
         render_sidebar(frame, &self.sidebar, sidebar_area);
-
-        // Render main content based on screen
-        match self.screen {
-            Screen::Auth => render_auth(frame, &self.auth_state, content_area),
-            Screen::Tasks => render_task_list(frame, &self.task_list, content_area, false),
-            Screen::TaskDetail => {
-                // Split content area between task detail and comments with 3:7 ratio
-                let (task_detail_area, comments_area) = split_task_detail(content_area);
-
-                // Render task detail in top portion (30%)
-                render_task_detail(frame, &self.task_detail, task_detail_area);
-
-                // Render comments in bottom portion (70%)
-                render_comments(
-                    frame,
-                    &self.comments,
-                    self.comment_selected_index,
-                    self.comment_editing_index,
-                    &self.comment_new_text,
-                    self.comment_focus,
-                    comments_area,
-                    &self.comment_view_mode,
-                );
-            }
-            Screen::Document => render_document(frame, &self.document, content_area),
-            _ => {
-                // For navigation screens, show placeholder
-                use ratatui::widgets::Paragraph;
-                let placeholder = Paragraph::new(format!("Navigate to see {}", self.screen_title));
-                frame.render_widget(placeholder, content_area);
-            }
-        }
+        self.render_main_content(frame, content_area);
     }
 
     fn render_main_content(&mut self, frame: &mut Frame, area: Rect) {

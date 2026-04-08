@@ -12,7 +12,7 @@ use crate::models::TaskFilters;
 use crate::models::{
     ClickUpSpace as Space, Comment, CommentsResponse, CreateCommentRequest, CreateTaskRequest,
     Document, DocumentFilters, DocumentPagesResponse, DocumentsResponse, Folder, FoldersResponse,
-    List, ListsResponse, MembersResponse, Notification, NotificationsResponse, Page, PageResponse,
+    List, ListsResponse, MembersResponse, Page, PageResponse,
     SpacesResponse, Task, TasksResponse, UpdateCommentRequest, UpdateTaskRequest, User,
     UserResponse, Workspace, WorkspacesResponse,
 };
@@ -363,38 +363,6 @@ impl ClickUpClient {
 
         Ok(tasks)
     }
-
-    // ==================== Assigned Comments ====================
-
-    /// Get comments where a specific user is listed as an assigned commenter
-    pub async fn get_comments_with_assigned_commenter(
-        &self,
-        task_id: &str,
-        user_id: i32,
-    ) -> Result<Vec<Comment>> {
-        // Fetch all comments for the task
-        let all_comments = self.get_task_comments(task_id).await?;
-
-        // Filter for comments where the user is an assigned commenter
-        let assigned_comments: Vec<Comment> = all_comments
-            .into_iter()
-            .filter(|comment| {
-                comment
-                    .assigned_commenter
-                    .as_ref()
-                    .map_or(false, |u| u.id as i32 == user_id)
-            })
-            .collect();
-
-        tracing::debug!(
-            "Found {} assigned comments for user {} on task {}",
-            assigned_comments.len(),
-            user_id,
-            task_id
-        );
-
-        Ok(assigned_comments)
-    }
 }
 
 /// Macro to generate trait implementation that delegates to inherent methods
@@ -513,15 +481,6 @@ macro_rules! impl_clickup_api {
                 limit: Option<i32>,
             ) -> Result<Vec<Task>> {
                 self.get_tasks_with_assignee(list_id, user_id, limit).await
-            }
-
-            async fn get_comments_with_assigned_commenter(
-                &self,
-                task_id: &str,
-                user_id: i32,
-            ) -> Result<Vec<Comment>> {
-                self.get_comments_with_assigned_commenter(task_id, user_id)
-                    .await
             }
         }
     };

@@ -5,4 +5,5 @@ pub mod helpers;
 pub mod input;
 pub mod layout;
 pub mod terminal;
+pub mod theme;
 pub mod widgets;

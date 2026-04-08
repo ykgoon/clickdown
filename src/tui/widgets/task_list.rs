@@ -2,6 +2,7 @@
 
 use crate::models::Task;
 use crate::tui::helpers::SelectableList;
+use crate::tui::theme::Theme;
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
@@ -70,12 +71,12 @@ impl Default for TaskListState {
 fn get_status_color(status: &Option<crate::models::TaskStatus>) -> Color {
     match status {
         Some(s) => match s.status.to_lowercase().as_str() {
-            "complete" | "done" => Color::Green,
-            "in progress" => Color::Yellow,
-            "todo" => Color::White,
-            _ => Color::Gray,
+            "complete" | "done" => Theme::TASK_STATUS_COMPLETE,
+            "in progress" => Theme::TASK_STATUS_IN_PROGRESS,
+            "todo" => Theme::TASK_STATUS_TODO,
+            _ => Theme::TASK_STATUS_OTHER,
         },
-        None => Color::Gray,
+        None => Theme::TASK_STATUS_OTHER,
     }
 }
 
@@ -97,12 +98,12 @@ pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect, lo
     if loading {
         use ratatui::widgets::Paragraph;
         let loading_text = Paragraph::new("Loading assigned tasks...")
-            .style(Style::default().fg(Color::Yellow))
+            .style(Style::default().fg(Theme::WARNING))
             .block(
                 Block::default()
                     .title(" Tasks ")
                     .borders(Borders::ALL)
-                    .style(Style::default().bg(Color::Black)),
+                    .style(Style::default().bg(Theme::BACKGROUND)),
             );
         frame.render_widget(loading_text, area);
         return;
@@ -131,7 +132,7 @@ pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect, lo
             ListItem::new(Line::from(vec![
                 Span::styled(
                     format!("[{}] ", priority),
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(Theme::WARNING),
                 ),
                 Span::styled(
                     status_str,
@@ -150,11 +151,11 @@ pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect, lo
             Block::default()
                 .title(" Tasks ")
                 .borders(Borders::ALL)
-                .style(Style::default().bg(Color::Black)),
+                .style(Style::default().bg(Theme::BACKGROUND)),
         )
         .highlight_style(
             Style::default()
-                .bg(Color::DarkGray)
+                .bg(Theme::SECONDARY)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▸ ");

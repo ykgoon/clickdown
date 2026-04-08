@@ -1,8 +1,9 @@
 //! Confirmation dialog widget
 
+use crate::tui::theme::Theme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
@@ -86,7 +87,7 @@ pub fn render_dialog(frame: &mut Frame, state: &DialogState, area: Rect) {
     let block = Block::default()
         .title(" Confirm ")
         .borders(Borders::ALL)
-        .style(Style::default().bg(Color::Black).fg(Color::Yellow));
+        .style(Style::default().bg(Theme::BACKGROUND).fg(Theme::WARNING));
 
     frame.render_widget(block, dialog_area);
 
@@ -97,26 +98,26 @@ pub fn render_dialog(frame: &mut Frame, state: &DialogState, area: Rect) {
         .split(dialog_area);
 
     // Message
-    let msg = Paragraph::new(dialog_type.message()).style(Style::default().fg(Color::White));
+    let msg = Paragraph::new(dialog_type.message()).style(Style::default().fg(Theme::TEXT));
     frame.render_widget(msg, inner[0]);
 
     // Buttons
     let yes_style = if state.selected {
         Style::default()
-            .fg(Color::Black)
-            .bg(Color::Red)
+            .fg(Theme::BACKGROUND)
+            .bg(Theme::ERROR)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Red)
+        Style::default().fg(Theme::ERROR)
     };
 
     let no_style = if !state.selected {
         Style::default()
-            .fg(Color::Black)
-            .bg(Color::Green)
+            .fg(Theme::BACKGROUND)
+            .bg(Theme::SUCCESS)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Green)
+        Style::default().fg(Theme::SUCCESS)
     };
 
     let buttons = Line::from(vec![

@@ -72,7 +72,6 @@ fn test_mock_client_with_assigned_tasks() {
     use clickdown::api::mock_client::MockClickUpClient;
     use clickdown::models::task::TaskFilters;
     use clickdown::ClickUpApi;
-    use std::sync::Arc;
     use tokio::runtime::Runtime;
 
     let rt = Runtime::new().unwrap();

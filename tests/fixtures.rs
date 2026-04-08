@@ -5,6 +5,7 @@ use clickdown::models::document::Document;
 use clickdown::models::task::Task;
 use clickdown::models::workspace::{Folder, List, Space, Workspace};
 
+#[allow(dead_code)]
 /// Create a test workspace
 pub fn test_workspace() -> Workspace {
     Workspace {
@@ -16,6 +17,7 @@ pub fn test_workspace() -> Workspace {
     }
 }
 
+#[allow(dead_code)]
 /// Create a test space
 pub fn test_space() -> Space {
     Space {
@@ -29,6 +31,7 @@ pub fn test_space() -> Space {
     }
 }
 
+#[allow(dead_code)]
 /// Create a test folder
 pub fn test_folder() -> Folder {
     Folder {
@@ -41,6 +44,7 @@ pub fn test_folder() -> Folder {
     }
 }
 
+#[allow(dead_code)]
 /// Create a test list
 pub fn test_list() -> List {
     List {
@@ -106,6 +110,7 @@ pub fn test_task() -> Task {
     }
 }
 
+#[allow(dead_code)]
 /// Create a test document
 pub fn test_document() -> Document {
     Document {
@@ -122,6 +127,7 @@ pub fn test_document() -> Document {
     }
 }
 
+#[allow(dead_code)]
 /// Create a test comment user
 pub fn test_comment_user() -> clickdown::models::User {
     clickdown::models::User {
@@ -134,6 +140,7 @@ pub fn test_comment_user() -> clickdown::models::User {
     }
 }
 
+#[allow(dead_code)]
 /// Create a test comment
 pub fn test_comment() -> Comment {
     Comment {
@@ -151,6 +158,7 @@ pub fn test_comment() -> Comment {
     }
 }
 
+#[allow(dead_code)]
 /// Create a test comment with update timestamp
 pub fn test_comment_edited() -> Comment {
     Comment {
@@ -168,6 +176,7 @@ pub fn test_comment_edited() -> Comment {
     }
 }
 
+#[allow(dead_code)]
 /// Create multiple test comments
 pub fn test_comments() -> Vec<Comment> {
     vec![test_comment(), test_comment_edited()]

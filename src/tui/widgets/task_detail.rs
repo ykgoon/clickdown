@@ -2,9 +2,10 @@
 
 use crate::models::Task;
 use crate::tui::layout::ScrollState;
+use crate::tui::theme::Theme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::Style,
     widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
@@ -38,7 +39,7 @@ pub fn render_task_detail(frame: &mut Frame, state: &TaskDetailState, area: Rect
     let block = Block::default()
         .title(" Task Detail ")
         .borders(Borders::ALL)
-        .style(Style::default().bg(Color::Black));
+        .style(Style::default().bg(Theme::BACKGROUND));
 
     frame.render_widget(&block, area);
 
@@ -112,7 +113,7 @@ pub fn render_task_detail(frame: &mut Frame, state: &TaskDetailState, area: Rect
                 Block::default()
                     .title(" Description ")
                     .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::Cyan)),
+                    .style(Style::default().fg(Theme::PRIMARY)),
             )
             .wrap(Wrap { trim: true });
 
@@ -134,7 +135,7 @@ pub fn render_task_detail(frame: &mut Frame, state: &TaskDetailState, area: Rect
 
     if state.editing {
         let edit_hint = Paragraph::new("Press Ctrl+S to save, Esc to cancel")
-            .style(Style::default().fg(Color::Yellow));
+            .style(Style::default().fg(Theme::WARNING));
         frame.render_widget(edit_hint, inner[4]);
     }
 }

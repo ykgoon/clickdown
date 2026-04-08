@@ -3,7 +3,7 @@
 pub mod schema;
 
 #[allow(dead_code)]
-use crate::models::{Comment, Notification, SessionState, Task, TaskStatus};
+use crate::models::{Comment, SessionState};
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
 use std::path::PathBuf;

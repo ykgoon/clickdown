@@ -1,9 +1,10 @@
 //! Sidebar widget for workspace hierarchy navigation
 
 use crate::tui::helpers::SelectableList;
+use crate::tui::theme::Theme;
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem},
     Frame,
@@ -113,13 +114,15 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
                 ),
                 SidebarItem::Space { name, .. } => ("SP", format!("{}", name), Style::default()),
                 SidebarItem::Folder { name, .. } => ("FL", format!("{}", name), Style::default()),
-                SidebarItem::List { name, .. } => {
-                    ("LI", format!("{}", name), Style::default().fg(Color::Cyan))
-                }
+                SidebarItem::List { name, .. } => (
+                    "LI",
+                    format!("{}", name),
+                    Style::default().fg(Theme::PRIMARY),
+                ),
             };
 
             let line = Line::from(vec![
-                Span::styled(type_label, Style::default().fg(Color::DarkGray)),
+                Span::styled(type_label, Style::default().fg(Theme::SECONDARY)),
                 Span::raw(" "),
                 Span::styled(name, name_style),
             ]);
@@ -133,11 +136,11 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
             Block::default()
                 .title(" Navigation ")
                 .borders(Borders::ALL)
-                .style(Style::default().bg(Color::Black)),
+                .style(Style::default().bg(Theme::BACKGROUND)),
         )
         .highlight_style(
             Style::default()
-                .bg(Color::DarkGray)
+                .bg(Theme::SECONDARY)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▸ ");

@@ -509,17 +509,3 @@ impl DebugOperations {
         Ok(())
     }
 }
-
-/// Format a Unix timestamp (milliseconds) to a readable date string
-fn format_timestamp(ts: i64) -> String {
-    use chrono::{DateTime, Local};
-
-    let secs = ts / 1000;
-    match DateTime::from_timestamp(secs, 0) {
-        Some(dt) => {
-            let local_dt: DateTime<Local> = dt.into();
-            local_dt.format("%b %d, %Y %H:%M").to_string()
-        }
-        None => "Unknown date".to_string(),
-    }
-}

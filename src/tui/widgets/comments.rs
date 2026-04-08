@@ -2,10 +2,11 @@
 
 use crate::models::Comment;
 use crate::tui::app::CommentViewMode;
+use crate::tui::theme::Theme;
 use chrono::{DateTime, Local};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -50,7 +51,7 @@ pub fn render_comments(
             } else {
                 &format!("{} comments", comments.len())
             };
-            let paragraph = Paragraph::new(msg).style(Style::default().fg(Color::DarkGray));
+            let paragraph = Paragraph::new(msg).style(Style::default().fg(Theme::SECONDARY));
             frame.render_widget(paragraph, area);
         }
         return;
@@ -107,9 +108,9 @@ pub fn render_comments(
         };
 
         let input_style = if comment_focus {
-            Style::default().fg(Color::Yellow)
+            Style::default().fg(Theme::WARNING)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(Theme::SECONDARY)
         };
 
         let input = Paragraph::new(input_text).style(input_style).block(
@@ -117,9 +118,9 @@ pub fn render_comments(
                 .title(edit_label)
                 .borders(Borders::ALL)
                 .style(Style::default().fg(if comment_focus {
-                    Color::Yellow
+                    Theme::WARNING
                 } else {
-                    Color::DarkGray
+                    Theme::SECONDARY
                 })),
         );
 
@@ -209,7 +210,7 @@ fn render_comment_list(
             CommentViewMode::TopLevel => "No comments yet. Press 'n' to add one.",
             CommentViewMode::InThread { .. } => "No replies yet. Press 'r' to reply.",
         };
-        let paragraph = Paragraph::new(empty_msg).style(Style::default().fg(Color::DarkGray));
+        let paragraph = Paragraph::new(empty_msg).style(Style::default().fg(Theme::SECONDARY));
         frame.render_widget(paragraph, area);
         return;
     }
@@ -279,20 +280,20 @@ fn render_comment_list(
         let header_style = if is_parent_in_thread {
             // Parent comment: bold white with underline
             Style::default()
-                .fg(Color::White)
+                .fg(Theme::TEXT)
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if is_selected && comment_focus {
             Style::default()
-                .fg(Color::Yellow)
+                .fg(Theme::WARNING)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::Cyan)
+            Style::default().fg(Theme::PRIMARY)
         };
 
         // Build header line with optional reply count (task 3.3)
         let mut header_spans = vec![
             Span::styled(format!("{} - {}", author, date_str), header_style),
-            Span::styled(edited, Style::default().fg(Color::DarkGray)),
+            Span::styled(edited, Style::default().fg(Theme::SECONDARY)),
         ];
 
         // Add reply count indicator for top-level comments with replies
@@ -305,7 +306,7 @@ fn render_comment_list(
                             reply_count,
                             if *reply_count == 1 { "y" } else { "ies" }
                         ),
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(Theme::SECONDARY),
                     ));
                 }
             }
@@ -316,7 +317,7 @@ fn render_comment_list(
             header_spans.push(Span::styled(
                 " • Parent comment",
                 Style::default()
-                    .fg(Color::White)
+                    .fg(Theme::TEXT)
                     .add_modifier(Modifier::BOLD),
             ));
         }
@@ -329,7 +330,7 @@ fn render_comment_list(
         let content_style = if is_parent_in_thread {
             Style::default().add_modifier(Modifier::BOLD)
         } else if is_selected && comment_focus {
-            Style::default().bg(Color::DarkGray)
+            Style::default().bg(Theme::SECONDARY)
         } else {
             Style::default()
         };

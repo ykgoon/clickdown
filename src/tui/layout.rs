@@ -1,5 +1,6 @@
 //! Layout components for TUI
 
+use crate::tui::theme::Theme;
 use ratatui::{
     layout::{Constraint, Direction, Rect},
     style::{Color, Style},
@@ -67,13 +68,13 @@ impl TuiLayout {
         let title_widget = Paragraph::new(Line::from(vec![Span::styled(
             title,
             Style::default()
-                .fg(Color::White)
+                .fg(Theme::TEXT)
                 .add_modifier(ratatui::style::Modifier::BOLD),
         )]))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .style(Style::default().bg(Color::Blue)),
+                .style(Style::default().bg(Theme::PRIMARY)),
         );
 
         frame.render_widget(title_widget, self.title_area);
@@ -82,15 +83,15 @@ impl TuiLayout {
     /// Render status bar with message and help hints
     pub fn render_status(&self, frame: &mut Frame, status: &str, hints: &str) {
         let status_text = Line::from(vec![
-            Span::styled(status, Style::default().fg(Color::Yellow)),
+            Span::styled(status, Style::default().fg(Theme::WARNING)),
             Span::raw(" | "),
-            Span::styled(hints, Style::default().fg(Color::DarkGray)),
+            Span::styled(hints, Style::default().fg(Theme::SECONDARY)),
         ]);
 
         let status_widget = Paragraph::new(status_text).block(
             Block::default()
                 .borders(Borders::ALL)
-                .style(Style::default().bg(Color::Black)),
+                .style(Style::default().bg(Theme::BACKGROUND)),
         );
 
         frame.render_widget(status_widget, self.status_area);
@@ -106,7 +107,7 @@ impl TuiLayout {
                 MIN_WIDTH, MIN_HEIGHT
             )),
         ])
-        .style(Style::default().fg(Color::Yellow));
+        .style(Style::default().fg(Theme::WARNING));
 
         frame.render_widget(warning, self.content_area);
     }

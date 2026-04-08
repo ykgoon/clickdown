@@ -1,9 +1,10 @@
 //! Document view widget
 
+use crate::tui::theme::Theme;
 use pulldown_cmark::{Event, Parser, TagEnd};
 use ratatui::{
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
     text::Line,
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -66,7 +67,7 @@ pub fn render_document(frame: &mut Frame, state: &DocumentState, area: Rect) {
     let block = Block::default()
         .title(format!(" {} ", state.title))
         .borders(Borders::ALL)
-        .style(Style::default().bg(Color::Black));
+        .style(Style::default().bg(Theme::BACKGROUND));
 
     frame.render_widget(block, area);
 
@@ -80,7 +81,7 @@ pub fn render_document(frame: &mut Frame, state: &DocumentState, area: Rect) {
     let text = markdown_to_text(&state.content);
     let lines: Vec<Line> = text.lines().map(|l| Line::from(l.to_string())).collect();
 
-    let paragraph = Paragraph::new(lines).style(Style::default().fg(Color::White));
+    let paragraph = Paragraph::new(lines).style(Style::default().fg(Theme::TEXT));
 
     frame.render_widget(paragraph, inner_area);
 }

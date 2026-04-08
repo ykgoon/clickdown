@@ -502,13 +502,6 @@ pub struct AssigneesUpdate {
 }
 
 impl AssigneesUpdate {
-    pub fn set_all(ids: Vec<i64>) -> Self {
-        Self {
-            add: Some(ids),
-            rem: Some(Vec::new()),
-        }
-    }
-
     pub fn replace_all(
         original: std::collections::HashSet<i64>,
         new: std::collections::HashSet<i64>,
@@ -519,6 +512,10 @@ impl AssigneesUpdate {
             add: if add.is_empty() { None } else { Some(add) },
             rem: if rem.is_empty() { None } else { Some(rem) },
         }
+    }
+
+    pub fn set_all(new: Vec<i64>) -> Self {
+        Self::replace_all(std::collections::HashSet::new(), new.into_iter().collect())
     }
 }
 

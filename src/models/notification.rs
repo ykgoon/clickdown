@@ -25,6 +25,7 @@ pub struct Notification {
 }
 
 /// API response for getting notifications
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationsResponse {
     #[serde(default)]

@@ -49,7 +49,7 @@ where
     let mut snapshot = String::new();
     for y in 0..height {
         for x in 0..width {
-            let cell = terminal.backend().buffer().get(x, y);
+            let cell = &terminal.backend().buffer()[(x, y)];
             snapshot.push(cell.symbol().chars().next().unwrap_or(' '));
         }
         snapshot.push('\n');
@@ -813,7 +813,7 @@ fn test_navigation_hierarchy() {
             let mut snapshot = String::new();
             for y in 0..15 {
                 for x in 0..40 {
-                    let cell = terminal.backend().buffer().get(x, y);
+                    let cell = &terminal.backend().buffer()[(x, y)];
                     snapshot.push(cell.symbol().chars().next().unwrap_or(' '));
                 }
                 snapshot.push('\n');
@@ -824,7 +824,7 @@ fn test_navigation_hierarchy() {
 
         // Helper to verify sidebar has items
         let verify_sidebar_has_items = |app: &mut TuiApp, level_name: &str| {
-            let items = app.sidebar().items().clone();
+            let items = app.sidebar().items();
             assert!(
                 !items.is_empty(),
                 "Level '{}': Sidebar should not be empty. Items: {:?}",
