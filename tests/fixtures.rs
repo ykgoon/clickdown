@@ -220,4 +220,3 @@ pub fn test_tasks_with_assignees() -> Vec<Task> {
         },
     ]
 }
-

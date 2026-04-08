@@ -52,6 +52,7 @@ pub fn render_task_detail(frame: &mut Frame, state: &TaskDetailState, area: Rect
             Constraint::Length(1), // Name
             Constraint::Length(1), // Status
             Constraint::Length(1), // Priority
+            Constraint::Length(1), // Assignees
             Constraint::Min(2),    // Description (flexible space)
         ])
         .split(inner_area);
@@ -73,6 +74,21 @@ pub fn render_task_detail(frame: &mut Frame, state: &TaskDetailState, area: Rect
             .unwrap_or("None");
         frame.render_widget(Paragraph::new(format!("Priority: {}", priority)), inner[2]);
 
+        // Render assignees
+        let assignees_str = if task.assignees.is_empty() {
+            "None".to_string()
+        } else {
+            task.assignees
+                .iter()
+                .map(|u| u.username.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        frame.render_widget(
+            Paragraph::new(format!("Assignees: {}", assignees_str)),
+            inner[3],
+        );
+
         let desc = task
             .description
             .as_ref()
@@ -80,8 +96,8 @@ pub fn render_task_detail(frame: &mut Frame, state: &TaskDetailState, area: Rect
             .unwrap_or_else(|| "No description".to_string());
 
         // Calculate description content height for scroll state
-        let available_height = inner[3].height as usize;
-        let available_width = inner[3].width.saturating_sub(4) as usize; // Account for borders
+        let available_height = inner[4].height as usize;
+        let available_width = inner[4].width.saturating_sub(4) as usize; // Account for borders
 
         // Estimate content height by counting wrapped lines
         let content_height = estimate_wrapped_lines(&desc, available_width);
@@ -101,13 +117,13 @@ pub fn render_task_detail(frame: &mut Frame, state: &TaskDetailState, area: Rect
             .wrap(Wrap { trim: true });
 
         // Render with scroll offset
-        frame.render_widget(desc_paragraph, inner[3]);
+        frame.render_widget(desc_paragraph, inner[4]);
 
         // Render scroll indicator if needed
         if scroll_state.scrollable {
             crate::tui::layout::render_scroll_indicator(
                 frame,
-                inner[3],
+                inner[4],
                 content_height,
                 scroll_state.offset,
             );
@@ -119,7 +135,7 @@ pub fn render_task_detail(frame: &mut Frame, state: &TaskDetailState, area: Rect
     if state.editing {
         let edit_hint = Paragraph::new("Press Ctrl+S to save, Esc to cancel")
             .style(Style::default().fg(Color::Yellow));
-        frame.render_widget(edit_hint, inner[3]);
+        frame.render_widget(edit_hint, inner[4]);
     }
 }
 

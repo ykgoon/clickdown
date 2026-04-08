@@ -236,7 +236,6 @@ impl CacheManager {
         self.conn.execute("DELETE FROM session_state", [])?;
         Ok(())
     }
-
 }
 
 #[cfg(test)]

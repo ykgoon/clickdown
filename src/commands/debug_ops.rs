@@ -327,7 +327,10 @@ impl DebugOperations {
     }
 
     /// Explore full workspace hierarchy
-    pub async fn explore_hierarchy(&self, workspace_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn explore_hierarchy(
+        &self,
+        workspace_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let spaces = api.get_spaces(workspace_id).await?;
         println!("Workspace: {}", workspace_id);
@@ -354,7 +357,16 @@ impl DebugOperations {
         let comments = api.get_task_comments(task_id).await?;
         println!("=== Comments for task {} ===\n", task_id);
         for comment in &comments {
-            println!("[{}] {} ({})", comment.id, comment.text, comment.commenter.as_ref().map(|c| c.username.as_str()).unwrap_or("unknown"));
+            println!(
+                "[{}] {} ({})",
+                comment.id,
+                comment.text,
+                comment
+                    .commenter
+                    .as_ref()
+                    .map(|c| c.username.as_str())
+                    .unwrap_or("unknown")
+            );
         }
         Ok(())
     }
@@ -369,18 +381,36 @@ impl DebugOperations {
     }
 
     /// Update a comment (human-readable)
-    pub async fn update_comment(&self, comment_id: &str, text: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update_comment(
+        &self,
+        comment_id: &str,
+        text: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
-        let req = crate::models::UpdateCommentRequest { comment_text: Some(text.to_string()), assigned: None, assignee: None, assigned_commenter: None };
+        let req = crate::models::UpdateCommentRequest {
+            comment_text: Some(text.to_string()),
+            assigned: None,
+            assignee: None,
+            assigned_commenter: None,
+        };
         let result = api.update_comment(comment_id, &req).await?;
         println!("Comment updated: {}", result.id);
         Ok(())
     }
 
     /// Update a comment (JSON)
-    pub async fn update_comment_json(&self, comment_id: &str, text: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update_comment_json(
+        &self,
+        comment_id: &str,
+        text: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
-        let req = crate::models::UpdateCommentRequest { comment_text: Some(text.to_string()), assigned: None, assignee: None, assigned_commenter: None };
+        let req = crate::models::UpdateCommentRequest {
+            comment_text: Some(text.to_string()),
+            assigned: None,
+            assignee: None,
+            assigned_commenter: None,
+        };
         let result = api.update_comment(comment_id, &req).await?;
         let json = serde_json::to_string_pretty(&result)?;
         println!("{}", json);

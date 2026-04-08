@@ -13,8 +13,8 @@ use crate::api::{AuthManager, ClickUpApi, ClickUpClient};
 use crate::cache::CacheManager;
 use crate::config::ConfigManager;
 use crate::models::{
-    ClickUpSpace, Comment, CreateCommentRequest, Document,
-    Folder, List, SessionState, Task, UpdateCommentRequest, User, Workspace,
+    ClickUpSpace, Comment, CreateCommentRequest, Document, Folder, List, SessionState, Task,
+    UpdateCommentRequest, User, Workspace,
 };
 use crate::tui::widgets::SidebarItem;
 use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlGenerator};
@@ -23,10 +23,10 @@ use super::input::{is_quit, InputEvent};
 use super::layout::{generate_screen_title, split_task_detail, TuiLayout};
 use super::terminal;
 use super::widgets::{
-    get_dialog_hints, render_auth, render_comments,
-    render_dialog, render_document, render_help,
-    render_sidebar, render_task_detail, render_task_list, AuthState, DialogState, DialogType,
-    DocumentState, HelpState, SidebarState, TaskDetailState, TaskListState,
+    get_dialog_hints, render_assignee_picker, render_auth, render_comments, render_dialog,
+    render_document, render_help, render_sidebar, render_task_detail, render_task_list, AuthState,
+    DialogState, DialogType, DocumentState, HelpState, SidebarState, TaskDetailState,
+    TaskListState,
 };
 
 /// Application screens
@@ -67,6 +67,8 @@ pub enum AppMessage {
     CommentCreated(Result<Comment, String>, bool), // bool = is_reply
     CommentUpdated(Result<Comment, String>),
     CurrentUserLoaded(Result<User, String>),
+    MembersLoaded(Result<Vec<User>, String>),
+    AssigneesUpdated(Result<Task, String>),
 }
 
 /// Main TUI application state
@@ -143,6 +145,16 @@ pub struct TuiApp {
 
     /// User identity for assignee filtering
     current_user_id: Option<i32>,
+
+    /// In-memory cache for list members (keyed by list ID)
+    cached_list_members: std::collections::HashMap<String, Vec<User>>,
+
+    /// Assignee picker UI state
+    assignee_picker_open: bool,
+    assignee_picker_members: Vec<User>,
+    assignee_picker_selected: std::collections::HashSet<i64>,
+    assignee_picker_original: std::collections::HashSet<i64>,
+    assignee_picker_cursor: usize,
 
     /// Async message receiver
     message_rx: Option<mpsc::Receiver<AppMessage>>,
@@ -228,6 +240,19 @@ impl TuiApp {
     pub fn status_message(&self) -> &str {
         &self.status
     }
+
+    /// Check if the assignee picker is open (for testing)
+    #[allow(dead_code)]
+    pub fn is_assignee_picker_open(&self) -> bool {
+        self.assignee_picker_open
+    }
+
+    /// Set the cached list members (for testing)
+    #[allow(dead_code)]
+    pub fn set_cached_list_members(&mut self, list_id: &str, members: Vec<User>) {
+        self.cached_list_members
+            .insert(list_id.to_string(), members);
+    }
 }
 
 impl TuiApp {
@@ -282,6 +307,12 @@ impl TuiApp {
             comment_previous_selection: None,
             assigned_filter_active: false,
             current_user_id: None,
+            cached_list_members: std::collections::HashMap::new(),
+            assignee_picker_open: false,
+            assignee_picker_members: Vec::new(),
+            assignee_picker_selected: std::collections::HashSet::new(),
+            assignee_picker_original: std::collections::HashSet::new(),
+            assignee_picker_cursor: 0,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -322,7 +353,9 @@ impl TuiApp {
                                 let _ = tx.send(AppMessage::CurrentUserLoaded(Ok(user))).await;
                             }
                             Err(e) => {
-                                let _ = tx.send(AppMessage::CurrentUserLoaded(Err(e.to_string()))).await;
+                                let _ = tx
+                                    .send(AppMessage::CurrentUserLoaded(Err(e.to_string())))
+                                    .await;
                             }
                         }
                     });
@@ -377,6 +410,12 @@ impl TuiApp {
             comment_previous_selection: None,
             assigned_filter_active: false,
             current_user_id: None,
+            cached_list_members: std::collections::HashMap::new(),
+            assignee_picker_open: false,
+            assignee_picker_members: Vec::new(),
+            assignee_picker_selected: std::collections::HashSet::new(),
+            assignee_picker_original: std::collections::HashSet::new(),
+            assignee_picker_cursor: 0,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -405,10 +444,10 @@ impl TuiApp {
         // Use a unique temporary database file for tests to avoid FK conflicts
         let temp_dir = env::temp_dir();
         let db_path = temp_dir.join(format!("clickdown_test_{}.db", std::process::id()));
-        
+
         // Remove existing file if present
         let _ = std::fs::remove_file(&db_path);
-        
+
         let cache = CacheManager::new(db_path)?;
         let auth = AuthManager::new().unwrap_or_default();
 
@@ -447,6 +486,12 @@ impl TuiApp {
             comment_previous_selection: None,
             assigned_filter_active: false,
             current_user_id: None,
+            cached_list_members: std::collections::HashMap::new(),
+            assignee_picker_open: false,
+            assignee_picker_members: Vec::new(),
+            assignee_picker_selected: std::collections::HashSet::new(),
+            assignee_picker_original: std::collections::HashSet::new(),
+            assignee_picker_cursor: 0,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -615,7 +660,6 @@ impl TuiApp {
                                 items.extend(self.spaces.iter().map(|s| SidebarItem::Space {
                                     name: s.name.clone(),
                                     id: s.id.clone(),
-                                    
                                 }));
                                 *self.sidebar.items_mut() = items;
 
@@ -687,7 +731,6 @@ impl TuiApp {
                                 items.extend(self.folders.iter().map(|f| SidebarItem::Folder {
                                     name: f.name.clone(),
                                     id: f.id.clone(),
-                                    
                                 }));
                                 *self.sidebar.items_mut() = items;
 
@@ -760,7 +803,6 @@ impl TuiApp {
                                 items.extend(self.lists.iter().map(|l| SidebarItem::List {
                                     name: l.name.clone(),
                                     id: l.id.clone(),
-                                    
                                 }));
                                 *self.sidebar.items_mut() = items;
 
@@ -979,7 +1021,11 @@ impl TuiApp {
                         match result {
                             Ok(user) => {
                                 self.current_user_id = Some(user.id as i32);
-                                tracing::info!("Detected current user ID from API: {} ({})", user.id, user.username);
+                                tracing::info!(
+                                    "Detected current user ID from API: {} ({})",
+                                    user.id,
+                                    user.username
+                                );
 
                                 // If assigned filter is active, re-fetch with the fresh user ID
                                 // to replace any stale results from a cached ID
@@ -991,6 +1037,49 @@ impl TuiApp {
                             }
                             Err(e) => {
                                 tracing::warn!("Background user profile fetch failed: {}", e);
+                            }
+                        }
+                    }
+                    AppMessage::MembersLoaded(result) => {
+                        match result {
+                            Ok(members) => {
+                                // Cache the members
+                                if let Some(list_id) = &self.current_list_id {
+                                    self.cached_list_members
+                                        .insert(list_id.clone(), members.clone());
+                                }
+                                // Open the picker
+                                self.open_assignee_picker(members);
+                            }
+                            Err(e) => {
+                                self.status = format!("Failed to load members: {}", e);
+                            }
+                        }
+                    }
+                    AppMessage::AssigneesUpdated(result) => {
+                        match result {
+                            Ok(updated_task) => {
+                                // Update the task in the tasks list (app cache)
+                                for task in &mut self.tasks {
+                                    if task.id == updated_task.id {
+                                        *task = updated_task.clone();
+                                        break;
+                                    }
+                                }
+                                // Update the task in the task list widget
+                                for task in self.task_list.tasks_mut() {
+                                    if task.id == updated_task.id {
+                                        *task = updated_task.clone();
+                                        break;
+                                    }
+                                }
+                                // Update task detail view
+                                self.task_detail.task = Some(updated_task.clone());
+                                self.assignee_picker_open = false;
+                                self.status = "Assignees updated".to_string();
+                            }
+                            Err(e) => {
+                                self.status = format!("Failed to update assignees: {}", e);
                             }
                         }
                     }
@@ -1226,6 +1315,50 @@ impl TuiApp {
     }
 
     fn update_task_detail(&mut self, event: InputEvent) {
+        // Handle assignee picker input first (takes priority)
+        if self.assignee_picker_open {
+            if let InputEvent::Key(key) = event {
+                match key.code {
+                    KeyCode::Char('j') => {
+                        if self.assignee_picker_cursor
+                            < self.assignee_picker_members.len().saturating_sub(1)
+                        {
+                            self.assignee_picker_cursor += 1;
+                        }
+                    }
+                    KeyCode::Char('k') => {
+                        if self.assignee_picker_cursor > 0 {
+                            self.assignee_picker_cursor -= 1;
+                        }
+                    }
+                    KeyCode::Char(' ') => {
+                        // Toggle selection of current member
+                        if let Some(member) = self
+                            .assignee_picker_members
+                            .get(self.assignee_picker_cursor)
+                        {
+                            if self.assignee_picker_selected.contains(&member.id) {
+                                self.assignee_picker_selected.remove(&member.id);
+                            } else {
+                                self.assignee_picker_selected.insert(member.id);
+                            }
+                        }
+                    }
+                    KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        // Save assignees
+                        self.save_assignees();
+                    }
+                    KeyCode::Esc => {
+                        // Cancel
+                        self.assignee_picker_open = false;
+                        self.status = "Assignment cancelled".to_string();
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
         if let InputEvent::Key(key) = event {
             // Handle comment editing input
             if self.comment_editing_index.is_some() || !self.comment_new_text.is_empty() {
@@ -1364,6 +1497,10 @@ impl TuiApp {
                     // Save task - not yet implemented
                     self.task_detail.editing = false;
                     self.status = "Save task - coming soon".to_string();
+                }
+                KeyCode::Char('A') if !self.comment_focus => {
+                    // Open assignee picker
+                    self.open_assignee_picker_flow();
                 }
                 // Comment navigation
                 KeyCode::Tab => {
@@ -1580,7 +1717,6 @@ impl TuiApp {
                 items.extend(self.spaces.iter().map(|s| SidebarItem::Space {
                     name: s.name.clone(),
                     id: s.id.clone(),
-                    
                 }));
                 *self.sidebar.items_mut() = items;
 
@@ -1617,7 +1753,6 @@ impl TuiApp {
                 items.extend(self.folders.iter().map(|f| SidebarItem::Folder {
                     name: f.name.clone(),
                     id: f.id.clone(),
-                    
                 }));
                 *self.sidebar.items_mut() = items;
 
@@ -1653,7 +1788,6 @@ impl TuiApp {
                 items.extend(self.lists.iter().map(|l| SidebarItem::List {
                     name: l.name.clone(),
                     id: l.id.clone(),
-
                 }));
                 *self.sidebar.items_mut() = items;
 
@@ -1863,7 +1997,9 @@ impl TuiApp {
 
         let tx = self.message_tx.clone().unwrap();
         tokio::spawn(async move {
-            let result = client.get_tasks_with_assignee(&list_id, user_id, Some(100)).await;
+            let result = client
+                .get_tasks_with_assignee(&list_id, user_id, Some(100))
+                .await;
             let msg = match result {
                 Ok(tasks) => AppMessage::TasksLoaded(Ok(tasks)),
                 Err(e) => AppMessage::TasksLoaded(Err(e.to_string())),
@@ -1899,6 +2035,113 @@ impl TuiApp {
             let msg = match result {
                 Ok(tasks) => AppMessage::TasksLoaded(Ok(tasks)),
                 Err(e) => AppMessage::TasksLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Open the assignee picker with the given members list
+    fn open_assignee_picker(&mut self, members: Vec<User>) {
+        // Build the set of currently assigned user IDs from the selected task
+        let current_assignee_ids: std::collections::HashSet<i64> = self
+            .task_detail
+            .task
+            .as_ref()
+            .map(|t| t.assignees.iter().map(|u| u.id).collect())
+            .unwrap_or_default();
+
+        self.assignee_picker_members = members;
+        self.assignee_picker_selected = current_assignee_ids.clone();
+        self.assignee_picker_original = current_assignee_ids;
+        self.assignee_picker_cursor = 0;
+        self.assignee_picker_open = true;
+    }
+
+    /// Open the assignee picker, fetching members if not cached
+    fn open_assignee_picker_flow(&mut self) {
+        // Guard: need a task
+        if self.task_detail.task.is_none() {
+            self.status = "No task selected".to_string();
+            return;
+        }
+
+        // Guard: need list context
+        let list_id = match &self.current_list_id {
+            Some(id) => id.clone(),
+            None => {
+                self.status = "Cannot assign: list context not available".to_string();
+                return;
+            }
+        };
+
+        // Check cache first
+        if let Some(cached) = self.cached_list_members.get(&list_id) {
+            self.open_assignee_picker(cached.clone());
+            return;
+        }
+
+        // Cache miss: fetch from API
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        self.loading = true;
+        self.status = "Loading members...".to_string();
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client.get_list_members(&list_id).await;
+            let msg = match result {
+                Ok(members) => AppMessage::MembersLoaded(Ok(members)),
+                Err(e) => AppMessage::MembersLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Save current assignee selection to the task
+    fn save_assignees(&mut self) {
+        let task = match &self.task_detail.task {
+            Some(t) => t.clone(),
+            None => {
+                self.status = "No task selected".to_string();
+                return;
+            }
+        };
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        let task_id = task.id.clone();
+        let tx = self.message_tx.clone().unwrap();
+
+        use crate::models::{AssigneesUpdate, UpdateTaskRequest};
+        let update = UpdateTaskRequest {
+            name: None,
+            description: None,
+            status: None,
+            priority: None,
+            assignees: Some(AssigneesUpdate::replace_all(
+                self.assignee_picker_original.clone(),
+                self.assignee_picker_selected.clone(),
+            )),
+            due_date: None,
+        };
+
+        tokio::spawn(async move {
+            let result = client.update_task(&task_id, &update).await;
+            let msg = match result {
+                Ok(task) => AppMessage::AssigneesUpdated(Ok(task)),
+                Err(e) => AppMessage::AssigneesUpdated(Err(e.to_string())),
             };
             let _ = tx.send(msg).await;
         });
@@ -2133,6 +2376,17 @@ impl TuiApp {
 
             // Render dialog if visible
             render_dialog(frame, &self.dialog, area);
+
+            // Render assignee picker overlay if open
+            if self.assignee_picker_open {
+                render_assignee_picker(
+                    frame,
+                    area,
+                    &self.assignee_picker_members,
+                    &self.assignee_picker_selected,
+                    self.assignee_picker_cursor,
+                );
+            }
 
             // Render help overlay if visible
             render_help(frame, &self.help, area);
@@ -2456,7 +2710,7 @@ impl TuiApp {
         self.current_space_id = saved_state.space_id.clone();
         self.current_folder_id = saved_state.folder_id.clone();
         self.current_list_id = saved_state.list_id.clone();
-        
+
         // Restore user ID for assignee filtering (only if valid - not 0)
         if let Some(uid) = saved_state.user_id {
             if uid != 0 {
@@ -2622,7 +2876,7 @@ mod tests {
     #[test]
     fn test_session_state_includes_user_id() {
         use crate::models::SessionState;
-        
+
         let state = SessionState::from_app(
             &Screen::Tasks,
             Some("ws-123".to_string()),
@@ -2633,7 +2887,7 @@ mod tests {
             None,
             Some(456),
         );
-        
+
         assert_eq!(state.user_id, Some(456));
         assert_eq!(state.workspace_id, Some("ws-123".to_string()));
     }
@@ -2642,7 +2896,7 @@ mod tests {
     #[test]
     fn test_session_state_serialization_with_user_id() {
         use crate::models::SessionState;
-        
+
         let state = SessionState {
             screen: "Tasks".to_string(),
             workspace_id: Some("ws-123".to_string()),
@@ -2653,11 +2907,96 @@ mod tests {
             document_id: None,
             user_id: Some(789),
         };
-        
+
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: SessionState = serde_json::from_str(&json).unwrap();
 
         assert_eq!(state.user_id, deserialized.user_id);
     }
 
+    /// Test that task list widget is updated when assignees are saved
+    /// This is a regression test for the bug where task_list.tasks_mut() was not updated
+    #[tokio::test]
+    async fn test_assignee_update_reflects_in_task_list_widget() {
+        use crate::models::User;
+
+        // Create a task with no assignees
+        let task = Task {
+            id: "test-task-1".to_string(),
+            name: "Test Task".to_string(),
+            assignees: vec![],
+            description: None,
+            status: None,
+            priority: None,
+            due_date: None,
+            ..Default::default()
+        };
+
+        // Create updated task with assignees (what API returns after update)
+        let updated_task = Task {
+            id: task.id.clone(),
+            name: task.name.clone(),
+            assignees: vec![
+                User {
+                    id: 1,
+                    username: "Alice".to_string(),
+                    color: None,
+                    email: None,
+                    profile_picture: None,
+                    initials: None,
+                },
+                User {
+                    id: 2,
+                    username: "Bob".to_string(),
+                    color: None,
+                    email: None,
+                    profile_picture: None,
+                    initials: None,
+                },
+            ],
+            description: task.description.clone(),
+            status: task.status.clone(),
+            priority: task.priority.clone(),
+            due_date: task.due_date,
+            ..task.clone()
+        };
+
+        let mock_client = MockClickUpClient::new()
+            .with_tasks(vec![task.clone()])
+            .with_update_task_response(updated_task.clone());
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Simulate loading tasks into both the app cache and the widget
+        app.tasks = vec![task.clone()];
+        *app.task_list.tasks_mut() = vec![task.clone()];
+
+        // Select the task in the task list
+        app.task_list.select(Some(0));
+
+        // Open task detail view (simulating pressing Enter on task)
+        app.task_detail.task = Some(task.clone());
+
+        // Send the AssigneesUpdated message through the channel
+        let tx = app.message_tx.clone().unwrap();
+        let _ = tx.try_send(AppMessage::AssigneesUpdated(Ok(updated_task)));
+
+        // Process async messages (this will trigger the actual handler code)
+        app.process_async_messages();
+
+        // BUG REPRODUCTION: Before the fix, task_list widget still had the old task data
+        // This test will FAIL before the fix and PASS after the fix
+        let widget_task = app
+            .task_list
+            .selected_task()
+            .expect("Task should be selected");
+
+        assert_eq!(
+            widget_task.assignees.len(),
+            2,
+            "Task list widget should have updated assignees"
+        );
+        assert_eq!(widget_task.assignees[0].username, "Alice");
+        assert_eq!(widget_task.assignees[1].username, "Bob");
+    }
 }

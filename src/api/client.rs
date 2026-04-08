@@ -12,8 +12,9 @@ use crate::models::TaskFilters;
 use crate::models::{
     ClickUpSpace as Space, Comment, CommentsResponse, CreateCommentRequest, CreateTaskRequest,
     Document, DocumentFilters, DocumentPagesResponse, DocumentsResponse, Folder, FoldersResponse,
-    List, ListsResponse, Notification, NotificationsResponse, Page, PageResponse, SpacesResponse,
-    Task, TasksResponse, UpdateCommentRequest, UpdateTaskRequest, User, UserResponse, Workspace, WorkspacesResponse,
+    List, ListsResponse, MembersResponse, Notification, NotificationsResponse, Page, PageResponse,
+    SpacesResponse, Task, TasksResponse, UpdateCommentRequest, UpdateTaskRequest, User,
+    UserResponse, Workspace, WorkspacesResponse,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -214,6 +215,18 @@ impl ClickUpClient {
         Ok(())
     }
 
+    // ==================== Members ====================
+
+    /// Get all members who can access a list
+    #[allow(dead_code)]
+    pub async fn get_list_members(&self, list_id: &str) -> Result<Vec<User>> {
+        let url = ApiEndpoints::list_members(list_id);
+        let response = self
+            .execute::<MembersResponse>(self.request(reqwest::Method::GET, url))
+            .await?;
+        Ok(response.members)
+    }
+
     // ==================== Documents ====================
 
     /// Search documents
@@ -361,25 +374,27 @@ impl ClickUpClient {
     ) -> Result<Vec<Comment>> {
         // Fetch all comments for the task
         let all_comments = self.get_task_comments(task_id).await?;
-        
+
         // Filter for comments where the user is an assigned commenter
         let assigned_comments: Vec<Comment> = all_comments
             .into_iter()
             .filter(|comment| {
-                comment.assigned_commenter.as_ref().map_or(false, |u| u.id as i32 == user_id)
+                comment
+                    .assigned_commenter
+                    .as_ref()
+                    .map_or(false, |u| u.id as i32 == user_id)
             })
             .collect();
-        
+
         tracing::debug!(
             "Found {} assigned comments for user {} on task {}",
             assigned_comments.len(),
             user_id,
             task_id
         );
-        
+
         Ok(assigned_comments)
     }
-
 }
 
 /// Macro to generate trait implementation that delegates to inherent methods
@@ -443,6 +458,10 @@ macro_rules! impl_clickup_api {
                 self.delete_task(task_id).await
             }
 
+            async fn get_list_members(&self, list_id: &str) -> Result<Vec<User>> {
+                self.get_list_members(list_id).await
+            }
+
             async fn search_docs(&self, filters: &DocumentFilters) -> Result<Vec<Document>> {
                 self.search_docs(filters).await
             }
@@ -501,7 +520,8 @@ macro_rules! impl_clickup_api {
                 task_id: &str,
                 user_id: i32,
             ) -> Result<Vec<Comment>> {
-                self.get_comments_with_assigned_commenter(task_id, user_id).await
+                self.get_comments_with_assigned_commenter(task_id, user_id)
+                    .await
             }
         }
     };

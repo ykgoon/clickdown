@@ -491,6 +491,37 @@ pub struct CreateTaskRequest {
     pub due_date: Option<i64>,
 }
 
+/// Request body for updating assignees
+/// ClickUp API expects: {"add": [ids], "rem": [ids]}
+#[derive(Debug, Clone, Serialize)]
+pub struct AssigneesUpdate {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub add: Option<Vec<i64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rem: Option<Vec<i64>>,
+}
+
+impl AssigneesUpdate {
+    pub fn set_all(ids: Vec<i64>) -> Self {
+        Self {
+            add: Some(ids),
+            rem: Some(Vec::new()),
+        }
+    }
+
+    pub fn replace_all(
+        original: std::collections::HashSet<i64>,
+        new: std::collections::HashSet<i64>,
+    ) -> Self {
+        let add: Vec<i64> = new.difference(&original).copied().collect();
+        let rem: Vec<i64> = original.difference(&new).copied().collect();
+        Self {
+            add: if add.is_empty() { None } else { Some(add) },
+            rem: if rem.is_empty() { None } else { Some(rem) },
+        }
+    }
+}
+
 /// Request body for updating a task
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateTaskRequest {
@@ -503,7 +534,7 @@ pub struct UpdateTaskRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub assignees: Option<Vec<i64>>,
+    pub assignees: Option<AssigneesUpdate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub due_date: Option<i64>,
 }

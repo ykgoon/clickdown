@@ -89,15 +89,13 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 return exit_codes::GENERAL_ERROR;
             }
         },
-        DebugOperation::CurrentUser => {
-            match debug_ops.get_current_user().await {
-                Ok(()) => return exit_codes::SUCCESS,
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    return exit_codes::GENERAL_ERROR;
-                }
+        DebugOperation::CurrentUser => match debug_ops.get_current_user().await {
+            Ok(()) => return exit_codes::SUCCESS,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                return exit_codes::GENERAL_ERROR;
             }
-        }
+        },
         DebugOperation::Spaces { ref workspace_id } => {
             if command.json {
                 debug_ops.list_spaces_json(workspace_id).await

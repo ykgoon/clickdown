@@ -16,6 +16,7 @@ pub use document::{
 pub use notification::{Notification, NotificationsResponse};
 pub use session::SessionState;
 pub use task::*;
+pub use user::MembersResponse;
 pub use user::User;
 pub use workspace::{
     Folder, FolderReference as ClickUpFolderReference, FoldersResponse, List, ListsResponse,

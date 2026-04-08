@@ -12,22 +12,10 @@ use ratatui::{
 /// Sidebar item types
 #[derive(Debug, Clone)]
 pub enum SidebarItem {
-    Workspace {
-        name: String,
-        id: String,
-    },
-    Space {
-        name: String,
-        id: String,
-    },
-    Folder {
-        name: String,
-        id: String,
-    },
-    List {
-        name: String,
-        id: String,
-    },
+    Workspace { name: String, id: String },
+    Space { name: String, id: String },
+    Folder { name: String, id: String },
+    List { name: String, id: String },
 }
 
 impl SidebarItem {

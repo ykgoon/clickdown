@@ -54,21 +54,23 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         .direction(Direction::Vertical)
         .margin(2)
         .constraints([
-            Constraint::Length(1),   // title
-            Constraint::Length(4),   // nav (title + 3 items)
-            Constraint::Length(1),   // spacer
-            Constraint::Length(5),   // global (title + 4 items)
-            Constraint::Length(1),   // spacer
-            Constraint::Length(4),   // actions (title + 3 items)
-            Constraint::Length(1),   // spacer
-            Constraint::Length(5),   // task list (title + 4 items)
-            Constraint::Length(1),   // spacer
-            Constraint::Length(10),  // comments (title + 9 items)
-            Constraint::Length(1),   // spacer
-            Constraint::Length(3),   // forms (title + 2 items)
-            Constraint::Length(1),   // spacer
-            Constraint::Length(3),   // session (title + 2 items)
-            Constraint::Min(1),      // close hint
+            Constraint::Length(1),  // title
+            Constraint::Length(4),  // nav (title + 3 items)
+            Constraint::Length(1),  // spacer
+            Constraint::Length(5),  // global (title + 4 items)
+            Constraint::Length(1),  // spacer
+            Constraint::Length(4),  // actions (title + 3 items)
+            Constraint::Length(1),  // spacer
+            Constraint::Length(5),  // task list (title + 4 items)
+            Constraint::Length(1),  // spacer
+            Constraint::Length(5),  // task detail (title + 4 items)
+            Constraint::Length(1),  // spacer
+            Constraint::Length(10), // comments (title + 9 items)
+            Constraint::Length(1),  // spacer
+            Constraint::Length(3),  // forms (title + 2 items)
+            Constraint::Length(1),  // spacer
+            Constraint::Length(3),  // session (title + 2 items)
+            Constraint::Min(1),     // close hint
         ])
         .split(help_area);
 
@@ -113,6 +115,17 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         Line::from("  d           - Delete selected task"),
     ]);
 
+    let task_detail = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "Task Detail:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from("  A           - Open assignee picker"),
+        Line::from("  e           - Edit task"),
+        Line::from("  Tab         - Toggle comments focus"),
+        Line::from("  Esc         - Back to task list"),
+    ]);
+
     let comments = Paragraph::new(vec![
         Line::from(Span::styled(
             "Comments (Task Detail):",
@@ -151,13 +164,14 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
     frame.render_widget(global, inner[3]);
     frame.render_widget(actions, inner[5]);
     frame.render_widget(assigned, inner[7]);
-    frame.render_widget(comments, inner[9]);
-    frame.render_widget(forms, inner[11]);
-    frame.render_widget(session, inner[13]);
+    frame.render_widget(task_detail, inner[9]);
+    frame.render_widget(comments, inner[11]);
+    frame.render_widget(forms, inner[13]);
+    frame.render_widget(session, inner[15]);
 
     let close_hint =
         Paragraph::new("Press any key to close").style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(close_hint, inner[14]);
+    frame.render_widget(close_hint, inner[16]);
 }
 
 /// Get help hint for status bar

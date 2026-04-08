@@ -212,7 +212,10 @@ fn test_help_dialog_shows_all_shortcuts() {
         .collect::<String>();
 
     // Assert all categories are present
-    assert!(content.contains("Navigation:"), "Missing Navigation category");
+    assert!(
+        content.contains("Navigation:"),
+        "Missing Navigation category"
+    );
     assert!(content.contains("Global:"), "Missing Global category");
     assert!(content.contains("Actions:"), "Missing Actions category");
     // Comments section may not render in test terminal - skip for now
@@ -310,7 +313,6 @@ fn test_sidebar_state() {
     sidebar.items_mut().push(SidebarItem::Space {
         name: "Test Space".to_string(),
         id: "sp-1".to_string(),
-
     });
 
     // Select first
@@ -699,8 +701,8 @@ fn test_auth_display_after_typing() {
 /// Test that mock client can be configured with comments
 #[test]
 fn test_mock_client_with_comments() {
-    use clickdown::api::ClickUpApi;
     use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::api::ClickUpApi;
     use clickdown::models::comment::Comment;
     use tokio::runtime::Runtime;
 
@@ -747,8 +749,8 @@ fn test_mock_client_with_comments() {
 /// Test that mock client create comment works
 #[test]
 fn test_mock_client_create_comment() {
-    use clickdown::api::ClickUpApi;
     use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::api::ClickUpApi;
     use clickdown::models::comment::Comment;
     use clickdown::models::CreateCommentRequest;
     use tokio::runtime::Runtime;
@@ -792,8 +794,8 @@ fn test_mock_client_create_comment() {
 /// Test that mock client update comment works
 #[test]
 fn test_mock_client_update_comment() {
-    use clickdown::api::ClickUpApi;
     use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::api::ClickUpApi;
     use clickdown::models::comment::Comment;
     use clickdown::models::UpdateCommentRequest;
     use tokio::runtime::Runtime;
@@ -1051,8 +1053,8 @@ fn test_comments_isolated_by_task() {
 /// Test that mock client can create comment replies
 #[test]
 fn test_mock_client_create_comment_reply() {
-    use clickdown::api::ClickUpApi;
     use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::api::ClickUpApi;
     use clickdown::models::comment::Comment;
     use clickdown::models::CreateCommentRequest;
     use tokio::runtime::Runtime;
@@ -1190,4 +1192,3 @@ fn test_top_level_comment_no_parent_id() {
 
     assert_eq!(top_level.parent_id, None);
 }
-

@@ -1,5 +1,6 @@
 //! TUI widgets
 
+pub mod assignee_picker;
 pub mod auth;
 pub mod comments;
 pub mod dialog;
@@ -9,6 +10,7 @@ pub mod sidebar;
 pub mod task_detail;
 pub mod task_list;
 
+pub use assignee_picker::render_assignee_picker;
 pub use auth::{render_auth, AuthState};
 pub use comments::render_comments;
 pub use dialog::{get_dialog_hints, render_dialog, DialogState, DialogType};

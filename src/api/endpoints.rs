@@ -53,6 +53,10 @@ impl ApiEndpoints {
         format!("{}/list/{}", BASE_URL, list_id)
     }
 
+    pub fn list_members(list_id: &str) -> String {
+        format!("{}/list/{}/member", BASE_URL, list_id)
+    }
+
     // Task endpoints
     pub fn tasks_in_list(list_id: &str, query: &str) -> String {
         format!("{}/list/{}/task{}", BASE_URL, list_id, query)

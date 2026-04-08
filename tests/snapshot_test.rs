@@ -127,17 +127,14 @@ fn create_sidebar_items() -> Vec<SidebarItem> {
         SidebarItem::Space {
             name: "Backend".to_string(),
             id: "sp-1".to_string(),
-
         },
         SidebarItem::Folder {
             name: "API".to_string(),
             id: "fd-1".to_string(),
-
         },
         SidebarItem::List {
             name: "Sprint Tasks".to_string(),
             id: "lst-1".to_string(),
-
         },
     ]
 }
@@ -270,7 +267,7 @@ fn test_task_list_with_selection() {
 /// Create test tasks with assignees for "Assigned to Me" view
 fn create_assigned_test_tasks() -> Vec<Task> {
     use clickdown::models::task::User;
-    
+
     vec![
         Task {
             id: "assigned-task-1".to_string(),
@@ -840,23 +837,28 @@ fn test_navigation_hierarchy() {
         let mut combined_snapshot = String::new();
 
         // Helper to add level to combined snapshot
-        let mut add_level = |app: &mut TuiApp, level_num: usize, level_name: &str, direction: &str| {
-            verify_sidebar_has_items(app, &format!("{} ({})", level_name, direction));
-            
-            let sidebar = capture_sidebar(app);
-            
-            combined_snapshot.push_str(&format!(
-                "=== Level {}: {} ({}) ===\n{}\n",
-                level_num, level_name, direction, sidebar
-            ));
-        };
+        let mut add_level =
+            |app: &mut TuiApp, level_num: usize, level_name: &str, direction: &str| {
+                verify_sidebar_has_items(app, &format!("{} ({})", level_name, direction));
+
+                let sidebar = capture_sidebar(app);
+
+                combined_snapshot.push_str(&format!(
+                    "=== Level {}: {} ({}) ===\n{}\n",
+                    level_num, level_name, direction, sidebar
+                ));
+            };
 
         // =====================================================================
         // TRAVERSE DOWN
         // =====================================================================
 
         // Level 1: Workspaces
-        assert_eq!(app.screen(), Screen::Workspaces, "Should start at Workspaces");
+        assert_eq!(
+            app.screen(),
+            Screen::Workspaces,
+            "Should start at Workspaces"
+        );
         add_level(&mut app, 1, "Workspaces", "Down");
 
         // Navigate into workspace (workspace is now at index 0)
@@ -944,7 +946,11 @@ fn test_navigation_hierarchy() {
         app.process_async_messages();
 
         // Level 9: Workspaces (going up)
-        assert_eq!(app.screen(), Screen::Workspaces, "Should be back at Workspaces");
+        assert_eq!(
+            app.screen(),
+            Screen::Workspaces,
+            "Should be back at Workspaces"
+        );
         add_level(&mut app, 9, "Workspaces", "Up");
 
         // Assert the combined snapshot

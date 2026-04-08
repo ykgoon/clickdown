@@ -8,10 +8,10 @@ mod fixtures;
 #[test]
 fn test_tasks_with_assignees_fixture() {
     let tasks = fixtures::test_tasks_with_assignees();
-    
+
     // Should have 3 tasks
     assert_eq!(tasks.len(), 3, "Should have 3 test tasks");
-    
+
     // All tasks should have assignees
     for task in &tasks {
         assert!(
@@ -33,20 +33,23 @@ fn test_task_assignment_filtering() {
         task.assignees = vec![];
         task
     };
-    
+
     // Count tasks assigned to user 123
     let user_id: i32 = 123;
     let assigned_count = assigned_tasks
         .iter()
         .filter(|t| t.assignees.iter().any(|u| u.id as i32 == user_id))
         .count();
-    
+
     let unassigned_count = [&unassigned_task]
         .iter()
         .filter(|t| t.assignees.is_empty())
         .count();
-    
-    assert_eq!(assigned_count, 3, "Should have 3 tasks assigned to user 123");
+
+    assert_eq!(
+        assigned_count, 3,
+        "Should have 3 tasks assigned to user 123"
+    );
     assert_eq!(unassigned_count, 1, "Should have 1 unassigned task");
 }
 
@@ -57,11 +60,9 @@ fn test_tui_app_initializes() {
     use tokio::runtime::Runtime;
 
     let rt = Runtime::new().unwrap();
-    
+
     // TUI app should initialize successfully
-    let result = rt.block_on(async {
-        TuiApp::new()
-    });
+    let result = rt.block_on(async { TuiApp::new() });
     assert!(result.is_ok(), "TUI app should initialize successfully");
 }
 
@@ -69,8 +70,8 @@ fn test_tui_app_initializes() {
 #[test]
 fn test_mock_client_with_assigned_tasks() {
     use clickdown::api::mock_client::MockClickUpClient;
-    use clickdown::ClickUpApi;
     use clickdown::models::task::TaskFilters;
+    use clickdown::ClickUpApi;
     use std::sync::Arc;
     use tokio::runtime::Runtime;
 
@@ -78,16 +79,18 @@ fn test_mock_client_with_assigned_tasks() {
 
     rt.block_on(async {
         let tasks = fixtures::test_tasks_with_assignees();
-        
+
         // Mock client should accept assigned tasks configuration
-        let mock_client = MockClickUpClient::new()
-            .with_tasks(tasks.clone());
-        
+        let mock_client = MockClickUpClient::new().with_tasks(tasks.clone());
+
         // Verify the client can return tasks
         let filters = TaskFilters::default();
         let result = mock_client.get_tasks("list-1", &filters).await;
-        assert!(result.is_ok(), "Mock client should return tasks successfully");
-        
+        assert!(
+            result.is_ok(),
+            "Mock client should return tasks successfully"
+        );
+
         let returned_tasks = result.unwrap();
         assert_eq!(
             returned_tasks.len(),
@@ -124,9 +127,9 @@ fn test_task_filters_with_assignees() {
 #[test]
 fn test_current_user_id_populated_with_mock_client() {
     use clickdown::api::mock_client::MockClickUpClient;
-    use clickdown::tui::app::TuiApp;
-    use clickdown::tui::app::AppMessage;
     use clickdown::models::User;
+    use clickdown::tui::app::AppMessage;
+    use clickdown::tui::app::TuiApp;
     use std::sync::Arc;
     use tokio::runtime::Runtime;
 
@@ -155,7 +158,9 @@ fn test_current_user_id_populated_with_mock_client() {
         // Send CurrentUserLoaded message through the channel
         // This simulates what the spawn in TuiApp::new() does
         let tx = app.message_tx_for_testing();
-        tx.send(AppMessage::CurrentUserLoaded(Ok(user))).await.unwrap();
+        tx.send(AppMessage::CurrentUserLoaded(Ok(user)))
+            .await
+            .unwrap();
 
         // Process the message
         app.process_async_messages();
@@ -173,9 +178,9 @@ fn test_current_user_id_populated_with_mock_client() {
 #[test]
 fn test_assigned_filter_refetches_on_fresh_user_id() {
     use clickdown::api::mock_client::MockClickUpClient;
-    use clickdown::tui::app::TuiApp;
-    use clickdown::tui::app::AppMessage;
     use clickdown::models::User;
+    use clickdown::tui::app::AppMessage;
+    use clickdown::tui::app::TuiApp;
     use std::sync::Arc;
     use tokio::runtime::Runtime;
 
@@ -202,7 +207,9 @@ fn test_assigned_filter_refetches_on_fresh_user_id() {
 
         // Send CurrentUserLoaded message (simulates what the spawn does)
         let tx = app.message_tx_for_testing();
-        tx.send(AppMessage::CurrentUserLoaded(Ok(user))).await.unwrap();
+        tx.send(AppMessage::CurrentUserLoaded(Ok(user)))
+            .await
+            .unwrap();
 
         // Process the message
         app.process_async_messages();
@@ -311,9 +318,9 @@ fn test_assigned_filter_with_zero_user_id_shows_error() {
 #[test]
 fn test_assigned_filter_refetches_after_user_loads() {
     use clickdown::api::mock_client::MockClickUpClient;
-    use clickdown::tui::app::TuiApp;
-    use clickdown::tui::app::AppMessage;
     use clickdown::models::User;
+    use clickdown::tui::app::AppMessage;
+    use clickdown::tui::app::TuiApp;
     use std::sync::Arc;
     use tokio::runtime::Runtime;
 
@@ -327,7 +334,7 @@ fn test_assigned_filter_refetches_after_user_loads() {
 
         // Set up: list is selected, user_id is None (not loaded yet)
         app.set_current_list_id(Some("list-123".to_string()));
-        
+
         // Verify initial state: user_id should be None (not loaded)
         assert!(
             app.current_user_id().is_none(),
@@ -352,7 +359,9 @@ fn test_assigned_filter_refetches_after_user_loads() {
 
         // Send CurrentUserLoaded message
         let tx = app.message_tx_for_testing();
-        tx.send(AppMessage::CurrentUserLoaded(Ok(user))).await.unwrap();
+        tx.send(AppMessage::CurrentUserLoaded(Ok(user)))
+            .await
+            .unwrap();
 
         // Process the message
         app.process_async_messages();

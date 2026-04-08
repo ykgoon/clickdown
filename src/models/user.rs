@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::utils::deserializers::{null_to_default_id, null_to_empty_string};
+use crate::utils::deserializers::{null_to_default_id, null_to_empty_string, null_to_empty_vec};
 
 /// User reference (assignee, creator, etc.)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -19,6 +19,13 @@ pub struct User {
     pub profile_picture: Option<String>,
     #[serde(default)]
     pub initials: Option<String>,
+}
+
+/// API response for getting list/task members
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MembersResponse {
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
+    pub members: Vec<User>,
 }
 
 #[cfg(test)]
@@ -82,5 +89,57 @@ mod tests {
         assert_eq!(user.email, None);
         assert_eq!(user.profile_picture, None);
         assert_eq!(user.initials, None);
+    }
+
+    #[test]
+    fn test_members_response_deserialize() {
+        let json = "{
+            \"members\": [
+                {
+                    \"id\": 123,
+                    \"username\": \"Alice\",
+                    \"email\": \"alice@example.com\",
+                    \"color\": \"#FF0000\",
+                    \"initials\": \"A\",
+                    \"profilePicture\": null
+                },
+                {
+                    \"id\": 456,
+                    \"username\": \"Bob\",
+                    \"email\": null,
+                    \"color\": null,
+                    \"initials\": \"B\",
+                    \"profilePicture\": null
+                }
+            ]
+        }";
+
+        let response: MembersResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.members.len(), 2);
+        assert_eq!(response.members[0].id, 123);
+        assert_eq!(response.members[0].username, "Alice");
+        assert_eq!(
+            response.members[0].email,
+            Some("alice@example.com".to_string())
+        );
+        assert_eq!(response.members[1].id, 456);
+        assert_eq!(response.members[1].username, "Bob");
+        assert_eq!(response.members[1].email, None);
+    }
+
+    #[test]
+    fn test_members_response_empty() {
+        let json = r#"{"members": []}"#;
+        let response: MembersResponse = serde_json::from_str(json).unwrap();
+        assert!(response.members.is_empty());
+    }
+
+    #[test]
+    fn test_members_response_null_members() {
+        let json = r#"{"members": null}"#;
+        let response: MembersResponse = serde_json::from_str(json).unwrap();
+        // null_to_empty_vec behavior would depend on serde config; with #[serde(default)]
+        // on Vec field, null becomes empty vec
+        assert!(response.members.is_empty());
     }
 }

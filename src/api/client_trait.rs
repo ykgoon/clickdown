@@ -75,6 +75,11 @@ pub trait ClickUpApi: Send + Sync {
     #[allow(dead_code)]
     async fn delete_task(&self, task_id: &str) -> Result<()>;
 
+    // ==================== Members ====================
+
+    /// Get all members who can access a list
+    async fn get_list_members(&self, list_id: &str) -> Result<Vec<User>>;
+
     // ==================== Documents ====================
 
     /// Search documents

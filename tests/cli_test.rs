@@ -1,7 +1,7 @@
 //! CLI integration tests
 
-use clickdown::api::AuthManager;
 use clickdown::api::mock_client::MockClickUpClient;
+use clickdown::api::AuthManager;
 use clickdown::commands::DebugOperations;
 use std::sync::Arc;
 

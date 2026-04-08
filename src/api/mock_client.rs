@@ -3,8 +3,8 @@
 use crate::api::client_trait::ClickUpApi;
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
-    Folder, List, Notification, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
-    User, Workspace,
+    Folder, List, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest, User,
+    Workspace,
 };
 use anyhow::{anyhow, Result};
 
@@ -86,6 +86,8 @@ pub struct MockClickUpClient {
     pub tasks_with_assignee_response: Option<Result<Vec<Task>>>,
     /// Override for get_current_user response
     pub current_user_response: Option<Result<User>>,
+    /// Override for get_list_members response
+    pub list_members_response: Option<Result<Vec<User>>>,
 }
 
 #[allow(dead_code)]
@@ -113,6 +115,7 @@ impl MockClickUpClient {
             update_comment_response: None,
             tasks_with_assignee_response: None,
             current_user_response: None,
+            list_members_response: None,
         }
     }
     /// Set the workspaces response
@@ -227,6 +230,18 @@ impl MockClickUpClient {
         self.create_comment_reply_response = Some(Ok(comment));
         self
     }
+
+    /// Set the list members response
+    pub fn with_list_members(mut self, members: Vec<User>) -> Self {
+        self.list_members_response = Some(Ok(members));
+        self
+    }
+
+    /// Set the list members error
+    pub fn with_list_members_error(mut self, error: String) -> Self {
+        self.list_members_response = Some(Err(anyhow!(error)));
+        self
+    }
 }
 
 #[async_trait::async_trait]
@@ -297,8 +312,46 @@ impl ClickUpApi for MockClickUpClient {
         return_response(&self.create_task_response, "Create task not configured")
     }
 
-    async fn update_task(&self, _task_id: &str, _task: &UpdateTaskRequest) -> Result<Task> {
-        return_response(&self.update_task_response, "Update task not configured")
+    async fn update_task(&self, _task_id: &str, update: &UpdateTaskRequest) -> Result<Task> {
+        let mut task = return_response(&self.update_task_response, "Update task not configured")?;
+
+        // Merge update request fields into the task
+        if let Some(ref name) = update.name {
+            task.name = name.clone();
+        }
+        if let Some(ref desc) = update.description {
+            task.description = Some(crate::models::task::TaskDescription::Plain(desc.clone()));
+        }
+        if let Some(ref status) = update.status {
+            task.status = Some(crate::models::task::TaskStatus {
+                id: None,
+                status: status.clone(),
+                color: None,
+                type_field: None,
+                orderindex: None,
+                status_group: None,
+            });
+        }
+        if let Some(ref assignees_update) = update.assignees {
+            // Create User stubs for the assigned IDs from the add array
+            let ids = assignees_update.add.as_deref().unwrap_or(&[]);
+            task.assignees = ids
+                .iter()
+                .map(|id| User {
+                    id: *id,
+                    username: format!("user_{}", id),
+                    color: None,
+                    email: None,
+                    profile_picture: None,
+                    initials: None,
+                })
+                .collect();
+        }
+        if let Some(due) = update.due_date {
+            task.due_date = Some(due);
+        }
+
+        Ok(task)
     }
 
     async fn delete_task(&self, _task_id: &str) -> Result<()> {
@@ -380,5 +433,9 @@ impl ClickUpApi for MockClickUpClient {
         _user_id: i32,
     ) -> Result<Vec<Comment>> {
         Ok(vec![])
+    }
+
+    async fn get_list_members(&self, _list_id: &str) -> Result<Vec<User>> {
+        return_vec_response(&self.list_members_response)
     }
 }
