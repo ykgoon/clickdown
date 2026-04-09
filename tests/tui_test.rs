@@ -702,6 +702,7 @@ fn test_auth_display_after_typing() {
 #[test]
 fn test_mock_client_with_comments() {
     use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
     use clickdown::api::ClickUpApi;
     use clickdown::models::comment::Comment;
     use tokio::runtime::Runtime;
@@ -750,6 +751,7 @@ fn test_mock_client_with_comments() {
 #[test]
 fn test_mock_client_create_comment() {
     use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
     use clickdown::api::ClickUpApi;
     use clickdown::models::comment::Comment;
     use clickdown::models::CreateCommentRequest;
@@ -795,6 +797,7 @@ fn test_mock_client_create_comment() {
 #[test]
 fn test_mock_client_update_comment() {
     use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
     use clickdown::api::ClickUpApi;
     use clickdown::models::comment::Comment;
     use clickdown::models::UpdateCommentRequest;
@@ -1054,6 +1057,7 @@ fn test_comments_isolated_by_task() {
 #[test]
 fn test_mock_client_create_comment_reply() {
     use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
     use clickdown::api::ClickUpApi;
     use clickdown::models::comment::Comment;
     use clickdown::models::CreateCommentRequest;
@@ -1197,12 +1201,12 @@ fn test_top_level_comment_no_parent_id() {
 #[test]
 fn test_s_key_opens_status_picker() {
     use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
     use clickdown::models::{Task, TaskStatus};
     use clickdown::tui::app::TuiApp;
     use clickdown::tui::input::InputEvent;
     use clickdown::tui::app::Screen;
     use crossterm::event::{KeyCode, KeyEvent};
-    use std::sync::Arc;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
 
@@ -1295,11 +1299,11 @@ fn test_s_key_opens_status_picker() {
 #[test]
 fn test_s_key_no_task_selected() {
     use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
     use clickdown::tui::app::TuiApp;
     use clickdown::tui::input::InputEvent;
     use clickdown::tui::app::Screen;
     use crossterm::event::{KeyCode, KeyEvent};
-    use std::sync::Arc;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
 
@@ -1333,10 +1337,10 @@ fn test_s_key_no_task_selected() {
 #[test]
 fn test_s_key_in_task_detail_should_respond() {
     use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
     use clickdown::tui::app::{TuiApp, Screen};
     use clickdown::tui::input::InputEvent;
     use crossterm::event::{KeyCode, KeyEvent};
-    use std::sync::Arc;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
 
@@ -1375,3 +1379,169 @@ fn test_s_key_in_task_detail_should_respond() {
         app.status()
     );
 }
+
+// ==================== URL Navigation Integration Tests ====================
+
+/// Test that the URL parser correctly handles all URL patterns
+#[test]
+fn test_url_parser_roundtrip() {
+    use clickdown::utils::{ClickUpUrlGenerator, UrlGenerator, UrlParser, ParsedUrl};
+
+    // Test workspace URL roundtrip
+    let generated = ClickUpUrlGenerator::workspace_url("ws1").unwrap();
+    let parsed = UrlParser::parse(&generated).unwrap();
+    assert!(matches!(parsed, ParsedUrl::Workspace { ref workspace_id } if workspace_id == "ws1"));
+
+    // Test task URL roundtrip
+    let generated = ClickUpUrlGenerator::task_url("", "", "task123").unwrap();
+    let parsed = UrlParser::parse(&generated).unwrap();
+    assert!(matches!(parsed, ParsedUrl::Task { ref task_id } if task_id == "task123"));
+
+    // Test document URL roundtrip
+    let generated = ClickUpUrlGenerator::document_url("", "doc1").unwrap();
+    let parsed = UrlParser::parse(&generated).unwrap();
+    assert!(matches!(parsed, ParsedUrl::Document { ref doc_id } if doc_id == "doc1"));
+
+    // Test comment URL roundtrip
+    let generated = ClickUpUrlGenerator::comment_url("", "", "task123", "cmt1").unwrap();
+    let parsed = UrlParser::parse(&generated).unwrap();
+    assert!(matches!(parsed, ParsedUrl::Comment { ref task_id, ref comment_id } if task_id == "task123" && comment_id == "cmt1"));
+}
+
+/// Test that the URL input dialog opens with g → u chord
+#[test]
+fn test_g_u_opens_url_input_dialog() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_workspaces(vec![fixtures::test_workspace()]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Verify dialog is not open initially
+    assert!(!app.is_url_input_open(), "URL input dialog should not be open initially");
+
+    // Press 'g' key
+    let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(g_key));
+
+    // Dialog should NOT be open yet (waiting for second key)
+    assert!(!app.is_url_input_open(), "URL input dialog should not be open after just 'g'");
+
+    // Press 'u' key
+    let u_key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(u_key));
+
+    // Dialog should now be open
+    assert!(app.is_url_input_open(), "URL input dialog should be open after 'g' then 'u'");
+    assert_eq!(app.url_input_text(), "", "URL input text should be empty");
+}
+
+/// Test that invalid URL shows error in dialog
+#[test]
+fn test_invalid_url_shows_error() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_workspaces(vec![fixtures::test_workspace()]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Open dialog
+    let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(g_key));
+    let u_key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(u_key));
+    assert!(app.is_url_input_open());
+
+    // Type an invalid URL
+    for c in "not-a-url".chars() {
+        let key = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        app.handle_url_input(key);
+    }
+
+    // Submit with Enter
+    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    app.update(InputEvent::Key(enter_key));
+
+    // Dialog should remain open with error
+    assert!(app.is_url_input_open(), "Dialog should stay open for invalid URL");
+    assert!(app.url_input_error().is_some(), "Error should be shown for invalid URL");
+}
+
+/// Test that Esc cancels the g leader key
+#[test]
+fn test_esc_cancels_g_leader() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_workspaces(vec![fixtures::test_workspace()]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Press 'g'
+    let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(g_key));
+
+    // Press Esc to cancel
+    let esc_key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    app.update(InputEvent::Key(esc_key));
+
+    // Now press 'u' - this should trigger URL copy, not URL input dialog
+    let u_key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(u_key));
+
+    // URL input dialog should NOT be open (Esc canceled the chord)
+    assert!(!app.is_url_input_open(), "URL input dialog should not open after Esc cancels chord");
+}
+
+/// Test that 'g' followed by non-'u' passes through the second key
+#[test]
+fn test_g_followed_by_non_u_passes_through() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use std::sync::Arc;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_workspaces(vec![fixtures::test_workspace()]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Press 'g'
+    let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(g_key));
+
+    // Press 'j' - should pass through as normal navigation (move selection down)
+    let j_key = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(j_key));
+
+    // URL input dialog should NOT be open
+    assert!(!app.is_url_input_open(), "URL input dialog should not open for 'g' then 'j'");
+}
+

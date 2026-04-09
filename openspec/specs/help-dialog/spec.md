@@ -46,11 +46,12 @@ The system SHALL display `?` in the status bar as a global hint across all appli
 - **THEN** the status bar includes `?` in the hints
 
 ### Requirement: Help dialog content organization
-The help dialog SHALL display keyboard shortcuts organized by category with clear labels and formatting.
+The system SHALL display keyboard shortcuts organized by category with clear labels and formatting. The help dialog SHALL include a section for navigation shortcuts that includes the `g-u` URL navigation chord.
 
 #### Scenario: Navigation shortcuts are displayed
 - **WHEN** the help dialog is open
 - **THEN** it shows a "Navigation" section with j/k, Enter, and Esc shortcuts
+- **AND** it shows a "Go to" subsection with `g` `u` for URL navigation
 
 #### Scenario: Global shortcuts are displayed
 - **WHEN** the help dialog is open

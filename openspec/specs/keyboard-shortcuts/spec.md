@@ -107,3 +107,28 @@ The system SHALL allow users to open the status picker overlay by pressing the `
 - **THEN** the letter 's' is entered into the comment text
 - **AND** the status picker does not open
 
+### Requirement: Keyboard shortcut chord support
+The system SHALL support two-key chord shortcuts where the first key acts as a prefix leader. After the leader key is pressed, a brief pending state awaits the second key. If the second key matches the expected chord completion, the associated action is triggered. If a non-matching key is pressed, the second key is processed as normal input.
+
+#### Scenario: g then u opens URL navigation
+- **WHEN** the user presses `g`
+- **AND** then presses `u` within the chord timeout
+- **THEN** the URL input dialog opens
+
+#### Scenario: g then non-u passes through second key
+- **WHEN** the user presses `g`
+- **AND** then presses `j` (not part of a `g` chord)
+- **THEN** the `j` key is processed as normal navigation input (scroll down)
+
+#### Scenario: Chord pending state times out
+- **WHEN** the user presses `g`
+- **AND** no second key is pressed within the chord timeout window
+- **THEN** the pending state is cleared
+- **AND** the next key is processed as normal input
+
+#### Scenario: Esc cancels chord pending state
+- **WHEN** the user presses `g`
+- **AND** then presses `Esc`
+- **THEN** the pending state is cleared
+- **AND** no action is taken
+

@@ -56,7 +56,7 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         .margin(2)
         .constraints([
             Constraint::Length(1),  // title
-            Constraint::Length(4),  // nav (title + 3 items)
+            Constraint::Length(5),  // nav (title + 4 items)
             Constraint::Length(1),  // spacer
             Constraint::Length(5),  // global (title + 4 items)
             Constraint::Length(1),  // spacer
@@ -83,6 +83,7 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         Line::from("  j/k or ↑/↓  - Move selection"),
         Line::from("  Enter       - Select/Open item"),
         Line::from("  Esc         - Go back/Close"),
+        Line::from("  g u         - Navigate to URL"),
     ]);
 
     let global = Paragraph::new(vec![

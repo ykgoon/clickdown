@@ -70,6 +70,11 @@ pub enum AppMessage {
     MembersLoaded(Result<Vec<User>, String>),
     AssigneesUpdated(Result<Task, String>),
     TaskStatusUpdated(Result<Task, String>),
+    // URL navigation async messages
+    TaskFetchedForNavigation(Result<Task, String>, Screen),
+    CommentFetchedForNavigation(Result<Task, String>, String, Screen), // task result, comment_id, prev_screen
+    DocumentFetchedForNavigation(Result<Document, String>, Screen),
+    CommentsLoadedForCommentNavigation(Result<Vec<Comment>, String>, String), // comments, comment_id
 }
 
 /// Main TUI application state
@@ -195,6 +200,19 @@ pub struct TuiApp {
     restored_folder_id: Option<String>,
     restored_list_id: Option<String>,
     restored_task_id: Option<String>,
+
+    /// Keyboard chord leader key state (for `g` → `u` style shortcuts)
+    chord_leader_pending: Option<KeyCode>,
+
+    /// URL input dialog state
+    url_input_open: bool,
+    url_input_text: String,
+    url_input_error: Option<String>,
+    url_input_cursor: usize,
+
+    /// Navigation loading state for URL-based navigation
+    navigating: bool,
+    navigating_level: String,
 }
 
 /// Application state
@@ -260,6 +278,24 @@ impl TuiApp {
     pub fn set_cached_list_members(&mut self, list_id: &str, members: Vec<User>) {
         self.cached_list_members
             .insert(list_id.to_string(), members);
+    }
+
+    /// Check if URL input dialog is open (for testing)
+    #[allow(dead_code)]
+    pub fn is_url_input_open(&self) -> bool {
+        self.url_input_open
+    }
+
+    /// Get the URL input text (for testing)
+    #[allow(dead_code)]
+    pub fn url_input_text(&self) -> &str {
+        &self.url_input_text
+    }
+
+    /// Get the URL input error message (for testing)
+    #[allow(dead_code)]
+    pub fn url_input_error(&self) -> Option<&str> {
+        self.url_input_error.as_deref()
     }
 }
 
@@ -341,6 +377,13 @@ impl TuiApp {
             restored_folder_id: None,
             restored_list_id: None,
             restored_task_id: None,
+            chord_leader_pending: None,
+            url_input_open: false,
+            url_input_text: String::new(),
+            url_input_error: None,
+            url_input_cursor: 0,
+            navigating: false,
+            navigating_level: String::new(),
         };
         if matches!(app.state, AppState::Initializing) {
             let _ = app.restore_session_state();
@@ -447,6 +490,13 @@ impl TuiApp {
             restored_folder_id: None,
             restored_list_id: None,
             restored_task_id: None,
+            chord_leader_pending: None,
+            url_input_open: false,
+            url_input_text: String::new(),
+            url_input_error: None,
+            url_input_cursor: 0,
+            navigating: false,
+            navigating_level: String::new(),
         };
 
         Ok(app)
@@ -528,6 +578,13 @@ impl TuiApp {
             restored_folder_id: None,
             restored_list_id: None,
             restored_task_id: None,
+            chord_leader_pending: None,
+            url_input_open: false,
+            url_input_text: String::new(),
+            url_input_error: None,
+            url_input_cursor: 0,
+            navigating: false,
+            navigating_level: String::new(),
         };
 
         Ok(app)
@@ -1150,6 +1207,129 @@ impl TuiApp {
                             }
                         }
                     }
+                    AppMessage::TaskFetchedForNavigation(result, prev_screen) => {
+                        match result {
+                            Ok(task) => {
+                                self.navigating = false;
+                                self.navigating_level.clear();
+                                // Open the task in detail view
+                                self.task_detail.task = Some(task.clone());
+                                self.screen = Screen::TaskDetail;
+                                self.comment_view_mode = CommentViewMode::TopLevel;
+                                self.comments.clear();
+                                self.comment_selected_index = 0;
+                                self.status = format!("Navigated to task: {}", task.name);
+                                // Load comments for the task
+                                self.load_comments(task.id);
+                            }
+                            Err(e) => {
+                                self.navigating = false;
+                                self.navigating_level.clear();
+                                self.status = format!("Resource not found: {}", e);
+                                // Restore previous screen
+                                self.screen = prev_screen;
+                            }
+                        }
+                    }
+                    AppMessage::CommentFetchedForNavigation(result, comment_id, prev_screen) => {
+                        match result {
+                            Ok(task) => {
+                                // Navigate to task detail, then find the comment
+                                self.task_detail.task = Some(task.clone());
+                                self.screen = Screen::TaskDetail;
+                                self.comment_view_mode = CommentViewMode::TopLevel;
+                                self.comments.clear();
+                                self.comment_selected_index = 0;
+
+                                // Load comments and then find the target one
+                                let tx = self.message_tx.clone().unwrap();
+                                let task_id = task.id.clone();
+                                let client = match &self.client {
+                                    Some(c) => c.clone(),
+                                    None => {
+                                        self.navigating = false;
+                                        self.navigating_level.clear();
+                                        self.status = "Not authenticated".to_string();
+                                        self.screen = prev_screen;
+                                        return;
+                                    }
+                                };
+                                tokio::spawn(async move {
+                                    let result = client.get_task_comments(&task_id).await;
+                                    let msg = match result {
+                                        Ok(comments) => {
+                                            AppMessage::CommentsLoadedForCommentNavigation(
+                                                Ok(comments),
+                                                comment_id,
+                                            )
+                                        }
+                                        Err(e) => {
+                                            AppMessage::CommentsLoadedForCommentNavigation(
+                                                Err(e.to_string()),
+                                                comment_id,
+                                            )
+                                        }
+                                    };
+                                    let _ = tx.send(msg).await;
+                                });
+                            }
+                            Err(e) => {
+                                self.navigating = false;
+                                self.navigating_level.clear();
+                                self.status = format!("Resource not found: {}", e);
+                                self.screen = prev_screen;
+                            }
+                        }
+                    }
+                    AppMessage::DocumentFetchedForNavigation(result, prev_screen) => {
+                        match result {
+                            Ok(doc) => {
+                                self.navigating = false;
+                                self.navigating_level.clear();
+                                self.documents = vec![doc.clone()];
+                                self.screen = Screen::Document;
+                                self.screen_title = generate_screen_title(&doc.name);
+                                self.status = format!("Navigated to document: {}", doc.name);
+                            }
+                            Err(e) => {
+                                self.navigating = false;
+                                self.navigating_level.clear();
+                                self.status = format!("Document not found: {}", e);
+                                self.screen = prev_screen;
+                            }
+                        }
+                    }
+                    AppMessage::CommentsLoadedForCommentNavigation(result, comment_id) => {
+                        match result {
+                            Ok(comments) => {
+                                self.comments = comments;
+                                self.comment_view_mode = CommentViewMode::TopLevel;
+                                // Find and select the target comment
+                                let found = self
+                                    .comments
+                                    .iter()
+                                    .position(|c| c.id == comment_id);
+                                if let Some(idx) = found {
+                                    self.comment_selected_index = idx;
+                                    self.navigating = false;
+                                    self.navigating_level.clear();
+                                    self.status = format!(
+                                        "Navigated to comment: {}",
+                                        &self.comments[idx].text[..self.comments[idx].text.len().min(40)]
+                                    );
+                                } else {
+                                    self.navigating = false;
+                                    self.navigating_level.clear();
+                                    self.status = "Comment not found in task".to_string();
+                                }
+                            }
+                            Err(e) => {
+                                self.navigating = false;
+                                self.navigating_level.clear();
+                                self.status = format!("Failed to load comments: {}", e);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1237,17 +1417,45 @@ impl TuiApp {
                 return;
             }
 
-            // Handle URL copy with single key 'u' (for URL)
-            // This is simpler and more reliable than modifier combinations
-            if key.code == KeyCode::Char('u') {
-                tracing::debug!("URL copy shortcut detected (u key)");
-                self.copy_url();
+            // Handle chord completion: if leader is pending, check for matching second key
+            if let Some(leader) = self.chord_leader_pending.take() {
+                if leader == KeyCode::Char('g') && key.code == KeyCode::Char('u') {
+                    self.open_url_input_dialog();
+                    return;
+                }
+                // Non-matching second key: pass through to normal handling below
+                // (the key variable still holds the original KeyEvent)
+            } else if key.code == KeyCode::Char('g') {
+                // Set leader pending and wait for second key
+                self.chord_leader_pending = Some(KeyCode::Char('g'));
+                return;
+            }
+
+            // Handle Esc to clear chord pending state
+            if key.code == KeyCode::Esc {
+                self.chord_leader_pending = None;
+                // Fall through to normal Esc handling
+            }
+
+            // Handle URL input dialog (modal overlay)
+            // MUST check this BEFORE the 'u' key handler, otherwise pasted 'u' characters
+            // from URLs will trigger copy_url() instead of being inserted into the input
+            if self.url_input_open {
+                self.handle_url_input(key);
                 return;
             }
 
             // Handle status picker input (modal overlay)
             if self.status_picker_open {
                 self.handle_status_picker_input(key);
+                return;
+            }
+
+            // Handle URL copy with single key 'u' (for URL)
+            // This is simpler and more reliable than modifier combinations
+            if key.code == KeyCode::Char('u') {
+                tracing::debug!("URL copy shortcut detected (u key)");
+                self.copy_url();
                 return;
             }
         }
@@ -2642,14 +2850,21 @@ impl TuiApp {
                 );
             }
 
+            // Render URL input dialog if open
+            if self.url_input_open {
+                self.render_url_input_dialog(frame, area);
+            }
+
             // Render help overlay if visible
             render_help(frame, &self.help, area);
 
             // Render status bar
             let hints = self.get_hints();
-            // Priority: error > url_copy_status > loading > regular status
+            // Priority: error > navigating > url_copy_status > loading > regular status
             let status = if let Some(ref error) = self.error {
                 error.clone()
+            } else if self.navigating {
+                format!("Loading... {}", self.navigating_level)
             } else if let Some(ref url_status) = self.url_copy_status {
                 // Show URL copy status (takes priority over regular status)
                 url_status.clone()
@@ -2706,6 +2921,123 @@ impl TuiApp {
         }
     }
 
+    /// Render the URL input dialog as a centered modal overlay
+    fn render_url_input_dialog(&self, frame: &mut Frame, area: Rect) {
+        use ratatui::{
+            layout::Constraint,
+            style::{Modifier, Style},
+            text::{Line, Span},
+            widgets::{Block, Borders, Clear, Paragraph},
+        };
+
+        // Center the dialog: 60% width, ~12 rows tall
+        let popup_layout = ratatui::layout::Layout::default()
+            .direction(ratatui::layout::Direction::Vertical)
+            .constraints([
+                ratatui::layout::Constraint::Percentage(35),
+                ratatui::layout::Constraint::Length(12),
+                ratatui::layout::Constraint::Percentage(35),
+            ])
+            .split(area);
+
+        let dialog_area = ratatui::layout::Layout::default()
+            .direction(ratatui::layout::Direction::Horizontal)
+            .constraints([
+                ratatui::layout::Constraint::Percentage(20),
+                ratatui::layout::Constraint::Percentage(60),
+                ratatui::layout::Constraint::Percentage(20),
+            ])
+            .split(popup_layout[1])[1];
+
+        // Clear underlying content
+        frame.render_widget(Clear, dialog_area);
+
+        // Dialog border and background
+        let block = Block::default()
+            .title(" Navigate to URL ")
+            .borders(Borders::ALL)
+            .style(
+                Style::default()
+                    .bg(ratatui::style::Color::Rgb(30, 30, 46))
+                    .fg(ratatui::style::Color::Rgb(137, 180, 250)),
+            );
+        frame.render_widget(block, dialog_area);
+
+        let inner = ratatui::layout::Layout::default()
+            .direction(ratatui::layout::Direction::Vertical)
+            .margin(2)
+            .constraints([
+                ratatui::layout::Constraint::Length(1),  // prompt
+                ratatui::layout::Constraint::Length(1),  // spacer
+                ratatui::layout::Constraint::Length(3),  // input field
+                ratatui::layout::Constraint::Length(2),  // error message
+                ratatui::layout::Constraint::Length(1),  // spacer
+                ratatui::layout::Constraint::Length(1),  // hints
+            ])
+            .split(dialog_area);
+
+        // Prompt
+        let prompt = Paragraph::new("Enter a ClickUp URL:").style(
+            Style::default()
+                .fg(ratatui::style::Color::Rgb(205, 214, 244))
+                .add_modifier(Modifier::BOLD),
+        );
+        frame.render_widget(prompt, inner[0]);
+
+        // Input field with cursor
+        let cursor_pos = self.url_input_cursor.min(self.url_input_text.len());
+        let input_line: Line = if self.url_input_text.is_empty() {
+            Line::from(Span::styled(
+                "https://app.clickup.com/...",
+                Style::default().fg(ratatui::style::Color::DarkGray),
+            ))
+        } else {
+            // Build the line with cursor position tracking
+            let before_cursor: String = self.url_input_text.chars().take(cursor_pos).collect();
+            let after_cursor: String = self.url_input_text.chars().skip(cursor_pos).collect();
+            let mut spans = vec![
+                Span::styled(
+                    before_cursor,
+                    Style::default().fg(ratatui::style::Color::Rgb(205, 214, 244)),
+                ),
+            ];
+            if after_cursor.is_empty() {
+                // Show cursor block at end
+                spans.push(Span::styled(
+                    " ",
+                    Style::default()
+                        .fg(ratatui::style::Color::Rgb(205, 214, 244))
+                        .bg(ratatui::style::Color::Rgb(88, 91, 112)),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    after_cursor,
+                    Style::default()
+                        .fg(ratatui::style::Color::Rgb(205, 214, 244))
+                        .bg(ratatui::style::Color::Rgb(88, 91, 112)),
+                ));
+            }
+            Line::from(spans)
+        };
+        frame.render_widget(Paragraph::new(input_line), inner[2]);
+
+        // Error message (if any)
+        if let Some(ref error) = self.url_input_error {
+            let error_para = Paragraph::new(Span::styled(
+                format!("⚠ {}", error),
+                Style::default().fg(ratatui::style::Color::Rgb(243, 139, 168)),
+            ));
+            frame.render_widget(error_para, inner[3]);
+        }
+
+        // Hints
+        let hints = Paragraph::new("Enter: Navigate | Esc: Cancel | Ctrl+V: Paste").style(
+            Style::default()
+                .fg(ratatui::style::Color::DarkGray),
+        );
+        frame.render_widget(hints, inner[5]);
+    }
+
     fn get_hints(&self) -> &'static str {
         if self.dialog.is_visible() {
             get_dialog_hints()
@@ -2735,6 +3067,386 @@ impl TuiApp {
                 _ => "j/k: Navigate | Enter: Select | Tab: Toggle | Ctrl+Q: Quit | ? - Help",
             }
         }
+    }
+
+    /// Open the URL input dialog
+    fn open_url_input_dialog(&mut self) {
+        // Guard: must be authenticated
+        if self.state == AppState::Unauthenticated {
+            self.status = "Please authenticate first".to_string();
+            return;
+        }
+        self.url_input_open = true;
+        self.url_input_text = String::new();
+        self.url_input_error = None;
+        self.url_input_cursor = 0;
+    }
+
+    /// Handle URL input dialog submission
+    fn submit_url_input(&mut self) {
+        if self.url_input_text.trim().is_empty() {
+            self.url_input_error = Some("Please enter a URL".to_string());
+            return;
+        }
+
+        let url = self.url_input_text.clone();
+        self.close_url_input_dialog();
+
+        // Parse the URL
+        use crate::utils::UrlParser;
+        match UrlParser::parse(&url) {
+            Ok(parsed) => {
+                self.navigate_from_parsed_url(parsed);
+            }
+            Err(e) => {
+                // Reopen dialog with error and restore the URL text
+                self.url_input_open = true;
+                self.url_input_text = url.clone();
+                let error_msg = format!("Unrecognized ClickUp URL format: {}", e);
+                self.url_input_error = Some(error_msg);
+                self.url_input_cursor = url.len();
+            }
+        }
+    }
+
+    /// Close the URL input dialog
+    fn close_url_input_dialog(&mut self) {
+        self.url_input_open = false;
+        self.url_input_text.clear();
+        self.url_input_error = None;
+        self.url_input_cursor = 0;
+    }
+
+    /// Handle keyboard input within the URL input dialog
+    pub fn handle_url_input(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::{KeyCode, KeyModifiers};
+        match key.code {
+            KeyCode::Esc => {
+                self.close_url_input_dialog();
+            }
+            KeyCode::Enter => {
+                self.submit_url_input();
+            }
+            KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Paste from clipboard
+                use arboard::Clipboard;
+                if let Ok(mut clipboard) = Clipboard::new() {
+                    if let Ok(text) = clipboard.get_text() {
+                        for c in text.chars() {
+                            self.url_input_text.insert(self.url_input_cursor, c);
+                            self.url_input_cursor += 1;
+                        }
+                        self.url_input_error = None;
+                    }
+                }
+            }
+            KeyCode::Char(c) => {
+                self.url_input_text.insert(self.url_input_cursor, c);
+                self.url_input_cursor += 1;
+                self.url_input_error = None;
+            }
+            KeyCode::Backspace => {
+                if self.url_input_cursor > 0 {
+                    self.url_input_text.remove(self.url_input_cursor - 1);
+                    self.url_input_cursor -= 1;
+                    self.url_input_error = None;
+                }
+            }
+            KeyCode::Left => {
+                if self.url_input_cursor > 0 {
+                    self.url_input_cursor -= 1;
+                }
+            }
+            KeyCode::Right => {
+                if self.url_input_cursor < self.url_input_text.len() {
+                    self.url_input_cursor += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Navigate to a resource based on a parsed URL
+    fn navigate_from_parsed_url(&mut self, parsed: crate::utils::ParsedUrl) {
+        use crate::utils::ParsedUrl;
+        match parsed {
+            ParsedUrl::Workspace { workspace_id } => {
+                self.navigate_to_workspace(workspace_id);
+            }
+            ParsedUrl::Space { workspace_id, space_id } => {
+                self.navigate_to_space(workspace_id, space_id);
+            }
+            ParsedUrl::Folder { workspace_id, folder_id } => {
+                self.navigate_to_folder(workspace_id, folder_id);
+            }
+            ParsedUrl::List { workspace_id, list_id } => {
+                self.navigate_to_list(workspace_id, list_id);
+            }
+            ParsedUrl::Task { task_id } => {
+                self.navigate_to_task(task_id);
+            }
+            ParsedUrl::Comment { task_id, comment_id } => {
+                self.navigate_to_comment(task_id, comment_id);
+            }
+            ParsedUrl::Document { doc_id } => {
+                self.navigate_to_document(doc_id);
+            }
+        }
+    }
+
+    // --- URL-based navigation implementations ---
+
+    /// Navigate to a workspace by ID
+    fn navigate_to_workspace(&mut self, workspace_id: String) {
+        self.navigating = true;
+        self.navigating_level = "workspace".to_string();
+
+        // Check if already at target
+        if self.screen == Screen::Workspaces {
+            if let Some(selected) = self.sidebar.selected_item() {
+                use super::widgets::SidebarItem;
+                let id = match selected {
+                    SidebarItem::Workspace { id, .. } => id.clone(),
+                    _ => String::new(),
+                };
+                if id == workspace_id {
+                    self.navigating = false;
+                    self.navigating_level.clear();
+                    self.status = "Already viewing this workspace".to_string();
+                    return;
+                }
+            }
+        }
+
+        // Navigate to workspaces screen and select the workspace
+        self.screen = Screen::Workspaces;
+        self.current_workspace_id = None;
+        self.current_space_id = None;
+        self.current_folder_id = None;
+        self.current_list_id = None;
+        self.sidebar.select_first();
+
+        // Find and select the target workspace in the list
+        for (i, ws) in self.workspaces.iter().enumerate() {
+            if ws.id == workspace_id {
+                self.sidebar.select(Some(i));
+                self.current_workspace_id = Some(workspace_id);
+                self.navigating = false;
+                self.navigating_level.clear();
+                self.status = format!("Navigated to workspace: {}", ws.name);
+                return;
+            }
+        }
+
+        // Workspace not found in current list
+        self.navigating = false;
+        self.navigating_level.clear();
+        self.status = "Workspace not found in current workspace list".to_string();
+    }
+
+    /// Navigate to a space by workspace + space ID
+    fn navigate_to_space(&mut self, workspace_id: String, space_id: String) {
+        self.navigating = true;
+        self.navigating_level = "space".to_string();
+
+        // First ensure we're in the right workspace
+        self.current_workspace_id = Some(workspace_id.clone());
+        self.screen = Screen::Spaces;
+        self.current_space_id = None;
+        self.current_folder_id = None;
+        self.current_list_id = None;
+        self.sidebar.select_first();
+
+        // Find target space
+        for (i, space) in self.spaces.iter().enumerate() {
+            if space.id == space_id {
+                self.sidebar.select(Some(i));
+                self.current_space_id = Some(space_id);
+                self.navigating = false;
+                self.navigating_level.clear();
+                self.status = format!("Navigated to space: {}", space.name);
+                return;
+            }
+        }
+
+        // Space not found — need to load spaces first
+        self.load_spaces(workspace_id);
+        self.status = "Loading spaces...".to_string();
+    }
+
+    /// Navigate to a folder by workspace + folder ID
+    fn navigate_to_folder(&mut self, workspace_id: String, folder_id: String) {
+        self.navigating = true;
+        self.navigating_level = "folder".to_string();
+
+        self.current_workspace_id = Some(workspace_id.clone());
+        self.current_space_id = None;
+        self.current_folder_id = None;
+        self.current_list_id = None;
+        self.screen = Screen::Folders;
+        self.sidebar.select_first();
+
+        for (i, folder) in self.folders.iter().enumerate() {
+            if folder.id == folder_id {
+                self.sidebar.select(Some(i));
+                self.current_folder_id = Some(folder_id);
+                self.navigating = false;
+                self.navigating_level.clear();
+                self.status = format!("Navigated to folder: {}", folder.name);
+                return;
+            }
+        }
+
+        self.navigating = false;
+        self.navigating_level.clear();
+        self.status = "Folder not found in current folder list".to_string();
+    }
+
+    /// Navigate to a list by workspace + list ID
+    fn navigate_to_list(&mut self, workspace_id: String, list_id: String) {
+        self.navigating = true;
+        self.navigating_level = "list".to_string();
+
+        self.current_workspace_id = Some(workspace_id);
+        self.current_space_id = None;
+        self.current_folder_id = None;
+        self.current_list_id = None;
+        self.screen = Screen::Lists;
+        self.sidebar.select_first();
+
+        for (i, list) in self.lists.iter().enumerate() {
+            if list.id == list_id {
+                self.sidebar.select(Some(i));
+                self.current_list_id = Some(list_id);
+                self.navigating = false;
+                self.navigating_level.clear();
+                self.status = format!("Navigated to list: {}", list.name);
+                return;
+            }
+        }
+
+        self.navigating = false;
+        self.navigating_level.clear();
+        self.status = "List not found in current list".to_string();
+    }
+
+    /// Navigate to a task by task ID (short-form URL)
+    fn navigate_to_task(&mut self, task_id: String) {
+        self.navigating = true;
+        self.navigating_level = "task".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.navigating = false;
+                self.navigating_level.clear();
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        let target_task_id = task_id.clone();
+        let prev_screen = self.screen.clone();
+        tokio::spawn(async move {
+            // Fetch task from API to get its context
+            let result = client.get_task(&target_task_id).await;
+            let msg = match result {
+                Ok(task) => AppMessage::TaskFetchedForNavigation(Ok(task), prev_screen),
+                Err(e) => AppMessage::TaskFetchedForNavigation(Err(e.to_string()), prev_screen),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Navigate to a comment by task ID + comment ID
+    fn navigate_to_comment(&mut self, task_id: String, comment_id: String) {
+        // First navigate to the task, then find the comment
+        self.navigating = true;
+        self.navigating_level = "comment".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.navigating = false;
+                self.navigating_level.clear();
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        let target_task_id = task_id.clone();
+        let target_comment_id = comment_id.clone();
+        let prev_screen = self.screen.clone();
+        tokio::spawn(async move {
+            let result = client.get_task(&target_task_id).await;
+            let msg = match result {
+                Ok(task) => AppMessage::CommentFetchedForNavigation(
+                    Ok(task),
+                    target_comment_id,
+                    prev_screen,
+                ),
+                Err(e) => AppMessage::CommentFetchedForNavigation(
+                    Err(e.to_string()),
+                    target_comment_id,
+                    prev_screen,
+                ),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Navigate to a document by doc ID
+    fn navigate_to_document(&mut self, doc_id: String) {
+        self.navigating = true;
+        self.navigating_level = "document".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.navigating = false;
+                self.navigating_level.clear();
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        let target_doc_id = doc_id.clone();
+        let prev_screen = self.screen.clone();
+        tokio::spawn(async move {
+            // Search for the document by ID using filters
+            use crate::models::DocumentFilters;
+            let filters = DocumentFilters::default();
+            let result = client.search_docs(&filters).await;
+            match result {
+                Ok(docs) => {
+                    // Find the matching document
+                    let doc = docs.iter().find(|d| d.id == target_doc_id);
+                    if let Some(doc) = doc.cloned() {
+                        let _ = tx
+                            .send(AppMessage::DocumentFetchedForNavigation(Ok(doc), prev_screen))
+                            .await;
+                    } else {
+                        let _ = tx
+                            .send(AppMessage::DocumentFetchedForNavigation(
+                                Err("Document not found in search results".to_string()),
+                                prev_screen,
+                            ))
+                            .await;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(AppMessage::DocumentFetchedForNavigation(
+                            Err(e.to_string()),
+                            prev_screen,
+                        ))
+                        .await;
+                }
+            }
+        });
     }
 
     /// Copy URL for the current context to clipboard

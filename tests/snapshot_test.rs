@@ -1053,3 +1053,54 @@ fn test_navigation_hierarchy() {
         assert_snapshot!("navigation_hierarchy", combined_snapshot);
     });
 }
+
+/// Test that pasting a URL with 'u' characters works correctly
+/// This is a regression test for the bug where 'u' characters were dropped from URLs
+/// when pasting, because the global 'u' key handler (for URL copy) was intercepting them.
+/// Bug: "https://app.clickup.com/..." became "https://app.clickp.com/..."
+#[test]
+fn test_url_input_dialog_paste_preserves_u_characters() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_workspaces(vec![fixtures::test_workspace()]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Open URL input dialog with 'g' then 'u'
+    let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(g_key));
+    let u_key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(u_key));
+    assert!(app.is_url_input_open(), "URL input dialog should be open");
+
+    // Simulate pasting a ClickUp URL by typing each character
+    // This mimics how terminals send paste events character by character
+    // IMPORTANT: We must use app.update() NOT app.handle_url_input() directly,
+    // because the bug is in the update() method's key event routing
+    let test_url = "https://app.clickup.com/t/123";
+    for c in test_url.chars() {
+        let key = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        app.update(InputEvent::Key(key)); // This routes through the buggy key handler
+    }
+
+    // Create a text snapshot of the URL input content
+    // Before the fix: "https://app.clickp.com/t/123" (missing 'u')
+    // After the fix: "https://app.clickup.com/t/123" (correct)
+    let url_text = app.url_input_text().to_string();
+    assert_snapshot!("url_input_text_after_paste", url_text);
+    
+    // Also verify programmatically for clearer test output
+    assert_eq!(
+        app.url_input_text(),
+        "https://app.clickup.com/t/123",
+        "URL should contain all characters including 'u' - BUG: 'u' characters are being dropped!"
+    );
+}
