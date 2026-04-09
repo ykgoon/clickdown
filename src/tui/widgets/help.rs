@@ -148,6 +148,12 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
         ("Esc", "Back to task list"),
     ]);
 
+    let task_creation = section("Task Creation", &[
+        ("Tab", "Switch between name/description"),
+        ("Ctrl+S", "Create task"),
+        ("Esc", "Cancel creation"),
+    ]);
+
     let comments = section("Comments", &[
         ("Tab", "Toggle focus (task/comments)"),
         ("j/k", "Navigate comments"),
@@ -220,6 +226,8 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
                 HelpContext::TaskList => {
                     lines.extend(task_detail);
                     lines.push(Line::from(""));
+                    lines.extend(task_creation);
+                    lines.push(Line::from(""));
                     lines.extend(comments);
                     lines.push(Line::from(""));
                     lines.extend(session);
@@ -227,12 +235,16 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
                 HelpContext::TaskDetail => {
                     lines.extend(task_list);
                     lines.push(Line::from(""));
+                    lines.extend(task_creation);
+                    lines.push(Line::from(""));
                     lines.extend(comments);
                     lines.push(Line::from(""));
                     lines.extend(session);
                 }
                 HelpContext::Comments => {
                     lines.extend(task_detail);
+                    lines.push(Line::from(""));
+                    lines.extend(task_creation);
                     lines.push(Line::from(""));
                     lines.extend(task_list);
                     lines.push(Line::from(""));
@@ -242,6 +254,8 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
                     lines.extend(task_list);
                     lines.push(Line::from(""));
                     lines.extend(task_detail);
+                    lines.push(Line::from(""));
+                    lines.extend(task_creation);
                     lines.push(Line::from(""));
                     lines.extend(comments);
                     lines.push(Line::from(""));

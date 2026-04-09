@@ -10,6 +10,7 @@
 mod fixtures;
 
 use clickdown::models::Task;
+use clickdown::tui::app::TaskCreationField;
 use clickdown::tui::layout::{generate_screen_title, TuiLayout};
 use clickdown::tui::widgets::{
     auth::{render_auth, AuthState},
@@ -356,7 +357,7 @@ fn test_task_detail_view_mode() {
 
     assert_widget_snapshot("task_detail_view", 60, 20, |frame| {
         let area = Rect::new(0, 0, 60, 20);
-        render_task_detail(frame, &detail, area);
+        render_task_detail(frame, &detail, area, "", "", &TaskCreationField::Name);
     });
 }
 
@@ -366,7 +367,7 @@ fn test_task_detail_empty() {
 
     assert_widget_snapshot("task_detail_empty", 60, 20, |frame| {
         let area = Rect::new(0, 0, 60, 20);
-        render_task_detail(frame, &detail, area);
+        render_task_detail(frame, &detail, area, "", "", &TaskCreationField::Name);
     });
 }
 
@@ -429,7 +430,7 @@ fn test_s_key_in_task_detail_no_response_snapshot() {
         layout.render_title(frame, "ClickDown - Task Detail");
 
         // Render task detail content
-        render_task_detail(frame, &detail, layout.content_area);
+        render_task_detail(frame, &detail, layout.content_area, "", "", &TaskCreationField::Name);
 
         // Render status bar (showing status picker instructions)
         let hints = "j/k: Navigate | Enter: Select | Esc: Cancel";
@@ -458,7 +459,7 @@ fn test_task_detail_before_s_key_baseline() {
         layout.render_title(frame, "ClickDown - Task Detail");
 
         // Render task detail content
-        render_task_detail(frame, &detail, layout.content_area);
+        render_task_detail(frame, &detail, layout.content_area, "", "", &TaskCreationField::Name);
 
         // Render status bar
         let hints = "e: Edit task | Tab: Comments | Esc: Back | ? - Help";

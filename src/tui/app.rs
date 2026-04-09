@@ -13,7 +13,7 @@ use crate::api::{AuthManager, ClickUpApi, ClickUpClient};
 use crate::cache::CacheManager;
 use crate::config::ConfigManager;
 use crate::models::{
-    ClickUpSpace, Comment, CreateCommentRequest, Document, Folder, List, SessionState, Task,
+    ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, Folder, List, SessionState, Task,
     UpdateCommentRequest, User, Workspace,
 };
 use crate::tui::widgets::SidebarItem;
@@ -55,6 +55,13 @@ pub enum CommentViewMode {
     },
 }
 
+/// Focus field for task creation form
+#[derive(Debug, Clone, PartialEq)]
+pub enum TaskCreationField {
+    Name,
+    Description,
+}
+
 /// Async messages for API results
 #[derive(Debug, Clone)]
 pub enum AppMessage {
@@ -75,6 +82,8 @@ pub enum AppMessage {
     CommentFetchedForNavigation(Result<Task, String>, String, Screen), // task result, comment_id, prev_screen
     DocumentFetchedForNavigation(Result<Document, String>, Screen),
     CommentsLoadedForCommentNavigation(Result<Vec<Comment>, String>, String), // comments, comment_id
+    // Task creation
+    TaskCreated(Result<Task, String>),
 }
 
 /// Main TUI application state
@@ -145,6 +154,12 @@ pub struct TuiApp {
     /// Comment thread navigation state
     comment_view_mode: CommentViewMode,
     comment_previous_selection: Option<usize>, // Store selection when entering thread
+
+    /// Task creation form state
+    task_name_input: String,
+    task_description_input: String,
+    task_creating: bool,
+    task_creation_focus: TaskCreationField,
 
     /// Per-list assigned filter state
     assigned_filter_active: bool,
@@ -361,6 +376,10 @@ impl TuiApp {
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
+            task_name_input: String::new(),
+            task_description_input: String::new(),
+            task_creating: false,
+            task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
@@ -474,6 +493,10 @@ impl TuiApp {
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
+            task_name_input: String::new(),
+            task_description_input: String::new(),
+            task_creating: false,
+            task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
@@ -562,6 +585,10 @@ impl TuiApp {
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
+            task_name_input: String::new(),
+            task_description_input: String::new(),
+            task_creating: false,
+            task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
@@ -1342,6 +1369,36 @@ impl TuiApp {
                             }
                         }
                     }
+                    AppMessage::TaskCreated(result) => {
+                        match result {
+                            Ok(task) => {
+                                self.loading = false;
+                                self.task_name_input.clear();
+                                self.task_description_input.clear();
+                                self.task_creating = false;
+                                self.task_detail.creating = false;
+                                self.status = format!("Task created: {}", task.name);
+                                // Reload the task list and return to tasks view
+                                if let Some(list_id) = &self.current_list_id {
+                                    let list_id_clone = list_id.clone();
+                                    let filter_active = self.assigned_filter_active;
+                                    if filter_active {
+                                        self.load_tasks_with_assigned_filter(list_id_clone);
+                                    } else {
+                                        self.load_tasks(list_id_clone);
+                                    }
+                                }
+                                self.screen = Screen::Tasks;
+                                self.update_screen_title();
+                            }
+                            Err(e) => {
+                                self.loading = false;
+                                self.error = Some(format!("Failed to create task: {}", e));
+                                self.status = "Task creation failed".to_string();
+                                // Keep task_creating = true so the form stays open
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1580,8 +1637,17 @@ impl TuiApp {
                     }
                 }
                 KeyCode::Char('n') => {
-                    // Create new task - not yet implemented
-                    self.status = "Create task - coming soon".to_string();
+                    // Create new task - open creation form
+                    self.task_name_input.clear();
+                    self.task_description_input.clear();
+                    self.task_creating = true;
+                    self.task_creation_focus = TaskCreationField::Name;
+                    self.task_detail.task = None;
+                    self.task_detail.creating = true;
+                    self.task_detail.editing = false;
+                    self.screen = Screen::TaskDetail;
+                    self.screen_title = generate_screen_title("New Task");
+                    self.status = "Enter task name (Ctrl+S to create, Esc to cancel)".to_string();
                 }
                 KeyCode::Char('e') => {
                     if self.task_detail.task.is_some() {
@@ -1663,6 +1729,64 @@ impl TuiApp {
                         // Cancel
                         self.assignee_picker_open = false;
                         self.status = "Assignment cancelled".to_string();
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        // Handle task creation form input (takes priority over comment editing)
+        if self.task_creating {
+            if let InputEvent::Key(key) = event {
+                match key.code {
+                    KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        // Validate and create task
+                        if self.task_name_input.trim().is_empty() {
+                            self.status = "Task name is required".to_string();
+                            return;
+                        }
+                        if let Some(list_id) = &self.current_list_id {
+                            self.create_task(list_id.clone());
+                        } else {
+                            self.status = "No list selected".to_string();
+                        }
+                        return;
+                    }
+                    KeyCode::Esc => {
+                        // Cancel task creation
+                        self.task_name_input.clear();
+                        self.task_description_input.clear();
+                        self.task_creating = false;
+                        self.task_detail.creating = false;
+                        self.screen = Screen::Tasks;
+                        self.update_screen_title();
+                        self.status = "Task creation cancelled".to_string();
+                        return;
+                    }
+                    KeyCode::Tab => {
+                        // Toggle focus between name and description
+                        self.task_creation_focus = match self.task_creation_focus {
+                            TaskCreationField::Name => TaskCreationField::Description,
+                            TaskCreationField::Description => TaskCreationField::Name,
+                        };
+                        return;
+                    }
+                    KeyCode::Char(c) => {
+                        // Add character to focused field
+                        match self.task_creation_focus {
+                            TaskCreationField::Name => self.task_name_input.push(c),
+                            TaskCreationField::Description => self.task_description_input.push(c),
+                        }
+                        return;
+                    }
+                    KeyCode::Backspace => {
+                        // Remove character from focused field
+                        match self.task_creation_focus {
+                            TaskCreationField::Name => { self.task_name_input.pop(); }
+                            TaskCreationField::Description => { self.task_description_input.pop(); }
+                        }
+                        return;
                     }
                     _ => {}
                 }
@@ -2717,6 +2841,47 @@ impl TuiApp {
         });
     }
 
+    /// Create a new task
+    fn create_task(&mut self, list_id: String) {
+        self.loading = true;
+        self.status = "Creating task...".to_string();
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        let name = self.task_name_input.clone();
+        let description = if self.task_description_input.is_empty() {
+            None
+        } else {
+            Some(self.task_description_input.clone())
+        };
+
+        let request = CreateTaskRequest {
+            name,
+            description,
+            status: None,
+            priority: None,
+            assignees: None,
+            due_date: None,
+        };
+
+        tokio::spawn(async move {
+            let result = client.create_task(&list_id, &request).await;
+            let msg = match result {
+                Ok(task) => AppMessage::TaskCreated(Ok(task)),
+                Err(e) => AppMessage::TaskCreated(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
     /// Update an existing comment
     fn update_comment(&mut self, comment_id: String, text: String) {
         self.loading = true;
@@ -2923,7 +3088,14 @@ impl TuiApp {
                 let (task_detail_area, comments_area) = split_task_detail(area);
 
                 // Render task detail in top portion (30%)
-                render_task_detail(frame, &self.task_detail, task_detail_area);
+                render_task_detail(
+                    frame,
+                    &self.task_detail,
+                    task_detail_area,
+                    &self.task_name_input,
+                    &self.task_description_input,
+                    &self.task_creation_focus,
+                );
 
                 // Render comments in bottom portion (70%)
                 render_comments(
@@ -3995,5 +4167,52 @@ mod tests {
         );
         assert_eq!(widget_task.assignees[0].username, "Alice");
         assert_eq!(widget_task.assignees[1].username, "Bob");
+    }
+
+    /// Test that pressing 'n' in task list view opens the task creation form
+    #[test]
+    fn test_n_key_opens_task_creation_form() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mock_client = MockClickUpClient::new()
+            .with_tasks(vec![]);
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Set up the app in Tasks screen with a list context
+        app.set_screen(Screen::Tasks);
+        app.current_list_id = Some("test-list-1".to_string());
+
+        // Press 'n' key
+        let n_key = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
+        app.update(InputEvent::Key(n_key));
+
+        // Should navigate to TaskDetail screen
+        assert_eq!(app.screen, Screen::TaskDetail, "Should navigate to TaskDetail");
+
+        // Should be in creation mode
+        assert!(app.task_creating, "task_creating should be true");
+        assert!(app.task_detail.creating, "task_detail.creating should be true");
+
+        // Input fields should be empty
+        assert_eq!(app.task_name_input, "", "Name input should be empty");
+        assert_eq!(app.task_description_input, "", "Description input should be empty");
+
+        // Focus should be on name field
+        assert_eq!(app.task_creation_focus, TaskCreationField::Name, "Focus should be on Name");
+
+        // Status message should indicate how to create
+        assert!(
+            app.status().contains("Ctrl+S"),
+            "Status should mention Ctrl+S: {}",
+            app.status()
+        );
+
+        // Screen title should indicate new task
+        assert!(
+            app.screen_title.contains("New Task"),
+            "Title should say 'New Task': {}",
+            app.screen_title
+        );
     }
 }
