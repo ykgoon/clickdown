@@ -19,7 +19,7 @@ pub enum DialogType {
 impl DialogType {
     pub fn message(&self) -> &str {
         match self {
-            DialogType::ConfirmDelete => "Are you sure you want to delete this item?",
+            DialogType::ConfirmDelete => "Are you sure you want to delete this task?",
             DialogType::ConfirmQuit => "Are you sure you want to quit?",
         }
     }

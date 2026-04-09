@@ -84,6 +84,8 @@ pub enum AppMessage {
     CommentsLoadedForCommentNavigation(Result<Vec<Comment>, String>, String), // comments, comment_id
     // Task creation
     TaskCreated(Result<Task, String>),
+    // Task deletion
+    TaskDeleted(Result<String, String>), // Ok(task_id) or Err(message)
 }
 
 /// Main TUI application state
@@ -236,6 +238,7 @@ pub enum AppState {
     Initializing,
     Unauthenticated,
     Main,
+    Quitting,
 }
 
 /// Test-only methods
@@ -323,6 +326,60 @@ impl TuiApp {
     #[allow(dead_code)]
     pub fn url_input_error(&self) -> Option<&str> {
         self.url_input_error.as_deref()
+    }
+
+    /// Get the task list for testing
+    #[allow(dead_code)]
+    pub fn task_list_for_test(&self) -> &crate::tui::widgets::TaskListState {
+        &self.task_list
+    }
+
+    /// Get mutable access to tasks for testing
+    #[allow(dead_code)]
+    pub fn tasks_mut_for_test(&mut self) -> &mut Vec<Task> {
+        &mut self.tasks
+    }
+
+    /// Get mutable access to task list for testing
+    #[allow(dead_code)]
+    pub fn task_list_mut_for_test(&mut self) -> &mut crate::tui::widgets::TaskListState {
+        &mut self.task_list
+    }
+
+    /// Get mutable access to dialog for testing
+    #[allow(dead_code)]
+    pub fn dialog_mut_for_test(&mut self) -> &mut crate::tui::widgets::DialogState {
+        &mut self.dialog
+    }
+
+    /// Set screen for testing
+    #[allow(dead_code)]
+    pub fn set_screen_for_test(&mut self, screen: Screen) {
+        self.screen = screen;
+    }
+
+    /// Check if dialog is visible (for testing)
+    #[allow(dead_code)]
+    pub fn is_dialog_visible(&self) -> bool {
+        self.dialog.is_visible()
+    }
+
+    /// Get dialog type (for testing)
+    #[allow(dead_code)]
+    pub fn dialog_type_for_test(&self) -> Option<&crate::tui::widgets::DialogType> {
+        self.dialog.dialog_type.as_ref()
+    }
+
+    /// Check if dialog is confirmed (for testing)
+    #[allow(dead_code)]
+    pub fn is_dialog_confirmed(&self) -> bool {
+        self.dialog.confirmed()
+    }
+
+    /// Get task count (for testing)
+    #[allow(dead_code)]
+    pub fn task_count(&self) -> usize {
+        self.tasks.len()
     }
 }
 
@@ -663,6 +720,14 @@ impl TuiApp {
                     }
                     _ => self.update(event),
                 }
+            }
+
+            // Check if update() signaled to quit (dialog confirmation moved to update())
+            if self.state == AppState::Quitting {
+                if let Err(e) = self.save_session_state() {
+                    tracing::error!("Failed to save session state: {}", e);
+                }
+                break;
             }
 
             // Render at target frame rate
@@ -1399,6 +1464,22 @@ impl TuiApp {
                             }
                         }
                     }
+                    AppMessage::TaskDeleted(result) => {
+                        match result {
+                            Ok(task_id) => {
+                                // Remove the task from the local list
+                                self.tasks.retain(|t| t.id != task_id);
+                                // Clear selection
+                                self.task_list.select(None);
+                                self.status = "Task deleted".to_string();
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to delete task: {}", e));
+                                self.status = "Failed to delete task".to_string();
+                                // Task remains in list — user can retry
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1418,7 +1499,8 @@ impl TuiApp {
                 }
             }
 
-            // Handle dialog input
+            // Handle dialog input — return the key event so update() can process it
+            // This keeps dialog confirmation testable through the public update() method
             if self.dialog.is_visible() {
                 if let event::Event::Key(key) = evt {
                     match key.code {
@@ -1426,26 +1508,9 @@ impl TuiApp {
                             self.dialog.toggle();
                             return Ok(Some(InputEvent::None));
                         }
-                        KeyCode::Enter => {
-                            if self.dialog.confirmed() {
-                                // Check what we're confirming
-                                match self.dialog.dialog_type {
-                                    Some(DialogType::ConfirmQuit) => {
-                                        return Ok(Some(InputEvent::Quit));
-                                    }
-                                    Some(DialogType::ConfirmDelete) => {
-                                        // Task deletion not yet implemented
-                                        self.status = "Task deletion - coming soon".to_string();
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            self.dialog.hide();
-                            return Ok(Some(InputEvent::None));
-                        }
-                        KeyCode::Esc => {
-                            self.dialog.hide();
-                            return Ok(Some(InputEvent::None));
+                        KeyCode::Enter | KeyCode::Esc => {
+                            // Pass through to update() for handling
+                            return Ok(Some(InputEvent::Key(key)));
                         }
                         _ => return Ok(Some(InputEvent::None)),
                     }
@@ -1538,6 +1603,41 @@ impl TuiApp {
                 tracing::debug!("URL copy shortcut detected (u key)");
                 self.copy_url();
                 return;
+            }
+
+            // Handle dialog confirmation (Enter/Esc) — must be before screen handlers
+            // so dialog takes priority over any screen-specific Enter/Esc behavior
+            if self.dialog.is_visible() {
+                match key.code {
+                    KeyCode::Enter => {
+                        if self.dialog.confirmed() {
+                            match &self.dialog.dialog_type {
+                                Some(DialogType::ConfirmQuit) => {
+                                    // Save session state before quitting
+                                    if let Err(e) = self.save_session_state() {
+                                        tracing::error!("Failed to save session state: {}", e);
+                                    }
+                                    // Signal the run_loop to break
+                                    self.dialog.hide();
+                                    self.state = AppState::Quitting;
+                                    return;
+                                }
+                                Some(DialogType::ConfirmDelete) => {
+                                    // Delete the selected task
+                                    self.delete_selected_task();
+                                }
+                                _ => {}
+                            }
+                        }
+                        self.dialog.hide();
+                        return;
+                    }
+                    KeyCode::Esc => {
+                        self.dialog.hide();
+                        return;
+                    }
+                    _ => {}
+                }
             }
         }
 
@@ -2882,6 +2982,37 @@ impl TuiApp {
         });
     }
 
+    /// Delete the currently selected task
+    fn delete_selected_task(&mut self) {
+        let task_id = match self.task_list.selected_task() {
+            Some(task) => task.id.clone(),
+            None => {
+                self.status = "No task selected".to_string();
+                return;
+            }
+        };
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        let task_id_clone = task_id.clone();
+        self.status = format!("Deleting task {}...", task_id);
+        tokio::spawn(async move {
+            let result = client.delete_task(&task_id_clone).await;
+            let msg = match result {
+                Ok(()) => AppMessage::TaskDeleted(Ok(task_id_clone)),
+                Err(e) => AppMessage::TaskDeleted(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
     /// Update an existing comment
     fn update_comment(&mut self, comment_id: String, text: String) {
         self.loading = true;
@@ -3121,7 +3252,6 @@ impl TuiApp {
     /// Render the URL input dialog as a centered modal overlay
     fn render_url_input_dialog(&self, frame: &mut Frame, area: Rect) {
         use ratatui::{
-            layout::Constraint,
             style::{Modifier, Style},
             text::{Line, Span},
             widgets::{Block, Borders, Clear, Paragraph},

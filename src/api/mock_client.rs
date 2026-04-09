@@ -64,8 +64,8 @@ pub struct MockClickUpClient {
     pub create_task_response: Option<Result<Task>>,
     /// Override for update_task response
     pub update_task_response: Option<Result<Task>>,
-    /// Override for delete_task response
-    pub delete_task_response: Option<Result<()>>,
+    /// Override for delete_task response (raw JSON body string)
+    pub delete_task_response: Option<Result<String>>,
     /// Override for search_docs response
     pub search_docs_response: Option<Result<Vec<Document>>>,
     /// Override for get_doc_pages response
@@ -178,9 +178,21 @@ impl MockClickUpClient {
         self
     }
 
-    /// Set the delete task response
+    /// Set the delete task response with raw JSON body (simulates API response parsing)
+    pub fn with_delete_task_json(mut self, json: &str) -> Self {
+        self.delete_task_response = Some(Ok(json.to_string()));
+        self
+    }
+
+    /// Set the delete task error
+    pub fn with_delete_task_error(mut self, msg: &str) -> Self {
+        self.delete_task_response = Some(Err(anyhow!("{}", msg)));
+        self
+    }
+
+    /// Convenience: set delete task success with minimal valid JSON
     pub fn with_delete_task_success(mut self) -> Self {
-        self.delete_task_response = Some(Ok(()));
+        self.delete_task_response = Some(Ok("{}".to_string()));
         self
     }
 
@@ -355,7 +367,19 @@ impl ClickUpApi for MockClickUpClient {
     }
 
     async fn delete_task(&self, _task_id: &str) -> Result<()> {
-        return_unit_response(&self.delete_task_response, "Delete task not configured")
+        match &self.delete_task_response {
+            Some(Ok(json)) => {
+                // Parse the JSON body like the real client does
+                if json.trim().is_empty() {
+                    anyhow::bail!("Failed to parse response: {}", json);
+                }
+                serde_json::from_str::<serde_json::Value>(json)
+                    .map(|_| ())
+                    .map_err(|e| anyhow!("Failed to parse response: {}", e))
+            }
+            Some(Err(e)) => Err(anyhow!(e.to_string())),
+            None => Err(anyhow!("Delete task not configured")),
+        }
     }
 
     async fn search_docs(&self, _filters: &DocumentFilters) -> Result<Vec<Document>> {

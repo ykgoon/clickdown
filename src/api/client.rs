@@ -211,7 +211,13 @@ impl ClickUpClient {
             .await
             .context("Request failed")?;
 
-        self.parse_response::<serde_json::Value>(response).await?;
+        // DELETE endpoints typically return 200/204 with empty or minimal response
+        // Just check for HTTP success, don't try to parse the body
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("API error ({}): {}", status, error_text);
+        }
         Ok(())
     }
 

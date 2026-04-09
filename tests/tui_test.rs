@@ -1730,3 +1730,200 @@ fn test_help_arrow_keys_paginate() {
     assert_eq!(app.help_page(), 0, "Left arrow should go back page");
 }
 
+/// Test that confirming the delete dialog actually deletes the selected task
+#[test]
+fn test_delete_task_on_confirm() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::widgets::DialogType;
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let task = fixtures::test_task();
+
+        let mock_client = MockClickUpClient::new()
+            .with_tasks(vec![task.clone()])
+            .with_delete_task_success();
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Manually populate the task list (simulating tasks loaded from API)
+        // Both TuiApp.tasks and task_list's internal list need to be populated
+        app.tasks_mut_for_test().push(task.clone());
+        app.task_list_mut_for_test().tasks_mut().push(task.clone());
+        app.task_list_mut_for_test().select_first();
+
+        // Verify initial state: task is present
+        assert_eq!(app.task_count(), 1, "Should have 1 task");
+        assert!(
+            app.task_list_for_test().selected_task().is_some(),
+            "A task should be selected"
+        );
+
+        // Show the delete dialog and confirm
+        app.dialog_mut_for_test().show(DialogType::ConfirmDelete);
+        app.dialog_mut_for_test().toggle(); // Switch from "No" to "Yes"
+        assert!(app.is_dialog_confirmed(), "Dialog should be confirmed");
+
+        // Simulate pressing Enter — this should trigger delete_selected_task()
+        let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        app.update(InputEvent::Key(enter_key));
+
+        // Dialog should be hidden
+        assert!(!app.is_dialog_visible(), "Dialog should be hidden after confirm");
+
+        // Give the async delete task time to complete
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Process the async message (simulates what run_loop does)
+        app.process_async_messages();
+
+        // Task should be removed from the local list
+        assert_eq!(
+            app.task_count(),
+            0,
+            "Task should be removed after successful deletion"
+        );
+        assert!(
+            app.task_list_for_test().selected_task().is_none(),
+            "No task should be selected after deletion"
+        );
+    });
+}
+
+/// Test that canceling the delete dialog does NOT delete the task
+#[test]
+fn test_delete_task_on_cancel() {
+    use clickdown::tui::widgets::DialogType;
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+    use clickdown::api::mock_client::MockClickUpClient;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let task = fixtures::test_task();
+
+        let mock_client = MockClickUpClient::new()
+            .with_tasks(vec![task.clone()])
+            .with_delete_task_success();
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Manually populate the task list
+        app.tasks_mut_for_test().push(task.clone());
+        app.task_list_mut_for_test().tasks_mut().push(task.clone());
+        app.task_list_mut_for_test().select_first();
+
+        // Verify initial state
+        assert_eq!(app.task_count(), 1, "Should have 1 task");
+
+        // Show the delete dialog and cancel with Esc
+        app.dialog_mut_for_test().show(DialogType::ConfirmDelete);
+        let esc_key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        app.update(InputEvent::Key(esc_key));
+
+        // Dialog should be hidden, task should remain
+        assert!(!app.is_dialog_visible(), "Dialog should be hidden after cancel");
+        assert_eq!(
+            app.task_count(),
+            1,
+            "Task should NOT be removed after cancel"
+        );
+    });
+}
+
+/// Test that pressing 'd' with no task selected does NOT show the dialog
+#[test]
+fn test_delete_no_task_selected() {
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::Screen;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let mock_client = MockClickUpClient::new();
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Navigate to task list screen (Tasks screen is needed for 'd' to work)
+        app.set_screen_for_test(Screen::Tasks);
+
+        // Press 'd' with no task selected
+        let d_key = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE);
+        app.update(InputEvent::Key(d_key));
+
+        // Dialog should NOT be shown
+        assert!(
+            !app.is_dialog_visible(),
+            "Dialog should NOT appear when no task is selected"
+        );
+    });
+}
+
+/// Test that an empty API response body on delete causes a parse error
+/// and the task remains in the UI — reproduces "failed to parse response" bug
+#[test]
+fn test_delete_task_empty_response_fails_to_parse() {
+    use clickdown::tui::widgets::DialogType;
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+    use clickdown::api::mock_client::MockClickUpClient;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let task = fixtures::test_task();
+
+        // Simulate ClickUp returning an empty body for DELETE
+        let mock_client = MockClickUpClient::new()
+            .with_tasks(vec![task.clone()])
+            .with_delete_task_json("");
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Manually populate the task list
+        app.tasks_mut_for_test().push(task.clone());
+        app.task_list_mut_for_test().tasks_mut().push(task.clone());
+        app.task_list_mut_for_test().select_first();
+
+        // Verify initial state: task is present
+        assert_eq!(app.task_count(), 1, "Should have 1 task");
+
+        // Show the delete dialog and confirm
+        app.dialog_mut_for_test().show(DialogType::ConfirmDelete);
+        app.dialog_mut_for_test().toggle();
+        assert!(app.is_dialog_confirmed(), "Dialog should be confirmed");
+
+        // Simulate pressing Enter
+        let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        app.update(InputEvent::Key(enter_key));
+
+        // Give the async delete task time to complete
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Process the async message
+        app.process_async_messages();
+
+        // BUG REPRODUCTION: Task should still be in the list because empty response
+        // causes "failed to parse response" error, treated as deletion failure
+        assert_eq!(
+            app.task_count(),
+            1,
+            "Task should remain in list because empty response causes parse error"
+        );
+    });
+}
+
