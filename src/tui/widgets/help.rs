@@ -113,6 +113,7 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
         )),
         Line::from("  a           - Toggle Assigned to Me filter"),
         Line::from("  n           - Create new task"),
+        Line::from("  s           - Open status picker"),
         Line::from("  d           - Delete selected task"),
     ]);
 
@@ -121,6 +122,7 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, area: Rect) {
             "Task Detail:",
             Style::default().add_modifier(Modifier::BOLD),
         )),
+        Line::from("  s           - Open status picker"),
         Line::from("  A           - Open assignee picker"),
         Line::from("  e           - Edit task"),
         Line::from("  Tab         - Toggle comments focus"),

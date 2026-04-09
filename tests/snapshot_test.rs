@@ -371,6 +371,102 @@ fn test_task_detail_empty() {
 }
 
 // ============================================================================
+// Task Detail 's' Key Bug Reproduction (Full Screen Snapshot)
+// ============================================================================
+
+/// BUG FIX VERIFICATION:
+/// After the fix, pressing 's' in Task Detail view opens the status picker overlay.
+/// This snapshot shows the status picker with status message and overlay widget.
+#[test]
+fn test_s_key_in_task_detail_no_response_snapshot() {
+    use clickdown::tui::layout::TuiLayout;
+    use clickdown::tui::widgets::status_picker::render_status_picker;
+    use clickdown::models::TaskStatus;
+
+    // Set up task detail with a task
+    let mut detail = TaskDetailState::new();
+    let tasks = create_test_tasks();
+    detail.task = Some(tasks[0].clone());
+
+    // After pressing 's' in Task Detail view (FIXED):
+    // - Status picker overlay opens
+    // - Status bar shows navigation instructions
+    let status_after_s = "Select new status (j/k navigate, Enter select, Esc cancel)";
+
+    // Build the same default statuses used by open_status_picker()
+    let statuses = vec![
+        TaskStatus {
+            id: None,
+            status: "To Do".to_string(),
+            color: Some("#8794a6".to_string()),
+            type_field: None,
+            orderindex: Some(0),
+            status_group: Some("todo".to_string()),
+        },
+        TaskStatus {
+            id: None,
+            status: "In Progress".to_string(),
+            color: Some("#4f46de".to_string()),
+            type_field: None,
+            orderindex: Some(1),
+            status_group: Some("in_progress".to_string()),
+        },
+        TaskStatus {
+            id: None,
+            status: "Done".to_string(),
+            color: Some("#0f4a58".to_string()),
+            type_field: None,
+            orderindex: Some(2),
+            status_group: Some("done".to_string()),
+        },
+    ];
+
+    assert_widget_snapshot("s_key_task_detail_status_picker", 80, 24, |frame| {
+        let area = Rect::new(0, 0, 80, 24);
+        let layout = TuiLayout::new(area);
+
+        // Render title bar
+        layout.render_title(frame, "ClickDown - Task Detail");
+
+        // Render task detail content
+        render_task_detail(frame, &detail, layout.content_area);
+
+        // Render status bar (showing status picker instructions)
+        let hints = "j/k: Navigate | Enter: Select | Esc: Cancel";
+        layout.render_status(frame, status_after_s, hints);
+
+        // Render status picker overlay (the fix!)
+        render_status_picker(frame, area, &statuses, 0, Some("in progress"));
+    });
+}
+
+/// Snapshot showing what the Task Detail screen looks like BEFORE 's' is pressed.
+/// This is the baseline for comparison after the fix.
+#[test]
+fn test_task_detail_before_s_key_baseline() {
+    use clickdown::tui::layout::TuiLayout;
+
+    let mut detail = TaskDetailState::new();
+    let tasks = create_test_tasks();
+    detail.task = Some(tasks[0].clone());
+
+    assert_widget_snapshot("task_detail_before_s_key", 80, 24, |frame| {
+        let area = Rect::new(0, 0, 80, 24);
+        let layout = TuiLayout::new(area);
+
+        // Render title bar
+        layout.render_title(frame, "ClickDown - Task Detail");
+
+        // Render task detail content
+        render_task_detail(frame, &detail, layout.content_area);
+
+        // Render status bar
+        let hints = "e: Edit task | Tab: Comments | Esc: Back | ? - Help";
+        layout.render_status(frame, "", hints);
+    });
+}
+
+// ============================================================================
 // Auth View Widget Snapshot Tests (Task 3.4)
 // ============================================================================
 

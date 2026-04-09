@@ -1179,7 +1179,7 @@ fn test_top_level_comment_no_parent_id() {
     let top_level = Comment {
         id: "top-level-1".to_string(),
         text: "This is a top-level comment".to_string(),
-        text_preview: "This is...".to_string(),
+        text_preview: "This is a...".to_string(),
         commenter: None,
         created_at: Some(1234567890000),
         updated_at: None,
@@ -1191,4 +1191,187 @@ fn test_top_level_comment_no_parent_id() {
     };
 
     assert_eq!(top_level.parent_id, None);
+}
+
+/// Test that pressing 's' in task list with a selected task opens status picker
+#[test]
+fn test_s_key_opens_status_picker() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::models::{Task, TaskStatus};
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::input::InputEvent;
+    use clickdown::tui::app::Screen;
+    use crossterm::event::{KeyCode, KeyEvent};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    // Create task with a status
+    let task = Task {
+        id: "task-1".to_string(),
+        custom_id: None,
+        custom_item_id: None,
+        name: "Test Task".to_string(),
+        text_content: None,
+        description: None,
+        markdown_description: None,
+        status: Some(TaskStatus {
+            id: None,
+            status: "todo".to_string(),
+            color: None,
+            type_field: None,
+            orderindex: None,
+            status_group: None,
+        }),
+        orderindex: None,
+        content: None,
+        created_at: None,
+        updated_at: None,
+        closed_at: None,
+        done_at: None,
+        archived: None,
+        creator: None,
+        assignees: vec![],
+        group_assignees: vec![],
+        watchers: vec![],
+        checklists: vec![],
+        tags: vec![],
+        parent: None,
+        top_level_parent: None,
+        priority: None,
+        due_date: None,
+        start_date: None,
+        points: None,
+        custom_fields: vec![],
+        attachments: vec![],
+        dependencies: vec![],
+        linked_tasks: vec![],
+        locations: vec![],
+        list: None,
+        folder: None,
+        space: None,
+        project: None,
+        url: None,
+        team_id: None,
+        sharing: None,
+        permission_level: None,
+        time_estimate: None,
+        time_spent: None,
+    };
+
+    let mock_client = MockClickUpClient::new()
+        .with_workspaces(vec![])
+        .with_tasks(vec![task.clone()]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Manually navigate to Tasks screen (bypass async loading)
+    app.set_screen(Screen::Tasks);
+    app.task_list().tasks_mut().push(task);
+
+    // Select the task
+    app.task_list().select_first();
+
+    // Verify task is selected
+    assert!(
+        app.task_list().selected_task().is_some(),
+        "Task should be selected before pressing 's'"
+    );
+
+    // Press 's' key
+    let s_key = KeyEvent::new(KeyCode::Char('s'), crossterm::event::KeyModifiers::NONE);
+    app.update(InputEvent::Key(s_key));
+
+    // Status picker should be open
+    assert!(
+        app.is_status_picker_open(),
+        "Pressing 's' with a selected task should open status picker"
+    );
+}
+
+/// Test that pressing 's' in task list without a selected task shows feedback
+#[test]
+fn test_s_key_no_task_selected() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::tui::input::InputEvent;
+    use clickdown::tui::app::Screen;
+    use crossterm::event::{KeyCode, KeyEvent};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    let mock_client = MockClickUpClient::new()
+        .with_workspaces(vec![])
+        .with_tasks(vec![]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Navigate to Tasks screen
+    app.set_screen(Screen::Tasks);
+
+    // Press 's' key without any task selected
+    let s_key = KeyEvent::new(KeyCode::Char('s'), crossterm::event::KeyModifiers::NONE);
+    app.update(InputEvent::Key(s_key));
+
+    // Status picker should NOT be open
+    assert!(
+        !app.is_status_picker_open(),
+        "Pressing 's' without a selected task should NOT open status picker"
+    );
+}
+
+/// Test that pressing 's' in Task Detail view should respond (not silently ignored)
+///
+/// BUG REPRODUCTION: When the user is in Task Detail view (after pressing Enter on a task),
+/// pressing 's' should do something (e.g., open status picker or show a message).
+/// Currently, 's' is silently ignored - no status message, no visual feedback.
+#[test]
+fn test_s_key_in_task_detail_should_respond() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{TuiApp, Screen};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    let mock_client = MockClickUpClient::new()
+        .with_workspaces(vec![])
+        .with_tasks(vec![]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Navigate to Task Detail screen
+    app.set_screen(Screen::TaskDetail);
+
+    // Set a task in the detail view
+    let task = fixtures::test_task();
+    app.task_detail().task = Some(task);
+
+    // Capture the status BEFORE pressing 's'
+    let status_before = app.status().to_string();
+
+    // Press plain 's' key (no modifiers)
+    let s_key = KeyEvent::new(KeyCode::Char('s'), crossterm::event::KeyModifiers::NONE);
+    app.update(InputEvent::Key(s_key));
+
+    // The status SHOULD have changed to indicate something happened
+    // (e.g., "Select new status" for status picker, or "Save task - coming soon")
+    // Currently this FAILS because 's' is silently ignored - status doesn't change
+    assert_ne!(
+        app.status(),
+        status_before,
+        "Pressing 's' in Task Detail view should provide feedback \
+         (e.g., open status picker or show a message), but it was silently ignored. \
+         Status before: '{}', Status after: '{}'",
+        status_before,
+        app.status()
+    );
 }

@@ -24,9 +24,9 @@ use super::layout::{generate_screen_title, split_task_detail, TuiLayout};
 use super::terminal;
 use super::widgets::{
     get_dialog_hints, render_assignee_picker, render_auth, render_comments, render_dialog,
-    render_document, render_help, render_sidebar, render_task_detail, render_task_list, AuthState,
-    DialogState, DialogType, DocumentState, HelpState, SidebarState, TaskDetailState,
-    TaskListState,
+    render_document, render_help, render_sidebar, render_status_picker, render_task_detail,
+    render_task_list, AuthState, DialogState, DialogType, DocumentState, HelpState, SidebarState,
+    TaskDetailState, TaskListState,
 };
 
 /// Application screens
@@ -69,6 +69,7 @@ pub enum AppMessage {
     CurrentUserLoaded(Result<User, String>),
     MembersLoaded(Result<Vec<User>, String>),
     AssigneesUpdated(Result<Task, String>),
+    TaskStatusUpdated(Result<Task, String>),
 }
 
 /// Main TUI application state
@@ -155,6 +156,13 @@ pub struct TuiApp {
     assignee_picker_selected: std::collections::HashSet<i64>,
     assignee_picker_original: std::collections::HashSet<i64>,
     assignee_picker_cursor: usize,
+
+    /// Status picker UI state
+    status_picker_open: bool,
+    status_picker_statuses: Vec<crate::models::TaskStatus>,
+    status_picker_cursor: usize,
+    status_picker_original_status: Option<String>,
+    status_picker_task_id: Option<String>,
 
     /// Async message receiver
     message_rx: Option<mpsc::Receiver<AppMessage>>,
@@ -313,6 +321,11 @@ impl TuiApp {
             assignee_picker_selected: std::collections::HashSet::new(),
             assignee_picker_original: std::collections::HashSet::new(),
             assignee_picker_cursor: 0,
+            status_picker_open: false,
+            status_picker_statuses: Vec::new(),
+            status_picker_cursor: 0,
+            status_picker_original_status: None,
+            status_picker_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -329,8 +342,6 @@ impl TuiApp {
             restored_list_id: None,
             restored_task_id: None,
         };
-
-        // Try to restore session state if authenticated
         if matches!(app.state, AppState::Initializing) {
             let _ = app.restore_session_state();
         }
@@ -416,6 +427,11 @@ impl TuiApp {
             assignee_picker_selected: std::collections::HashSet::new(),
             assignee_picker_original: std::collections::HashSet::new(),
             assignee_picker_cursor: 0,
+            status_picker_open: false,
+            status_picker_statuses: Vec::new(),
+            status_picker_cursor: 0,
+            status_picker_original_status: None,
+            status_picker_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -492,6 +508,11 @@ impl TuiApp {
             assignee_picker_selected: std::collections::HashSet::new(),
             assignee_picker_original: std::collections::HashSet::new(),
             assignee_picker_cursor: 0,
+            status_picker_open: false,
+            status_picker_statuses: Vec::new(),
+            status_picker_cursor: 0,
+            status_picker_original_status: None,
+            status_picker_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -1083,6 +1104,52 @@ impl TuiApp {
                             }
                         }
                     }
+                    AppMessage::TaskStatusUpdated(result) => {
+                        match result {
+                            Ok(updated_task) => {
+                                // Update the task in the tasks list (app cache)
+                                for task in &mut self.tasks {
+                                    if task.id == updated_task.id {
+                                        *task = updated_task.clone();
+                                        break;
+                                    }
+                                }
+                                // Update the task in the task list widget
+                                for task in self.task_list.tasks_mut() {
+                                    if task.id == updated_task.id {
+                                        *task = updated_task.clone();
+                                        break;
+                                    }
+                                }
+                                // Update task detail view
+                                self.task_detail.task = Some(updated_task.clone());
+                                self.status_picker_open = false;
+                                self.status = "Status updated".to_string();
+                            }
+                            Err(e) => {
+                                // Rollback: restore original status in task list
+                                if let Some(ref original_status) = self.status_picker_original_status {
+                                    if let Some(ref task_id) = self.status_picker_task_id {
+                                        for task in self.task_list.tasks_mut() {
+                                            if task.id == *task_id {
+                                                task.status = Some(crate::models::TaskStatus {
+                                                    id: None,
+                                                    status: original_status.clone(),
+                                                    color: None,
+                                                    type_field: None,
+                                                    orderindex: None,
+                                                    status_group: None,
+                                                });
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                self.status_picker_open = false;
+                                self.status = format!("Failed to update status: {}", e);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1175,6 +1242,12 @@ impl TuiApp {
             if key.code == KeyCode::Char('u') {
                 tracing::debug!("URL copy shortcut detected (u key)");
                 self.copy_url();
+                return;
+            }
+
+            // Handle status picker input (modal overlay)
+            if self.status_picker_open {
+                self.handle_status_picker_input(key);
                 return;
             }
         }
@@ -1301,6 +1374,12 @@ impl TuiApp {
                             self.status = "Showing all tasks".to_string();
                             self.load_tasks(list_id.clone());
                         }
+                    }
+                }
+                KeyCode::Char('s') => {
+                    // Open status picker if a task is selected
+                    if let Some(task) = self.task_list.selected_task().cloned() {
+                        self.open_status_picker(task);
                     }
                 }
                 KeyCode::Esc => {
@@ -1497,6 +1576,14 @@ impl TuiApp {
                     // Save task - not yet implemented
                     self.task_detail.editing = false;
                     self.status = "Save task - coming soon".to_string();
+                }
+                KeyCode::Char('s') => {
+                    // Open status picker for the current task
+                    if let Some(task) = &self.task_detail.task {
+                        self.open_status_picker(task.clone());
+                    } else {
+                        self.status = "No task selected".to_string();
+                    }
                 }
                 KeyCode::Char('A') if !self.comment_focus => {
                     // Open assignee picker
@@ -2147,6 +2234,152 @@ impl TuiApp {
         });
     }
 
+    /// Open the status picker for a task
+    fn open_status_picker(&mut self, task: crate::models::Task) {
+        // Store the task ID we're changing status for
+        self.status_picker_task_id = Some(task.id.clone());
+        
+        // Store original status for potential rollback
+        self.status_picker_original_status = task.status.as_ref().map(|s| s.status.clone());
+        
+        // Build list of available statuses (from task's space, or default)
+        let statuses = vec![
+            crate::models::TaskStatus {
+                id: None,
+                status: "To Do".to_string(),
+                color: Some("#8794a6".to_string()),
+                type_field: None,
+                orderindex: Some(0),
+                status_group: Some("todo".to_string()),
+            },
+            crate::models::TaskStatus {
+                id: None,
+                status: "In Progress".to_string(),
+                color: Some("#4f46de".to_string()),
+                type_field: None,
+                orderindex: Some(1),
+                status_group: Some("in_progress".to_string()),
+            },
+            crate::models::TaskStatus {
+                id: None,
+                status: "Done".to_string(),
+                color: Some("#0f4a58".to_string()),
+                type_field: None,
+                orderindex: Some(2),
+                status_group: Some("done".to_string()),
+            },
+        ];
+        
+        // If task has custom statuses, add them
+        if let Some(_space) = &task.space {
+            // TODO: Fetch actual space statuses from API
+            // For now, use the space's status list if available
+        }
+        
+        self.status_picker_statuses = statuses;
+        self.status_picker_cursor = 0;
+        self.status_picker_open = true;
+        self.status = "Select new status (j/k navigate, Enter select, Esc cancel)".to_string();
+    }
+
+    /// Handle keyboard input for status picker
+    fn handle_status_picker_input(&mut self, key: crossterm::event::KeyEvent) {
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.status_picker_cursor < self.status_picker_statuses.len().saturating_sub(1) {
+                    self.status_picker_cursor += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if self.status_picker_cursor > 0 {
+                    self.status_picker_cursor -= 1;
+                }
+            }
+            KeyCode::Enter => {
+                self.save_status();
+            }
+            KeyCode::Esc => {
+                self.status_picker_open = false;
+                self.status = "Status change cancelled".to_string();
+            }
+            _ => {}
+        }
+    }
+
+    /// Save the selected status to the task
+    fn save_status(&mut self) {
+        let task_id = match &self.status_picker_task_id {
+            Some(id) => id.clone(),
+            None => {
+                self.status_picker_open = false;
+                self.status = "No task selected".to_string();
+                return;
+            }
+        };
+
+        let new_status = match self.status_picker_statuses.get(self.status_picker_cursor) {
+            Some(status) => status.status.clone(),
+            None => {
+                self.status_picker_open = false;
+                self.status = "No status selected".to_string();
+                return;
+            }
+        };
+
+        // Optimistic UI update: update the task in the task list immediately
+        for task in self.task_list.tasks_mut() {
+            if task.id == task_id {
+                task.status = Some(crate::models::TaskStatus {
+                    id: None,
+                    status: new_status.clone(),
+                    color: None,
+                    type_field: None,
+                    orderindex: None,
+                    status_group: None,
+                });
+                break;
+            }
+        }
+
+        // Make API call
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.status_picker_open = false;
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        self.loading = true;
+        self.status = "Updating status...".to_string();
+
+        let task_id_clone = task_id.clone();
+        let new_status_clone = new_status.clone();
+        let tx = self.message_tx.clone().unwrap();
+
+        use crate::models::UpdateTaskRequest;
+        let update = UpdateTaskRequest {
+            name: None,
+            description: None,
+            status: Some(new_status_clone),
+            priority: None,
+            assignees: None,
+            due_date: None,
+        };
+
+        tokio::spawn(async move {
+            let result = client.update_task(&task_id_clone, &update).await;
+            let msg = match result {
+                Ok(task) => AppMessage::TaskStatusUpdated(Ok(task)),
+                Err(e) => AppMessage::TaskStatusUpdated(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+
+        self.status_picker_open = false;
+    }
+
     /// Load comments for a task (top-level + replies)
     fn load_comments(&mut self, task_id: String) {
         self.loading = true;
@@ -2388,6 +2621,27 @@ impl TuiApp {
                 );
             }
 
+            // Render status picker overlay if open
+            if self.status_picker_open {
+                let current_status = self
+                    .status_picker_task_id
+                    .as_ref()
+                    .and_then(|task_id| {
+                        self.task_list
+                            .tasks()
+                            .iter()
+                            .find(|t| &t.id == task_id)
+                            .and_then(|t| t.status.as_ref().map(|s| s.status.as_str()))
+                    });
+                render_status_picker(
+                    frame,
+                    area,
+                    &self.status_picker_statuses,
+                    self.status_picker_cursor,
+                    current_status,
+                );
+            }
+
             // Render help overlay if visible
             render_help(frame, &self.help, area);
 
@@ -2455,6 +2709,8 @@ impl TuiApp {
     fn get_hints(&self) -> &'static str {
         if self.dialog.is_visible() {
             get_dialog_hints()
+        } else if self.status_picker_open {
+            "j/k: Navigate | Enter: Select | Esc: Cancel"
         } else if self.help.visible {
             // When help is visible, don't show other hints
             ""
@@ -2462,7 +2718,7 @@ impl TuiApp {
             match self.screen {
                 Screen::Auth => "Enter: Connect | Esc: Cancel | ? - Help",
                 Screen::Tasks => {
-                    "j/k: Navigate | Enter: View | n: New | e: Edit | d: Delete | ? - Help"
+                    "j/k: Navigate | Enter: View | n: New | e: Edit | d: Delete | a: Filter | s: Status | ? - Help"
                 }
                 Screen::TaskDetail => {
                     // Show different hints based on comment view mode
@@ -2808,6 +3064,12 @@ impl TuiApp {
         &mut self.task_list
     }
 
+    /// Get task detail (public for testing)
+    #[allow(dead_code)]
+    pub fn task_detail(&mut self) -> &mut TaskDetailState {
+        &mut self.task_detail
+    }
+
     /// Get status message (public for testing)
     #[allow(dead_code)]
     pub fn status(&self) -> &str {
@@ -2824,6 +3086,18 @@ impl TuiApp {
     #[allow(dead_code)]
     pub fn current_workspace_id(&self) -> Option<&String> {
         self.current_workspace_id.as_ref()
+    }
+
+    /// Get status picker state (public for testing)
+    #[allow(dead_code)]
+    pub fn is_status_picker_open(&self) -> bool {
+        self.status_picker_open
+    }
+
+    /// Set screen directly (public for testing)
+    #[allow(dead_code)]
+    pub fn set_screen(&mut self, screen: Screen) {
+        self.screen = screen;
     }
 }
 

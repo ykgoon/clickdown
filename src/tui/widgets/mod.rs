@@ -7,6 +7,7 @@ pub mod dialog;
 pub mod document;
 pub mod help;
 pub mod sidebar;
+pub mod status_picker;
 pub mod task_detail;
 pub mod task_list;
 
@@ -17,5 +18,6 @@ pub use dialog::{get_dialog_hints, render_dialog, DialogState, DialogType};
 pub use document::{render_document, DocumentState};
 pub use help::{render_help, HelpState};
 pub use sidebar::{render_sidebar, SidebarItem, SidebarState};
+pub use status_picker::render_status_picker;
 pub use task_detail::{render_task_detail, TaskDetailState};
 pub use task_list::{render_task_list, TaskListState};
