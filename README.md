@@ -2,6 +2,16 @@
 
 A fast and responsive terminal-based ClickUp client built with Rust.
 
+## Screenshots
+
+### Task Detail with Comments
+
+![Task Detail with Comments](assets/screenshots/task_detail_with_comments.png)
+
+### Main Task List with Sidebar Navigation
+
+![Main Task List](assets/screenshots/main_task_view.png)
+
 ## Features
 
 - **Fast & Native**: Built with Rust and ratatui TUI framework for native terminal performance
