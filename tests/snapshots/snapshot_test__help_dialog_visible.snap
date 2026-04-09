@@ -6,19 +6,19 @@ expression: snapshot
                                                                                 
                                                                                 
                                                                                 
-            ┌ Keyboard Shortcuts ──────────────────────────────────┐            
+            ┌ Keyboard Shortcuts — Task List  (1/3) ───────────────┐            
+            │                                                      │            
+            │ Task List                                            │            
+            │   a             - Toggle Assigned to Me filter       │            
+            │   n             - Create new task                    │            
+            │   s             - Open status picker                 │            
+            │   d             - Delete selected task               │            
             │                                                      │            
             │                                                      │            
             │                                                      │            
-            │ Global:                                              │            
-            │ Actions:                                             │            
-            │                                                      │            
-            │ Task List:                                           │            
-            │ Task Detail:                                         │            
             │                                                      │            
             │                                                      │            
-            │ Forms:                                               │            
-            │ Session:                                             │            
-            │ Press any key to close                               │            
+            │                                                      │            
+            │ ◄ ►  1/3  │  j/k: Pages  │  Esc: Close               │            
             │                                                      │            
             └──────────────────────────────────────────────────────┘

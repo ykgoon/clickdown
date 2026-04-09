@@ -506,8 +506,10 @@ impl AssigneesUpdate {
         original: std::collections::HashSet<i64>,
         new: std::collections::HashSet<i64>,
     ) -> Self {
-        let add: Vec<i64> = new.difference(&original).copied().collect();
-        let rem: Vec<i64> = original.difference(&new).copied().collect();
+        let mut add: Vec<i64> = new.difference(&original).copied().collect();
+        add.sort();
+        let mut rem: Vec<i64> = original.difference(&new).copied().collect();
+        rem.sort();
         Self {
             add: if add.is_empty() { None } else { Some(add) },
             rem: if rem.is_empty() { None } else { Some(rem) },
