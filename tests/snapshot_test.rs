@@ -15,7 +15,7 @@ use clickdown::tui::widgets::{
     auth::{render_auth, AuthState},
     dialog::{render_dialog, DialogState, DialogType},
     document::{render_document, DocumentState},
-    help::{render_help, HelpState},
+    help::{render_help, HelpContext, HelpState},
     sidebar::{render_sidebar, SidebarItem, SidebarState},
     task_detail::{render_task_detail, TaskDetailState},
     task_list::{render_task_list, TaskListState},
@@ -541,7 +541,7 @@ fn test_help_dialog_visible() {
 
     assert_widget_snapshot("help_dialog_visible", 80, 24, |frame| {
         let area = Rect::new(0, 0, 80, 24);
-        render_help(frame, &help, area);
+        render_help(frame, &help, &HelpContext::TaskList, area);
     });
 }
 

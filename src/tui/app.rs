@@ -23,10 +23,10 @@ use super::input::{is_quit, InputEvent};
 use super::layout::{generate_screen_title, split_task_detail, TuiLayout};
 use super::terminal;
 use super::widgets::{
-    get_dialog_hints, render_assignee_picker, render_auth, render_comments, render_dialog,
-    render_document, render_help, render_sidebar, render_status_picker, render_task_detail,
-    render_task_list, AuthState, DialogState, DialogType, DocumentState, HelpState, SidebarState,
-    TaskDetailState, TaskListState,
+    get_dialog_hints, get_help_hints, render_assignee_picker, render_auth, render_comments,
+    render_dialog, render_document, render_help, render_sidebar, render_status_picker,
+    render_task_detail, render_task_list, AuthState, DialogState, DialogType, DocumentState,
+    HelpContext, HelpState, SidebarState, TaskDetailState, TaskListState,
 };
 
 /// Application screens
@@ -290,6 +290,18 @@ impl TuiApp {
     #[allow(dead_code)]
     pub fn url_input_text(&self) -> &str {
         &self.url_input_text
+    }
+
+    /// Check if help dialog is visible (for testing)
+    #[allow(dead_code)]
+    pub fn is_help_visible(&self) -> bool {
+        self.help.visible
+    }
+
+    /// Get help dialog current page (for testing)
+    #[allow(dead_code)]
+    pub fn help_page(&self) -> u8 {
+        self.help.page
     }
 
     /// Get the URL input error message (for testing)
@@ -1383,12 +1395,6 @@ impl TuiApp {
                 }
             }
 
-            // Handle help overlay
-            if self.help.visible {
-                self.help.hide();
-                return Ok(Some(InputEvent::None));
-            }
-
             // Convert to InputEvent
             match evt {
                 event::Event::Key(key) => Ok(Some(InputEvent::Key(key))),
@@ -1402,11 +1408,29 @@ impl TuiApp {
 
     /// Process input event and update state (public for testing)
     pub fn update(&mut self, event: InputEvent) {
-        // When help is visible, any key closes it
+        // When help is visible, handle pagination and close
         if self.help.visible {
-            if let InputEvent::Key(_) = event {
-                self.help.hide();
-                return;
+            if let InputEvent::Key(key) = event {
+                match key.code {
+                    KeyCode::Char('j') | KeyCode::Down | KeyCode::Right => {
+                        self.help.next_page();
+                        return;
+                    }
+                    KeyCode::Char('k') | KeyCode::Up | KeyCode::Left => {
+                        self.help.prev_page();
+                        return;
+                    }
+                    KeyCode::Esc => {
+                        self.help.hide();
+                        return;
+                    }
+                    KeyCode::Char('?') => {
+                        self.help.toggle();
+                        return;
+                    }
+                    // Other keys are ignored while help is visible
+                    _ => return,
+                }
             }
         }
 
@@ -2856,7 +2880,8 @@ impl TuiApp {
             }
 
             // Render help overlay if visible
-            render_help(frame, &self.help, area);
+            let help_context = self.get_help_context();
+            render_help(frame, &self.help, &help_context, area);
 
             // Render status bar
             let hints = self.get_hints();
@@ -2873,7 +2898,7 @@ impl TuiApp {
             } else {
                 self.status.clone()
             };
-            layout.render_status(frame, &status, hints);
+            layout.render_status(frame, &status, &hints);
         })?;
 
         Ok(())
@@ -3038,33 +3063,51 @@ impl TuiApp {
         frame.render_widget(hints, inner[5]);
     }
 
-    fn get_hints(&self) -> &'static str {
+    /// Determine the current help context based on screen and focus state
+    fn get_help_context(&self) -> HelpContext {
+        match self.screen {
+            Screen::Auth => HelpContext::Auth,
+            Screen::Workspaces | Screen::Spaces | Screen::Folders | Screen::Lists => {
+                HelpContext::Navigation
+            }
+            Screen::Tasks => HelpContext::TaskList,
+            Screen::TaskDetail => {
+                if self.comment_focus {
+                    HelpContext::Comments
+                } else {
+                    HelpContext::TaskDetail
+                }
+            }
+            Screen::Document => HelpContext::Document,
+        }
+    }
+
+    fn get_hints(&self) -> String {
         if self.dialog.is_visible() {
-            get_dialog_hints()
+            get_dialog_hints().to_string()
         } else if self.status_picker_open {
-            "j/k: Navigate | Enter: Select | Esc: Cancel"
+            "j/k: Navigate | Enter: Select | Esc: Cancel".to_string()
         } else if self.help.visible {
-            // When help is visible, don't show other hints
-            ""
+            get_help_hints(&self.help)
         } else {
             match self.screen {
-                Screen::Auth => "Enter: Connect | Esc: Cancel | ? - Help",
+                Screen::Auth => "Enter: Connect | Esc: Cancel | ? - Help".to_string(),
                 Screen::Tasks => {
-                    "j/k: Navigate | Enter: View | n: New | e: Edit | d: Delete | a: Filter | s: Status | ? - Help"
+                    "j/k: Navigate | Enter: View | n: New | e: Edit | d: Delete | a: Filter | s: Status | ? - Help".to_string()
                 }
                 Screen::TaskDetail => {
                     // Show different hints based on comment view mode
                     if self.comment_focus {
                         match self.comment_view_mode {
-                            CommentViewMode::TopLevel => "j/k: Navigate | Enter: View thread | n: New comment | e: Edit | Tab: Task form | ? - Help",
-                            CommentViewMode::InThread { .. } => "j/k: Navigate | r: Reply | Esc: Back | Tab: Task form | ? - Help",
+                            CommentViewMode::TopLevel => "j/k: Navigate | Enter: View thread | n: New comment | e: Edit | Tab: Task form | ? - Help".to_string(),
+                            CommentViewMode::InThread { .. } => "j/k: Navigate | r: Reply | Esc: Back | Tab: Task form | ? - Help".to_string(),
                         }
                     } else {
-                        "e: Edit task | Tab: Comments | Esc: Back | ? - Help"
+                        "e: Edit task | Tab: Comments | Esc: Back | ? - Help".to_string()
                     }
                 }
-                Screen::Document => "j/k: Scroll | Esc: Close | ? - Help",
-                _ => "j/k: Navigate | Enter: Select | Tab: Toggle | Ctrl+Q: Quit | ? - Help",
+                Screen::Document => "j/k: Scroll | Esc: Close | ? - Help".to_string(),
+                _ => "j/k: Navigate | Enter: Select | Tab: Toggle | Ctrl+Q: Quit | ? - Help".to_string(),
             }
         }
     }

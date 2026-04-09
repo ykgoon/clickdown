@@ -160,22 +160,55 @@ fn test_dialog_state() {
     assert!(!dialog.is_visible(), "Dialog should be hidden after hide");
 }
 
-/// Test help state
+/// Test help state with pagination
 #[test]
 fn test_help_state() {
     use clickdown::tui::widgets::HelpState;
 
     let mut help = HelpState::new();
 
-    // Help should start hidden
+    // Help should start hidden and on page 0
     assert!(!help.visible, "Help should start hidden");
+    assert_eq!(help.page, 0, "Help should start on page 0");
 
-    // Toggle help
+    // Toggle help opens on page 0
     help.toggle();
     assert!(help.visible, "Help should be visible after toggle");
+    assert_eq!(help.page, 0, "Help should open on page 0");
 
+    // Navigate pages
+    help.next_page();
+    assert_eq!(help.page, 1, "Should be on page 1");
+
+    help.next_page();
+    assert_eq!(help.page, 2, "Should be on page 2");
+
+    help.next_page();
+    assert_eq!(help.page, 0, "Should wrap to page 0");
+
+    help.prev_page();
+    assert_eq!(help.page, 2, "Should wrap to page 2");
+
+    help.prev_page();
+    assert_eq!(help.page, 1, "Should be on page 1");
+
+    // Toggle closes help (page resets on next open, not on close via toggle)
     help.toggle();
-    assert!(!help.visible, "Help should be hidden after second toggle");
+    assert!(!help.visible, "Help should be hidden after toggle");
+
+    // hide also resets
+    help.visible = true;
+    help.page = 2;
+    help.hide();
+    assert!(!help.visible, "Help should be hidden after hide");
+    assert_eq!(help.page, 0, "Page should reset on hide");
+
+    // Re-opening via toggle resets page
+    help.visible = false;
+    help.page = 2;
+    help.toggle();
+    assert!(help.visible, "Help should be visible after toggle");
+    assert_eq!(help.page, 0, "Page should reset on open");
 }
 
 /// Test that help dialog displays all keyboard shortcuts
@@ -183,7 +216,7 @@ fn test_help_state() {
 #[test]
 #[ignore]
 fn test_help_dialog_shows_all_shortcuts() {
-    use clickdown::tui::widgets::help::{render_help, HelpState};
+    use clickdown::tui::widgets::help::{render_help, HelpContext, HelpState};
     use ratatui::{backend::TestBackend, layout::Rect, Terminal};
 
     // Setup help dialog
@@ -199,7 +232,7 @@ fn test_help_dialog_shows_all_shortcuts() {
     terminal
         .draw(|frame| {
             let area = Rect::new(0, 0, 80, 24);
-            render_help(frame, &help, area);
+            render_help(frame, &help, &HelpContext::TaskList, area);
         })
         .unwrap();
 
@@ -1543,5 +1576,157 @@ fn test_g_followed_by_non_u_passes_through() {
 
     // URL input dialog should NOT be open
     assert!(!app.is_url_input_open(), "URL input dialog should not open for 'g' then 'j'");
+}
+
+// ============================================================================
+// Help Dialog Pagination Tests
+// ============================================================================
+
+/// Test that help dialog opens on page 1 (index 0)
+#[test]
+fn test_help_opens_on_page_1() {
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut app = rt.block_on(async { TuiApp::new().expect("Failed to create app") });
+
+    // Press '?' to open help
+    let q_key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
+    app.update(InputEvent::Key(q_key));
+
+    assert!(app.is_help_visible(), "Help should be visible");
+    assert_eq!(app.help_page(), 0, "Help should open on page 0 (first page)");
+}
+
+/// Test that j key advances page, k key goes back
+#[test]
+fn test_help_pagination_j_k() {
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut app = rt.block_on(async { TuiApp::new().expect("Failed to create app") });
+
+    // Open help
+    let q_key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
+    app.update(InputEvent::Key(q_key));
+    assert_eq!(app.help_page(), 0);
+
+    // j should advance to page 1
+    let j_key = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(j_key));
+    assert_eq!(app.help_page(), 1, "j should advance to page 1");
+
+    // k should go back to page 0
+    let k_key = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(k_key));
+    assert_eq!(app.help_page(), 0, "k should go back to page 0");
+
+    // j twice to page 2
+    app.update(InputEvent::Key(j_key));
+    app.update(InputEvent::Key(j_key));
+    assert_eq!(app.help_page(), 2, "Should be on page 2");
+
+    // j again should wrap to page 0
+    app.update(InputEvent::Key(j_key));
+    assert_eq!(app.help_page(), 0, "j should wrap from page 2 to page 0");
+}
+
+/// Test that Esc closes help dialog
+#[test]
+fn test_help_esc_closes() {
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut app = rt.block_on(async { TuiApp::new().expect("Failed to create app") });
+
+    // Open help
+    let q_key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
+    app.update(InputEvent::Key(q_key));
+    assert!(app.is_help_visible(), "Help should be visible");
+
+    // Navigate to page 2
+    let j_key = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(j_key));
+    app.update(InputEvent::Key(j_key));
+    assert_eq!(app.help_page(), 2);
+
+    // Esc should close
+    let esc_key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    app.update(InputEvent::Key(esc_key));
+    assert!(!app.is_help_visible(), "Esc should close help dialog");
+    assert_eq!(app.help_page(), 0, "Page should reset on close");
+}
+
+/// Test that non-navigation keys do not close help dialog
+#[test]
+fn test_help_non_nav_keys_dont_close() {
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut app = rt.block_on(async { TuiApp::new().expect("Failed to create app") });
+
+    // Open help
+    let q_key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
+    app.update(InputEvent::Key(q_key));
+    assert!(app.is_help_visible(), "Help should be visible");
+
+    // Press 'n' - should NOT close help
+    let n_key = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(n_key));
+    assert!(app.is_help_visible(), "'n' should not close help dialog");
+
+    // Press 'e' - should NOT close help
+    let e_key = KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(e_key));
+    assert!(app.is_help_visible(), "'e' should not close help dialog");
+
+    // Press Enter - should NOT close help
+    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    app.update(InputEvent::Key(enter_key));
+    assert!(app.is_help_visible(), "Enter should not close help dialog");
+
+    // ? should toggle (close)
+    let q_key2 = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
+    app.update(InputEvent::Key(q_key2));
+    assert!(!app.is_help_visible(), "? should toggle help closed");
+}
+
+/// Test that arrow keys also paginate
+#[test]
+fn test_help_arrow_keys_paginate() {
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut app = rt.block_on(async { TuiApp::new().expect("Failed to create app") });
+
+    // Open help
+    let q_key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
+    app.update(InputEvent::Key(q_key));
+    assert_eq!(app.help_page(), 0);
+
+    // Down arrow should advance
+    let down_key = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+    app.update(InputEvent::Key(down_key));
+    assert_eq!(app.help_page(), 1, "Down arrow should advance page");
+
+    // Up arrow should go back
+    let up_key = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+    app.update(InputEvent::Key(up_key));
+    assert_eq!(app.help_page(), 0, "Up arrow should go back page");
+
+    // Right arrow should advance
+    let right_key = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+    app.update(InputEvent::Key(right_key));
+    assert_eq!(app.help_page(), 1, "Right arrow should advance page");
+
+    // Left arrow should go back
+    let left_key = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
+    app.update(InputEvent::Key(left_key));
+    assert_eq!(app.help_page(), 0, "Left arrow should go back page");
 }
 

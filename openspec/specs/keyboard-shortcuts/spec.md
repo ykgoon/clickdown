@@ -45,23 +45,23 @@ The system SHALL allow users to toggle the help dialog by pressing the `?` key. 
 - **THEN** the `?` character is entered in the field instead of toggling help
 
 ### Requirement: Any key closes help dialog
-The system SHALL close the help dialog when any key is pressed while the dialog is visible.
+The system SHALL close the help dialog when the user presses `Esc` or `?`. Other keypresses while the dialog is visible SHALL NOT close the dialog. The `j`, `k`, `↑`, `↓`, `←`, and `→` keys SHALL navigate between help dialog pages instead of closing it.
 
-#### Scenario: Pressing navigation key closes help
-- **WHEN** the help dialog is visible AND user presses `j`, `k`, `Enter`, or `Esc`
+#### Scenario: Pressing Esc closes help
+- **WHEN** the help dialog is visible AND user presses `Esc`
 - **THEN** the help dialog closes without processing the key
 
-#### Scenario: Pressing action key closes help
-- **WHEN** the help dialog is visible AND user presses `n`, `e`, or `d`
-- **THEN** the help dialog closes without processing the key
-
-#### Scenario: Pressing global key closes help
-- **WHEN** the help dialog is visible AND user presses `q`, `Tab`, or `u`
-- **THEN** the help dialog closes without processing the key
-
-#### Scenario: Pressing question mark closes help
+#### Scenario: Pressing ? closes help
 - **WHEN** the help dialog is visible AND user presses `?`
 - **THEN** the help dialog closes (toggles off)
+
+#### Scenario: Pressing j/k navigates pages instead of closing
+- **WHEN** the help dialog is visible AND user presses `j` or `k`
+- **THEN** the help dialog advances to the next/previous page AND does not close
+
+#### Scenario: Pressing navigation keys does not close help
+- **WHEN** the help dialog is visible AND user presses `Enter`, `n`, `e`, `d`, or other non-navigation keys
+- **THEN** the help dialog remains open AND no action is taken
 
 ### Requirement: A opens assignee picker from task detail
 The system SHALL allow users to open the assignee picker overlay by pressing the `A` key while on the task detail screen. This shortcut SHALL only be active when a task is selected and the task's parent list ID is known in application state.
