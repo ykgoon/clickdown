@@ -17,8 +17,8 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Fast & Native**: Built with Rust and ratatui TUI framework for native terminal performance
 - **Workspace Navigation**: Browse workspaces, spaces, folders, and lists
 - **Task Management**: View, create, edit, and delete tasks
-- **Assigned to Me**: Unified view showing tasks AND comments assigned to you across all workspaces
-- **Smart Inbox**: Aggregated activity feed showing assignments, comments, status changes, and due dates
+- **Assigned to Me Filter**: Per-list filter showing tasks assigned to you (press `a` in task list)
+- **URL Navigation**: Paste any ClickUp URL to jump directly to a workspace, space, folder, list, task, comment, or document (press `g` then `u`)
 - **Document Viewing**: Read ClickUp documents with Markdown rendering
 - **Session Restore**: Automatically restores your last viewed location on startup
 - **Offline Cache**: SQLite-based caching for instant reloads
@@ -26,66 +26,6 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Keyboard-Driven**: Vim-style navigation (j/k to navigate, Enter to select, Esc to go back)
 - **Terminal Native**: Runs directly in your terminal with no GUI dependencies
 - **URL Copying**: Quickly copy ClickUp web app URLs for any element (press `u`)
-
-### Smart Inbox
-
-The Smart Inbox aggregates activity from multiple ClickUp API endpoints to simulate a notifications feed:
-
-- **Assignments**: Tasks newly assigned to you
-- **Comments**: New comments on your tasks
-- **Status Changes**: Tasks with recent status updates
-- **Due Dates**: Tasks with approaching deadlines (within 7 days)
-
-**Activity Types:**
-
-| Icon | Type | Description |
-|------|------|-------------|
-| 📋 | Assignment | Task was assigned to you |
-| 💬 | Comment | New comment on your task |
-| 🔄 | Status Change | Task status was updated |
-| ⏰ | Due Date | Task deadline is approaching |
-
-**Inbox Features:**
-- Activities are sorted by timestamp (newest first)
-- Press `r` to manually refresh from the API
-- Press `c` to dismiss individual activities
-- Press `C` to dismiss all activities
-- Press `Enter` to view activity details
-- Activities are cached locally for instant reloads
-
-**How it works:**
-Since ClickUp API v2 doesn't have a native notifications endpoint, the smart inbox polls multiple endpoints and normalizes the results into a unified activity feed. Activities are deduplicated by ID, keeping the most recent occurrence.
-
-### Assigned to Me
-
-The "Assigned to Me" view provides a unified list of all work items assigned to you across all workspaces:
-
-- **Assigned Tasks**: Tasks where you are listed as an assignee
-- **Assigned Comments**: Comments where you are listed as an assigned commenter
-
-**Features:**
-- Combined count badge in sidebar showing total assigned items
-- Filter toggle to show All, Tasks Only, or Comments Only (press `f`)
-- Sorted by most recently updated (newest first)
-- Visual distinction: ✓ icon for tasks, 💬 icon for comments
-- Click on a comment to navigate to its parent task
-- Cached locally for instant reloads (5-minute TTL)
-
-**Keyboard Shortcuts:**
-
-| Key | Action |
-|-----|--------|
-| `j` / `↓` | Move selection down |
-| `k` / `↑` | Move selection up |
-| `g` | Go to first item |
-| `G` | Go to last item |
-| `f` | Toggle filter (All → Tasks → Comments) |
-| `r` | Refresh from API |
-| `Enter` | Open selected item (task detail or comment's parent task) |
-| `Esc` | Go back |
-
-**How it works:**
-The feature fetches tasks and comments in parallel from all accessible lists across all workspaces. Tasks are filtered by the `assignees` field, and comments are filtered by the `assigned_commenters` field. Results are combined into a single sorted list and cached in SQLite for offline access.
 
 ## Requirements
 
@@ -152,10 +92,6 @@ clickdown debug update-comment <comment_id> --text "Text" --json
 clickdown debug create-comment <task_id> --text "Text" --parent-id <comment_id>
 clickdown debug create-comment <task_id> --text "Text" --assignee <user_id>
 clickdown debug create-comment <task_id> --text "Text" --assigned-commenter <user_id>
-
-# Fetch inbox activity (smart inbox)
-clickdown debug inbox <workspace_id>
-clickdown debug inbox <workspace_id> --json
 
 # Enable verbose logging (logs go to stderr, data to stdout)
 clickdown debug workspaces --verbose
@@ -286,17 +222,6 @@ ClickDown automatically saves your navigation state when you exit and restores i
 | `Ctrl+S` | Save comment |
 | `Esc` | Cancel editing / Exit thread |
 
-### Inbox (Smart Activity Feed)
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate activities |
-| `Enter` | View activity details |
-| `r` | Refresh from API |
-| `c` | Dismiss selected activity |
-| `C` | Dismiss all activities |
-| `Esc` | Go back |
-
 ### Forms
 
 | Key | Action |
@@ -410,31 +335,6 @@ The application uses the ClickUp API v2:
 | Lists | List |
 | Tasks | List, Create, Update, Delete |
 | Documents | List, View |
-
-## Roadmap
-
-### Completed ✅
-- [x] Workspace navigation (Workspaces, Spaces, Folders, Lists)
-- [x] Task list viewing with status and priority indicators
-- [x] Task create/update/delete operations
-- [x] Document viewing with Markdown rendering
-- [x] SQLite caching layer
-- [x] Configuration and token management
-- [x] Dark theme TUI with vim-style navigation
-
-### In Progress / Planned 🚧
-- [ ] Inbox bug
-- [ ] Assigned tasks bug
-- [ ] Navigation bug
-- [ ] View comments assigned to me
-- [ ] Task filtering and sorting (by status, priority, due date, assignee)
-- [ ] New comments not reflected correctly
-- [ ] Assign tasks
-- [ ] Modify status
-- [ ] Given a URL, opens the resource
-- [ ] Create tasks
-- [ ] Background sync mechanism (periodic refresh)
-- [ ] Task comments viewing and creation
 
 ## License
 
