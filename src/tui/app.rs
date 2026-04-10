@@ -711,14 +711,8 @@ impl TuiApp {
             // Handle input
             if let Some(event) = self.handle_input()? {
                 match event {
-                    InputEvent::Quit => {
-                        // Save session state before quitting
-                        if let Err(e) = self.save_session_state() {
-                            tracing::error!("Failed to save session state: {}", e);
-                        }
-                        break;
-                    }
-                    _ => self.update(event),
+                    InputEvent::Key(_) | InputEvent::Resize => self.update(event),
+                    InputEvent::None => {}
                 }
             }
 

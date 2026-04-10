@@ -117,7 +117,10 @@ fn test_mock_update_task_merges_assignees() {
             description: None,
             status: None,
             priority: None,
-            assignees: Some(AssigneesUpdate::set_all(vec![1, 2, 3])),
+            assignees: Some(AssigneesUpdate::replace_all(
+                std::collections::HashSet::new(),
+                vec![1, 2, 3].into_iter().collect(),
+            )),
             due_date: None,
         };
         mock_client.update_task("test-task-1", &update).await
@@ -149,7 +152,10 @@ fn test_mock_update_task_merges_all_fields() {
             description: Some("New description".to_string()),
             status: Some("in_progress".to_string()),
             priority: None,
-            assignees: Some(AssigneesUpdate::set_all(vec![42])),
+            assignees: Some(AssigneesUpdate::replace_all(
+                std::collections::HashSet::new(),
+                vec![42].into_iter().collect(),
+            )),
             due_date: Some(1700000000000),
         };
         mock_client.update_task("test-task-1", &update).await
@@ -185,7 +191,10 @@ fn test_mock_update_task_clears_assignees() {
             description: None,
             status: None,
             priority: None,
-            assignees: Some(AssigneesUpdate::set_all(vec![])),
+            assignees: Some(AssigneesUpdate::replace_all(
+                std::collections::HashSet::new(),
+                vec![].into_iter().collect(),
+            )),
             due_date: None,
         };
         mock_client.update_task("test-task-1", &update).await

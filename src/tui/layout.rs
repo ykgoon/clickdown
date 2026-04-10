@@ -17,6 +17,14 @@ pub const MIN_HEIGHT: u16 = 24;
 pub const TASK_DETAIL_DESCRIPTION_RATIO: u16 = 30;
 pub const TASK_DETAIL_COMMENTS_RATIO: u16 = 70;
 
+/// Create a standard titled block with the given title
+pub fn titled_block(title: impl Into<Line<'static>>) -> Block<'static> {
+    Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Theme::BACKGROUND))
+}
+
 /// Layout structure for the application
 #[derive(Debug, Clone)]
 pub struct TuiLayout {
@@ -116,6 +124,27 @@ impl TuiLayout {
 /// Generate screen title based on current context
 pub fn generate_screen_title(context: &str) -> String {
     format!("ClickDown - {}", context)
+}
+
+/// Create a centered rectangle with the given percentage of the area
+pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let popup_layout = ratatui::layout::Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+
+    ratatui::layout::Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
 
 /// Split task detail area into description and comments panels with 3:7 ratio

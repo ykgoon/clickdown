@@ -1,5 +1,6 @@
 //! Authentication widget
 
+use crate::tui::layout::centered_rect;
 use crate::tui::theme::Theme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -146,27 +147,6 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
     let instructions = Paragraph::new("Press Enter to connect, Esc to cancel")
         .style(Style::default().fg(Theme::SECONDARY));
     frame.render_widget(instructions, inner[5]);
-}
-
-/// Create a centered rectangle
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(area);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }
 
 #[allow(dead_code)]

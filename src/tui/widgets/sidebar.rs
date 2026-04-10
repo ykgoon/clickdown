@@ -6,7 +6,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem},
+    widgets::{List, ListItem},
     Frame,
 };
 
@@ -132,12 +132,7 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
         .collect();
 
     let sidebar = List::new(items)
-        .block(
-            Block::default()
-                .title(" Navigation ")
-                .borders(Borders::ALL)
-                .style(Style::default().bg(Theme::BACKGROUND)),
-        )
+        .block(crate::tui::layout::titled_block(" Navigation "))
         .highlight_style(
             Style::default()
                 .bg(Theme::SECONDARY)

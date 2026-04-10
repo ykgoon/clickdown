@@ -7,7 +7,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem},
+    widgets::{List, ListItem},
     Frame,
 };
 
@@ -99,12 +99,7 @@ pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect, lo
         use ratatui::widgets::Paragraph;
         let loading_text = Paragraph::new("Loading assigned tasks...")
             .style(Style::default().fg(Theme::WARNING))
-            .block(
-                Block::default()
-                    .title(" Tasks ")
-                    .borders(Borders::ALL)
-                    .style(Style::default().bg(Theme::BACKGROUND)),
-            );
+            .block(crate::tui::layout::titled_block(" Tasks "));
         frame.render_widget(loading_text, area);
         return;
     }
@@ -147,12 +142,7 @@ pub fn render_task_list(frame: &mut Frame, state: &TaskListState, area: Rect, lo
         .collect();
 
     let list = List::new(items)
-        .block(
-            Block::default()
-                .title(" Tasks ")
-                .borders(Borders::ALL)
-                .style(Style::default().bg(Theme::BACKGROUND)),
-        )
+        .block(crate::tui::layout::titled_block(" Tasks "))
         .highlight_style(
             Style::default()
                 .bg(Theme::SECONDARY)

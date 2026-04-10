@@ -9,8 +9,6 @@ pub enum InputEvent {
     Key(KeyEvent),
     /// Terminal was resized
     Resize,
-    /// Quit requested
-    Quit,
     /// No event
     None,
 }

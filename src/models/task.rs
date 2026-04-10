@@ -515,10 +515,6 @@ impl AssigneesUpdate {
             rem: if rem.is_empty() { None } else { Some(rem) },
         }
     }
-
-    pub fn set_all(new: Vec<i64>) -> Self {
-        Self::replace_all(std::collections::HashSet::new(), new.into_iter().collect())
-    }
 }
 
 /// Request body for updating a task

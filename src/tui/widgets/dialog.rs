@@ -1,11 +1,12 @@
 //! Confirmation dialog widget
 
+use crate::tui::layout::centered_rect;
 use crate::tui::theme::Theme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Clear, Paragraph},
     Frame,
 };
 
@@ -84,10 +85,7 @@ pub fn render_dialog(frame: &mut Frame, state: &DialogState, area: Rect) {
 
     frame.render_widget(Clear, dialog_area);
 
-    let block = Block::default()
-        .title(" Confirm ")
-        .borders(Borders::ALL)
-        .style(Style::default().bg(Theme::BACKGROUND).fg(Theme::WARNING));
+    let block = crate::tui::layout::titled_block(" Confirm ");
 
     frame.render_widget(block, dialog_area);
 
@@ -128,26 +126,6 @@ pub fn render_dialog(frame: &mut Frame, state: &DialogState, area: Rect) {
 
     let buttons_para = Paragraph::new(buttons);
     frame.render_widget(buttons_para, inner[1]);
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(area);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }
 
 #[allow(dead_code)]

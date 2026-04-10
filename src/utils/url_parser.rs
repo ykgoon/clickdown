@@ -27,8 +27,6 @@ pub type ParseResult<T> = Result<T, ParseError>;
 /// Error type for URL parsing failures
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
-    /// The input is not a valid URL
-    InvalidUrl(String),
     /// The URL is not a recognized ClickUp URL
     NotClickUpUrl(String),
     /// The URL format is not recognized
@@ -40,7 +38,6 @@ pub enum ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::InvalidUrl(msg) => write!(f, "invalid URL: {}", msg),
             ParseError::NotClickUpUrl(msg) => write!(f, "not a ClickUp URL: {}", msg),
             ParseError::UnknownFormat(msg) => {
                 write!(f, "unrecognized ClickUp URL format: {}", msg)

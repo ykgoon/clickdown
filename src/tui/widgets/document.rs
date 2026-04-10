@@ -6,7 +6,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::Line,
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -64,10 +64,7 @@ fn markdown_to_text(md: &str) -> String {
 }
 
 pub fn render_document(frame: &mut Frame, state: &DocumentState, area: Rect) {
-    let block = Block::default()
-        .title(format!(" {} ", state.title))
-        .borders(Borders::ALL)
-        .style(Style::default().bg(Theme::BACKGROUND));
+    let block = crate::tui::layout::titled_block(format!(" {} ", state.title));
 
     frame.render_widget(block, area);
 
