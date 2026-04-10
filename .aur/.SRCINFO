@@ -1,0 +1,15 @@
+pkgbase = clickdown-bin
+	pkgdesc = A fast and responsive ClickUp desktop client for the terminal
+	pkgver = 0.2.0
+	pkgrel = 1
+	url = https://github.com/ykgoon/clickdown
+	arch = x86_64
+	license = MIT
+	depends = glibc
+	depends = openssl
+	optdepends = gtk3: for desktop integration
+	provides = clickdown
+	conflicts = clickdown
+	source_x86_64 = clickdown-bin-0.2.0::https://github.com/ykgoon/clickdown/releases/download/v0.2.0/clickdown-linux-x86_64
+
+pkgname = clickdown-bin

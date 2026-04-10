@@ -27,6 +27,47 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Terminal Native**: Runs directly in your terminal with no GUI dependencies
 - **URL Copying**: Quickly copy ClickUp web app URLs for any element (press `u`)
 
+## Installation
+
+### Arch Linux (AUR)
+
+```bash
+# Using yay
+yay -S clickdown-bin
+
+# Using paru
+paru -S clickdown-bin
+```
+
+### Debian/Ubuntu (.deb package)
+
+Download the latest `.deb` package from [GitHub Releases](https://github.com/ykgoon/clickdown/releases) and install:
+
+```bash
+# Download the package
+wget https://github.com/ykgoon/clickdown/releases/download/v{VERSION}/clickdown_{VERSION}_amd64.deb
+
+# Install
+sudo dpkg -i clickdown_{VERSION}_amd64.deb
+sudo apt-get install -f  # Fix any dependencies
+```
+
+### Build from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/ykgoon/clickdown.git
+cd clickdown
+
+# Build release binary
+cargo build --release
+
+# The binary will be at target/release/clickdown
+./target/release/clickdown
+```
+
+For detailed packaging instructions, see [PACKAGING.md](PACKAGING.md).
+
 ## Requirements
 
 - Rust 1.70+ (edition 2021)

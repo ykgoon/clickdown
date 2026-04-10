@@ -73,9 +73,122 @@ jobs:
           path: release-artifacts/${{ matrix.artifact_name }}${{ runner.os == 'Windows' && '.exe' || '' }}
           retention-days: 1
 
+  package-deb:
+    name: Package Debian .deb
+    needs: build
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Download Linux binary
+        uses: actions/download-artifact@v4
+        with:
+          name: clickdown-linux-x86_64
+          path: download
+
+      - name: Setup .deb package structure
+        run: |
+          # Create package structure
+          mkdir -p deb-pkg/DEBIAN
+          mkdir -p deb-pkg/usr/bin
+          mkdir -p deb-pkg/usr/share/doc/clickdown
+          mkdir -p deb-pkg/usr/share/applications
+          mkdir -p deb-pkg/usr/share/pixmaps
+
+          # Copy binary
+          cp download/clickdown-linux-x86_64 deb-pkg/usr/bin/clickdown
+          chmod 755 deb-pkg/usr/bin/clickdown
+
+          # Create control file
+          cat > deb-pkg/DEBIAN/control << 'EOF'
+          Package: clickdown
+          Version: ${VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: libssl3
+          Maintainer: Y.K. Goon
+          Description: A fast and responsive ClickUp desktop client for the terminal
+           ClickDown is a terminal-based ClickUp client built with Rust and ratatui.
+           It provides workspace navigation, task management, document viewing,
+           and offline caching with a keyboard-driven interface.
+          Homepage: https://github.com/ykgoon/clickdown
+          EOF
+
+          # Replace version placeholder
+          sed -i "s/\${VERSION}/${GITHUB_REF_NAME#v}/" deb-pkg/DEBIAN/control
+
+          # Create desktop entry
+          cat > deb-pkg/usr/share/applications/clickdown.desktop << 'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=ClickDown
+          GenericName=ClickUp Terminal Client
+          Comment=A fast and responsive ClickUp desktop client
+          Exec=clickdown
+          Icon=clickdown
+          Terminal=true
+          Categories=Utility;Development;
+          Keywords=clickup;task;management;terminal;tui;
+          EOF
+
+          # Create doc files
+          echo "ClickDown - ClickUp Terminal Client" > deb-pkg/usr/share/doc/clickdown/README
+          echo "Version: ${GITHUB_REF_NAME#v}" >> deb-pkg/usr/share/doc/clickdown/README
+          echo "https://github.com/ykgoon/clickdown" >> deb-pkg/usr/share/doc/clickdown/README
+
+          # Create changelog (compressed)
+          echo "clickdown (${GITHUB_REF_NAME#v}) stable; urgency=medium" > deb-pkg/usr/share/doc/clickdown/changelog
+          echo "" >> deb-pkg/usr/share/doc/clickdown/changelog
+          echo "  * Release version ${GITHUB_REF_NAME#v}" >> deb-pkg/usr/share/doc/clickdown/changelog
+          echo "" >> deb-pkg/usr/share/doc/clickdown/changelog
+          echo " -- Y.K. Goon <$(date +'%a, %d %b %Y %H:%M:%S %z')>" >> deb-pkg/usr/share/doc/clickdown/changelog
+          gzip -n -9 deb-pkg/usr/share/doc/clickdown/changelog
+
+          # Create copyright file
+          cat > deb-pkg/usr/share/doc/clickdown/copyright << 'EOF'
+          Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+          Upstream-Name: clickdown
+          Upstream-Contact: Y.K. Goon
+          Source: https://github.com/ykgoon/clickdown
+
+          Files: *
+          Copyright: 2024-2026 Y.K. Goon
+          License: MIT
+
+          License: MIT
+           Permission is hereby granted, free of charge, to any person obtaining a copy
+           of this software and associated documentation files (the "Software"), to deal
+           in the Software without restriction, including without limitation the rights
+           to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+           copies of the Software, and to permit persons to whom the Software is
+           furnished to do so, subject to the following conditions:
+
+           The above copyright notice and this permission notice shall be included in all
+           copies or substantial portions of the Software.
+
+           THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+           IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+           FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+           AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+           LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+           OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+           SOFTWARE.
+          EOF
+
+      - name: Build .deb package
+        run: |
+          dpkg-deb --build --root-owner-group deb-pkg clickdown_${GITHUB_REF_NAME#v}_amd64.deb
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clickdown-deb-amd64
+          path: clickdown_*.deb
+          retention-days: 1
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, package-deb]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
