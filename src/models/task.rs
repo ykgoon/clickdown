@@ -546,21 +546,38 @@ pub enum StatusGroupPriority {
 
 /// Get the sort priority for a status group string
 /// Returns the priority value (lower = higher priority in sort order)
-pub fn get_status_group_priority(status_group: Option<&str>) -> StatusGroupPriority {
-    match status_group {
-        Some(group) => {
-            match group.to_lowercase().as_str() {
-                "in_progress" | "in progress" => StatusGroupPriority::InProgress,
-                "todo" | "to_do" => StatusGroupPriority::ToDo,
-                "done" | "complete" => StatusGroupPriority::Done,
-                _ => {
-                    // Unknown status group - log for debugging and use fallback
-                    tracing::debug!("Unknown status_group: '{}', using fallback priority", group);
-                    StatusGroupPriority::Fallback
+pub fn get_status_group_priority(status_group: &str) -> StatusGroupPriority {
+    match status_group.to_lowercase().as_str() {
+        "in_progress" | "in progress" => StatusGroupPriority::InProgress,
+        "todo" | "to_do" => StatusGroupPriority::ToDo,
+        "done" | "complete" => StatusGroupPriority::Done,
+        _ => StatusGroupPriority::Fallback,
+    }
+}
+
+/// Resolve the canonical status group name from a `TaskStatus`.
+///
+/// Resolution order:
+/// 1. `status_group` field if present
+/// 2. `status` field (the human-readable status name) as fallback
+/// 3. `"other"` as the last resort
+///
+/// This ensures that tasks are grouped by their actual status even when the
+/// API does not return a `status_group` value.
+pub fn resolve_status_group(status: Option<&TaskStatus>) -> String {
+    match status {
+        Some(s) => s
+            .status_group
+            .clone()
+            .filter(|g| !g.is_empty())
+            .unwrap_or_else(|| {
+                if s.status.is_empty() {
+                    "other".to_string()
+                } else {
+                    s.status.clone()
                 }
-            }
-        }
-        None => StatusGroupPriority::Fallback,
+            }),
+        None => "other".to_string(),
     }
 }
 
@@ -570,8 +587,8 @@ pub fn get_status_group_priority(status_group: Option<&str>) -> StatusGroupPrior
 /// - updated_at: higher value = more recent (sorted descending within group)
 ///   Tasks without updated_at get i64::MIN to sort last within their group
 fn get_task_sort_key(task: &Task) -> (StatusGroupPriority, i64) {
-    let status_priority =
-        get_status_group_priority(task.status.as_ref().and_then(|s| s.status_group.as_deref()));
+    let status_group = resolve_status_group(task.status.as_ref());
+    let status_priority = get_status_group_priority(&status_group);
 
     // Use updated_at for recency sorting within status group
     // Tasks without updated_at get MIN value to sort last
@@ -671,44 +688,83 @@ mod tests {
     #[test]
     fn test_status_group_priority_mapping() {
         assert_eq!(
-            get_status_group_priority(Some("in_progress")),
+            get_status_group_priority("in_progress"),
             StatusGroupPriority::InProgress
         );
         assert_eq!(
-            get_status_group_priority(Some("IN_PROGRESS")),
+            get_status_group_priority("IN_PROGRESS"),
             StatusGroupPriority::InProgress
         );
         assert_eq!(
-            get_status_group_priority(Some("in progress")),
+            get_status_group_priority("in progress"),
             StatusGroupPriority::InProgress
         );
 
         assert_eq!(
-            get_status_group_priority(Some("todo")),
+            get_status_group_priority("todo"),
             StatusGroupPriority::ToDo
         );
         assert_eq!(
-            get_status_group_priority(Some("to_do")),
+            get_status_group_priority("to_do"),
             StatusGroupPriority::ToDo
         );
 
         assert_eq!(
-            get_status_group_priority(Some("done")),
+            get_status_group_priority("done"),
             StatusGroupPriority::Done
         );
         assert_eq!(
-            get_status_group_priority(Some("complete")),
+            get_status_group_priority("complete"),
             StatusGroupPriority::Done
         );
 
         assert_eq!(
-            get_status_group_priority(Some("unknown")),
+            get_status_group_priority("unknown"),
             StatusGroupPriority::Fallback
         );
+    }
+
+    #[test]
+    fn test_resolve_status_group() {
+        use super::{resolve_status_group, TaskStatus};
+
+        fn make_status(status_group: Option<&str>, status: &str) -> TaskStatus {
+            TaskStatus {
+                id: None,
+                status: status.to_string(),
+                color: None,
+                type_field: None,
+                orderindex: None,
+                status_group: status_group.map(|s| s.to_string()),
+            }
+        }
+
+        // status_group present → use it
         assert_eq!(
-            get_status_group_priority(None),
-            StatusGroupPriority::Fallback
+            resolve_status_group(Some(&make_status(Some("in_progress"), "In Progress"))),
+            "in_progress"
         );
+
+        // status_group None → fall back to status.status
+        assert_eq!(
+            resolve_status_group(Some(&make_status(None, "In Progress"))),
+            "In Progress"
+        );
+
+        // status_group empty string → fall back to status.status
+        assert_eq!(
+            resolve_status_group(Some(&make_status(Some(""), "Review"))),
+            "Review"
+        );
+
+        // Both empty → "other"
+        assert_eq!(
+            resolve_status_group(Some(&make_status(None, ""))),
+            "other"
+        );
+
+        // None status → "other"
+        assert_eq!(resolve_status_group(None), "other");
     }
 
     #[test]

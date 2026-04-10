@@ -19,7 +19,7 @@ use clickdown::tui::widgets::{
     help::{render_help, HelpContext, HelpState},
     sidebar::{render_sidebar, SidebarItem, SidebarState},
     task_detail::{render_task_detail, TaskDetailState},
-    task_list::{render_task_list, TaskListState},
+    task_list::{render_task_list, GroupedTaskList},
 };
 use insta::assert_snapshot;
 use ratatui::{backend::TestBackend, layout::Rect, Terminal};
@@ -230,7 +230,7 @@ fn test_sidebar_with_large_assigned_count() {
 
 #[test]
 fn test_task_list_empty() {
-    let task_list = TaskListState::new();
+    let task_list = GroupedTaskList::new();
 
     assert_widget_snapshot("task_list_empty", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
@@ -240,8 +240,9 @@ fn test_task_list_empty() {
 
 #[test]
 fn test_task_list_with_tasks() {
-    let mut task_list = TaskListState::new();
-    *task_list.tasks_mut() = create_test_tasks();
+    let tasks = create_test_tasks();
+    let mut task_list = GroupedTaskList::from_tasks(tasks);
+    task_list.select_first();
 
     assert_widget_snapshot("task_list_with_tasks", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
@@ -251,8 +252,8 @@ fn test_task_list_with_tasks() {
 
 #[test]
 fn test_task_list_with_selection() {
-    let mut task_list = TaskListState::new();
-    *task_list.tasks_mut() = create_test_tasks();
+    let tasks = create_test_tasks();
+    let mut task_list = GroupedTaskList::from_tasks(tasks);
     task_list.select_first();
 
     assert_widget_snapshot("task_list_with_selection", 60, 15, |frame| {

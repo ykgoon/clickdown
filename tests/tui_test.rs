@@ -385,73 +385,67 @@ fn test_sidebar_state() {
 #[test]
 fn test_task_list_state() {
     use clickdown::models::{Task, TaskStatus};
-    use clickdown::tui::widgets::TaskListState;
+    use clickdown::tui::widgets::GroupedTaskList;
 
-    let mut task_list = TaskListState::new();
-
-    // Task list should start empty
-    assert!(task_list.tasks().is_empty(), "Task list should start empty");
-
-    // Add tasks
-    task_list.tasks_mut().push(Task {
-        id: "task-1".to_string(),
-        custom_id: None,
-        custom_item_id: None,
-        name: "Task 1".to_string(),
-        text_content: None,
-        description: None,
-        markdown_description: None,
-        status: Some(TaskStatus {
-            id: None,
-            status: "todo".to_string(),
-            color: None,
-            type_field: None,
+    // Create tasks with status_group for grouped rendering
+    let tasks = vec![
+        Task {
+            id: "task-1".to_string(),
+            custom_id: None,
+            custom_item_id: None,
+            name: "Task 1".to_string(),
+            text_content: None,
+            description: None,
+            markdown_description: None,
+            status: Some(TaskStatus {
+                id: None,
+                status: "todo".to_string(),
+                color: None,
+                type_field: None,
+                orderindex: None,
+                status_group: Some("todo".to_string()),
+            }),
             orderindex: None,
-            status_group: None,
-        }),
-        orderindex: None,
-        content: None,
-        created_at: None,
-        updated_at: None,
-        closed_at: None,
-        done_at: None,
-        archived: None,
-        creator: None,
-        assignees: vec![],
-        group_assignees: vec![],
-        watchers: vec![],
-        checklists: vec![],
-        tags: vec![],
-        parent: None,
-        top_level_parent: None,
-        priority: None,
-        due_date: None,
-        start_date: None,
-        points: None,
-        custom_fields: vec![],
-        attachments: vec![],
-        dependencies: vec![],
-        linked_tasks: vec![],
-        locations: vec![],
-        list: None,
-        folder: None,
-        space: None,
-        project: None,
-        url: None,
-        team_id: None,
-        sharing: None,
-        permission_level: None,
-        time_estimate: None,
-        time_spent: None,
-    });
+            content: None,
+            created_at: None,
+            updated_at: Some(1000),
+            closed_at: None,
+            done_at: None,
+            archived: None,
+            creator: None,
+            assignees: vec![],
+            group_assignees: vec![],
+            watchers: vec![],
+            checklists: vec![],
+            tags: vec![],
+            parent: None,
+            top_level_parent: None,
+            priority: None,
+            due_date: None,
+            start_date: None,
+            points: None,
+            custom_fields: vec![],
+            attachments: vec![],
+            dependencies: vec![],
+            linked_tasks: vec![],
+            locations: vec![],
+            list: None,
+            folder: None,
+            space: None,
+            project: None,
+            url: None,
+            team_id: None,
+            sharing: None,
+            permission_level: None,
+            time_estimate: None,
+            time_spent: None,
+        },
+    ];
 
-    // Select first
-    task_list.select_first();
-    assert_eq!(
-        task_list.state().selected(),
-        Some(0),
-        "First task should be selected"
-    );
+    let mut task_list = GroupedTaskList::from_tasks(tasks);
+
+    // from_tasks selects first task automatically
+    assert!(task_list.selected_task().is_some(), "Should have a task selected");
 
     // Get selected task
     let selected = task_list.selected_task();
@@ -1306,7 +1300,8 @@ fn test_s_key_opens_status_picker() {
 
     // Manually navigate to Tasks screen (bypass async loading)
     app.set_screen(Screen::Tasks);
-    app.task_list().tasks_mut().push(task);
+    app.tasks_mut_for_test().push(task);
+    app.rebuild_task_list_for_test();
 
     // Select the task
     app.task_list().select_first();
@@ -1754,7 +1749,7 @@ fn test_delete_task_on_confirm() {
         // Manually populate the task list (simulating tasks loaded from API)
         // Both TuiApp.tasks and task_list's internal list need to be populated
         app.tasks_mut_for_test().push(task.clone());
-        app.task_list_mut_for_test().tasks_mut().push(task.clone());
+        app.rebuild_task_list_for_test();
         app.task_list_mut_for_test().select_first();
 
         // Verify initial state: task is present
@@ -1818,7 +1813,7 @@ fn test_delete_task_on_cancel() {
 
         // Manually populate the task list
         app.tasks_mut_for_test().push(task.clone());
-        app.task_list_mut_for_test().tasks_mut().push(task.clone());
+        app.rebuild_task_list_for_test();
         app.task_list_mut_for_test().select_first();
 
         // Verify initial state
@@ -1896,7 +1891,7 @@ fn test_delete_task_empty_response_fails_to_parse() {
 
         // Manually populate the task list
         app.tasks_mut_for_test().push(task.clone());
-        app.task_list_mut_for_test().tasks_mut().push(task.clone());
+        app.rebuild_task_list_for_test();
         app.task_list_mut_for_test().select_first();
 
         // Verify initial state: task is present

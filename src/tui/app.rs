@@ -26,7 +26,7 @@ use super::widgets::{
     get_dialog_hints, get_help_hints, render_assignee_picker, render_auth, render_comments,
     render_dialog, render_document, render_help, render_sidebar, render_status_picker,
     render_task_detail, render_task_list, AuthState, DialogState, DialogType, DocumentState,
-    HelpContext, HelpState, SidebarState, TaskDetailState, TaskListState,
+    GroupedTaskList, HelpContext, HelpState, ListRow, SidebarState, TaskDetailState,
 };
 
 /// Application screens
@@ -114,8 +114,8 @@ pub struct TuiApp {
     /// Sidebar state
     sidebar: SidebarState,
 
-    /// Task list state
-    task_list: TaskListState,
+    /// Task list state (grouped by status)
+    task_list: GroupedTaskList,
 
     /// Task detail state
     task_detail: TaskDetailState,
@@ -330,7 +330,7 @@ impl TuiApp {
 
     /// Get the task list for testing
     #[allow(dead_code)]
-    pub fn task_list_for_test(&self) -> &crate::tui::widgets::TaskListState {
+    pub fn task_list_for_test(&self) -> &crate::tui::widgets::GroupedTaskList {
         &self.task_list
     }
 
@@ -342,7 +342,7 @@ impl TuiApp {
 
     /// Get mutable access to task list for testing
     #[allow(dead_code)]
-    pub fn task_list_mut_for_test(&mut self) -> &mut crate::tui::widgets::TaskListState {
+    pub fn task_list_mut_for_test(&mut self) -> &mut crate::tui::widgets::GroupedTaskList {
         &mut self.task_list
     }
 
@@ -412,7 +412,7 @@ impl TuiApp {
             error: None,
             loading: false,
             sidebar: SidebarState::new(),
-            task_list: TaskListState::new(),
+            task_list: GroupedTaskList::new(),
             task_detail: TaskDetailState::new(),
             auth_state: AuthState::new(),
             document: DocumentState::new(),
@@ -529,7 +529,7 @@ impl TuiApp {
             error: None,
             loading: false,
             sidebar: SidebarState::new(),
-            task_list: TaskListState::new(),
+            task_list: GroupedTaskList::new(),
             task_detail: TaskDetailState::new(),
             auth_state: AuthState::new(),
             document: DocumentState::new(),
@@ -621,7 +621,7 @@ impl TuiApp {
             error: None,
             loading: false,
             sidebar: SidebarState::new(),
-            task_list: TaskListState::new(),
+            task_list: GroupedTaskList::new(),
             task_detail: TaskDetailState::new(),
             auth_state: AuthState::new(),
             document: DocumentState::new(),
@@ -1050,37 +1050,33 @@ impl TuiApp {
                         self.loading = false;
                         match result {
                             Ok(tasks) => {
-                                // Sort tasks by status priority and recency before displaying
-                                let sorted_tasks = crate::models::task::sort_tasks(tasks);
-                                // Update task_list.tasks for rendering (not self.tasks)
-                                *self.task_list.tasks_mut() = sorted_tasks.clone();
-                                self.tasks = sorted_tasks;
+                                // Store tasks as source of truth
+                                self.tasks = tasks;
+                                // Build grouped task list
+                                self.task_list = GroupedTaskList::from_tasks(self.tasks.clone());
 
                                 // Check if we're restoring a session
                                 if self.restoring_session {
                                     // Try to select the restored task
                                     if let Some(ref restored_id) = self.restored_task_id {
-                                        // Find the task in the list
-                                        if let Some(task_idx) = self
+                                        // Find and select the restored task by ID
+                                        let found = self
                                             .task_list
-                                            .tasks()
+                                            .rows()
                                             .iter()
-                                            .position(|t| &t.id == restored_id)
-                                        {
-                                            // Found the task, select it
-                                            self.task_list.select(Some(task_idx));
+                                            .enumerate()
+                                            .find(|(_, r)| matches!(r, ListRow::Task(t) if &t.id == restored_id))
+                                            .map(|(idx, _)| idx);
 
-                                            // Check if we should navigate to TaskDetail view
-                                            // We need to check the original saved screen type
-                                            // For now, stay at Tasks view - user can navigate to task detail
+                                        if let Some(task_idx) = found {
+                                            self.task_list.select(Some(task_idx));
                                             self.restoring_session = false;
                                             self.status = format!(
                                                 "Restored to Tasks view - {} task(s) loaded",
-                                                self.task_list.tasks().len()
+                                                self.task_list.rows().iter().filter(|r| matches!(r, ListRow::Task(_))).count()
                                             );
                                             tracing::info!("Session restore complete: tasks loaded, task {} selected", restored_id);
                                         } else {
-                                            // Task not found, stay at Tasks screen
                                             self.restoring_session = false;
                                             self.task_list.select_first();
                                             self.status =
@@ -1091,19 +1087,19 @@ impl TuiApp {
                                             );
                                         }
                                     } else {
-                                        // No task ID saved, stay at Tasks
                                         self.restoring_session = false;
                                         self.task_list.select_first();
                                         self.status = format!(
                                             "Loaded {} task(s)",
-                                            self.task_list.tasks().len()
+                                            self.task_list.rows().iter().filter(|r| matches!(r, ListRow::Task(_))).count()
                                         );
                                     }
                                 } else {
-                                    // Normal behavior (not restoring)
                                     self.task_list.select_first();
-                                    self.status =
-                                        format!("Loaded {} task(s)", self.task_list.tasks().len());
+                                    self.status = format!(
+                                        "Loaded {} task(s)",
+                                        self.task_list.rows().iter().filter(|r| matches!(r, ListRow::Task(_))).count()
+                                    );
                                 }
 
                                 // Clear any previous error state
@@ -1114,8 +1110,8 @@ impl TuiApp {
                                 self.error = Some(format!("Failed to load tasks: {}", e));
                                 self.status = "Failed to load tasks".to_string();
                                 // Clear tasks on error to prevent stale data
-                                self.task_list.tasks_mut().clear();
                                 self.tasks.clear();
+                                self.task_list = GroupedTaskList::new();
                                 if self.restoring_session {
                                     self.restoring_session = false;
                                 }
@@ -1242,13 +1238,8 @@ impl TuiApp {
                                         break;
                                     }
                                 }
-                                // Update the task in the task list widget
-                                for task in self.task_list.tasks_mut() {
-                                    if task.id == updated_task.id {
-                                        *task = updated_task.clone();
-                                        break;
-                                    }
-                                }
+                                // Rebuild grouped task list (status may have changed group)
+                                self.rebuild_task_list();
                                 // Update task detail view
                                 self.task_detail.task = Some(updated_task.clone());
                                 self.assignee_picker_open = false;
@@ -1269,23 +1260,18 @@ impl TuiApp {
                                         break;
                                     }
                                 }
-                                // Update the task in the task list widget
-                                for task in self.task_list.tasks_mut() {
-                                    if task.id == updated_task.id {
-                                        *task = updated_task.clone();
-                                        break;
-                                    }
-                                }
+                                // Rebuild grouped task list (status may have changed group)
+                                self.rebuild_task_list();
                                 // Update task detail view
                                 self.task_detail.task = Some(updated_task.clone());
                                 self.status_picker_open = false;
                                 self.status = "Status updated".to_string();
                             }
                             Err(e) => {
-                                // Rollback: restore original status in task list
+                                // Rollback: restore original status in tasks
                                 if let Some(ref original_status) = self.status_picker_original_status {
                                     if let Some(ref task_id) = self.status_picker_task_id {
-                                        for task in self.task_list.tasks_mut() {
+                                        for task in &mut self.tasks {
                                             if task.id == *task_id {
                                                 task.status = Some(crate::models::TaskStatus {
                                                     id: None,
@@ -1300,6 +1286,8 @@ impl TuiApp {
                                         }
                                     }
                                 }
+                                // Rebuild grouped task list after rollback
+                                self.rebuild_task_list();
                                 self.status_picker_open = false;
                                 self.status = format!("Failed to update status: {}", e);
                             }
@@ -2776,8 +2764,8 @@ impl TuiApp {
             }
         };
 
-        // Optimistic UI update: update the task in the task list immediately
-        for task in self.task_list.tasks_mut() {
+        // Optimistic UI update: update the task in self.tasks and rebuild grouped list
+        for task in &mut self.tasks {
             if task.id == task_id {
                 task.status = Some(crate::models::TaskStatus {
                     id: None,
@@ -2790,6 +2778,7 @@ impl TuiApp {
                 break;
             }
         }
+        self.rebuild_task_list();
 
         // Make API call
         let client = match &self.client {
@@ -3149,8 +3138,7 @@ impl TuiApp {
                     .status_picker_task_id
                     .as_ref()
                     .and_then(|task_id| {
-                        self.task_list
-                            .tasks()
+                        self.tasks
                             .iter()
                             .find(|t| &t.id == task_id)
                             .and_then(|t| t.status.as_ref().map(|s| s.status.as_str()))
@@ -4111,8 +4099,32 @@ impl TuiApp {
 
     /// Get task list (public for testing)
     #[allow(dead_code)]
-    pub fn task_list(&mut self) -> &mut TaskListState {
+    pub fn task_list(&mut self) -> &mut GroupedTaskList {
         &mut self.task_list
+    }
+
+    /// Rebuild the grouped task list from `self.tasks`.
+    /// Preserves the currently selected task by ID if it still exists.
+    fn rebuild_task_list(&mut self) {
+        let selected_id = self.task_list.selected_task().map(|t| t.id.clone());
+        self.task_list = GroupedTaskList::from_tasks(self.tasks.clone());
+        if let Some(ref id) = selected_id {
+            if !self
+                .task_list
+                .rows()
+                .iter()
+                .any(|r| matches!(r, crate::tui::widgets::ListRow::Task(t) if &t.id == id))
+            {
+                // Selected task no longer exists, select first
+                self.task_list.select_first();
+            }
+        }
+    }
+
+    /// Public wrapper for testing
+    #[allow(dead_code)]
+    pub fn rebuild_task_list_for_test(&mut self) {
+        self.rebuild_task_list();
     }
 
     /// Get task detail (public for testing)
@@ -4208,7 +4220,8 @@ mod tests {
     }
 
     /// Test that task list widget is updated when assignees are saved
-    /// This is a regression test for the bug where task_list.tasks_mut() was not updated
+    /// This is a regression test for the bug where the grouped task list was not rebuilt
+    /// after task updates.
     #[tokio::test]
     async fn test_assignee_update_reflects_in_task_list_widget() {
         use crate::models::User;
@@ -4260,12 +4273,12 @@ mod tests {
 
         let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
 
-        // Simulate loading tasks into both the app cache and the widget
+        // Simulate loading tasks into the app cache and rebuild grouped list
         app.tasks = vec![task.clone()];
-        *app.task_list.tasks_mut() = vec![task.clone()];
+        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
 
         // Select the task in the task list
-        app.task_list.select(Some(0));
+        app.task_list.select_first();
 
         // Open task detail view (simulating pressing Enter on task)
         app.task_detail.task = Some(task.clone());

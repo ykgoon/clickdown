@@ -20,4 +20,4 @@ pub use help::{get_help_hints, render_help, HelpContext, HelpState};
 pub use sidebar::{render_sidebar, SidebarItem, SidebarState};
 pub use status_picker::render_status_picker;
 pub use task_detail::{render_task_detail, TaskDetailState};
-pub use task_list::{render_task_list, TaskListState};
+pub use task_list::{render_task_list, GroupedTaskList, ListRow};
