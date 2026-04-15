@@ -1,0 +1,6 @@
+---
+source: tests/snapshot_test.rs
+assertion_line: 1271
+expression: app.url_input_text().to_string()
+---
+

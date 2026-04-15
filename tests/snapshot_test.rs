@@ -1106,3 +1106,167 @@ fn test_url_input_dialog_paste_preserves_u_characters() {
         "URL should contain all characters including 'u' - BUG: 'u' characters are being dropped!"
     );
 }
+
+/// Test that 'u' key in comment editing mode types the letter instead of copying URL
+/// This is a regression test for the bug where the global 'u' shortcut intercepted
+/// character input in comment editing mode.
+#[test]
+fn test_u_key_in_comment_editing() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_tasks(vec![fixtures::test_task()])
+        .with_task_comments(vec![fixtures::test_comment()]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Navigate to TaskDetail
+    app.set_screen(Screen::TaskDetail);
+    app.set_current_list_id(Some("list-1".to_string()));
+    app.set_task_detail_task(fixtures::test_task());
+    app.set_comments(vec![fixtures::test_comment()]);
+
+    // Start new comment (press 'n' with comment focus)
+    // First need to ensure we're on task detail with comments visible
+    // Set up proper state for comment editing
+    app.set_screen(Screen::TaskDetail);
+    app.set_current_list_id(Some("list-1".to_string()));
+    app.set_task_detail_task(fixtures::test_task());
+    app.set_comments(vec![fixtures::test_comment()]);
+    
+    // Enable comment focus (so 'n' key triggers new comment)
+    app.set_comment_focus(true);
+
+    // Press 'n' to start new comment
+    let n_key = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(n_key));
+
+    // Verify comment editing is active
+    assert!(app.is_comment_editing_active(), "Comment editing should be active");
+
+    // Type 'u' key - should add 'u' to comment, NOT trigger URL copy
+    let u_key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(u_key));
+
+    // Assert 'u' appears in comment_new_text
+    let comment_text = app.comment_new_text().to_string();
+    assert_snapshot!("u_key_in_comment_editing", comment_text);
+
+    assert!(
+        comment_text.contains('u'),
+        "Comment text should contain 'u' - BUG: 'u' was intercepted by global shortcut!"
+    );
+}
+
+/// Test that 'u' key in task name creation mode types the letter instead of copying URL
+#[test]
+fn test_u_key_in_task_name_creation() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_tasks(vec![]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Set up task creation mode with name field focused
+    app.set_screen(Screen::TaskDetail);
+    app.set_current_list_id(Some("list-1".to_string()));
+    app.set_task_creating(true);
+    app.set_task_creation_focus(TaskCreationField::Name);
+
+    // Type 'u' key - should add 'u' to task name, NOT trigger URL copy
+    let u_key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(u_key));
+
+    // Assert 'u' appears in task_name_input
+    let task_name = app.task_name_input().to_string();
+    assert_snapshot!("u_key_in_task_name_creation", task_name);
+
+    assert!(
+        task_name.contains('u'),
+        "Task name should contain 'u' - BUG: 'u' was intercepted by global shortcut!"
+    );
+}
+
+/// Test that 'u' key in task description creation mode types the letter instead of copying URL
+#[test]
+fn test_u_key_in_task_description_creation() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_tasks(vec![]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Set up task creation mode with description field focused
+    app.set_screen(Screen::TaskDetail);
+    app.set_current_list_id(Some("list-1".to_string()));
+    app.set_task_creating(true);
+    app.set_task_creation_focus(TaskCreationField::Description);
+
+    // Type 'u' key - should add 'u' to task description, NOT trigger URL copy
+    let u_key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(u_key));
+
+    // Assert 'u' appears in task_description_input
+    let task_desc = app.task_description_input().to_string();
+    assert_snapshot!("u_key_in_task_description_creation", task_desc);
+
+    assert!(
+        task_desc.contains('u'),
+        "Task description should contain 'u' - BUG: 'u' was intercepted by global shortcut!"
+    );
+}
+
+/// Test that 'g' then 'u' chord still opens URL dialog when no text input is active
+/// This guards against regression when modifying the 'u' key handler.
+#[test]
+fn test_g_u_chord_still_opens_url_dialog() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_workspaces(vec![fixtures::test_workspace()]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Set up on Tasks screen (no text input active)
+    app.set_screen(Screen::Tasks);
+
+    // Press 'g' then 'u' - should open URL dialog
+    let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(g_key));
+    let u_key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(u_key));
+
+    // Assert URL dialog is open
+    assert!(app.is_url_input_open(), "URL input dialog should open with 'g' 'u' chord");
+    assert_snapshot!("g_u_chord_opens_url_dialog", app.url_input_text().to_string());
+}

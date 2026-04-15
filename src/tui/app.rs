@@ -243,6 +243,210 @@ pub enum AppState {
 
 /// Test-only methods
 impl TuiApp {
+    /// Check if any text input is currently active (comments, task creation, URL input, etc.)
+    /// Used to guard global shortcuts like 'u' for URL copy
+    #[allow(dead_code)]
+    pub fn is_text_input_active(&self) -> bool {
+        self.url_input_open
+            || self.status_picker_open
+            || self.assignee_picker_open
+            || self.task_creating
+            || self.comment_editing_index.is_some()
+            || !self.comment_new_text.is_empty()
+    }
+
+    /// Handle text input when any text input field is active
+    /// Delegates to the appropriate handler based on which input is active
+    pub fn handle_text_input(&mut self, key: crossterm::event::KeyEvent) {
+        if self.url_input_open {
+            self.handle_url_input(key);
+        } else if self.status_picker_open {
+            self.handle_status_picker_input(key);
+        } else if self.assignee_picker_open {
+            self.handle_assignee_picker_input(key);
+        } else if self.task_creating {
+            self.handle_task_creation_input(key);
+        } else if self.comment_editing_index.is_some() || !self.comment_new_text.is_empty() {
+            self.handle_comment_input(key);
+        }
+    }
+
+    /// Handle keyboard input within the assignee picker
+    fn handle_assignee_picker_input(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::{KeyCode, KeyModifiers};
+        match key.code {
+            KeyCode::Char('j') => {
+                if self.assignee_picker_cursor
+                    < self.assignee_picker_members.len().saturating_sub(1)
+                {
+                    self.assignee_picker_cursor += 1;
+                }
+            }
+            KeyCode::Char('k') => {
+                if self.assignee_picker_cursor > 0 {
+                    self.assignee_picker_cursor -= 1;
+                }
+            }
+            KeyCode::Char(' ') => {
+                if let Some(member) = self
+                    .assignee_picker_members
+                    .get(self.assignee_picker_cursor)
+                {
+                    if self.assignee_picker_selected.contains(&member.id) {
+                        self.assignee_picker_selected.remove(&member.id);
+                    } else {
+                        self.assignee_picker_selected.insert(member.id);
+                    }
+                }
+            }
+            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.save_assignees();
+            }
+            KeyCode::Esc => {
+                self.assignee_picker_open = false;
+                self.status = "Assignment cancelled".to_string();
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle keyboard input within task creation form
+    fn handle_task_creation_input(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::{KeyCode, KeyModifiers};
+        if let KeyCode::Char('s') = key.code {
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                if self.task_name_input.trim().is_empty() {
+                    self.status = "Task name is required".to_string();
+                    return;
+                }
+                if let Some(list_id) = &self.current_list_id {
+                    self.create_task(list_id.clone());
+                }
+                return;
+            }
+        }
+        if let KeyCode::Char('t') = key.code {
+            // Toggle focus between name and description fields
+            self.task_creation_focus = match self.task_creation_focus {
+                TaskCreationField::Name => TaskCreationField::Description,
+                TaskCreationField::Description => TaskCreationField::Name,
+            };
+            self.status = format!(
+                "Focus: {}",
+                match self.task_creation_focus {
+                    TaskCreationField::Name => "Task Name",
+                    TaskCreationField::Description => "Description",
+                }
+            );
+            return;
+        }
+        if let KeyCode::Char(c) = key.code {
+            // Add character to focused field
+            match self.task_creation_focus {
+                TaskCreationField::Name => self.task_name_input.push(c),
+                TaskCreationField::Description => self.task_description_input.push(c),
+            }
+            return;
+        }
+        if let KeyCode::Backspace = key.code {
+            // Remove character from focused field
+            match self.task_creation_focus {
+                TaskCreationField::Name => {
+                    self.task_name_input.pop();
+                }
+                TaskCreationField::Description => {
+                    self.task_description_input.pop();
+                }
+            }
+            return;
+        }
+    }
+
+    /// Handle keyboard input within comment editing
+    fn handle_comment_input(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::{KeyCode, KeyModifiers};
+        match key.code {
+            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(edit_idx) = self.comment_editing_index {
+                    if edit_idx == usize::MAX {
+                        if let Some(_task) = &self.task_detail.task {
+                            let text = self.comment_new_text.clone();
+                            if text.trim().is_empty() {
+                                self.status = if matches!(
+                                    self.comment_view_mode,
+                                    CommentViewMode::InThread { .. }
+                                ) {
+                                    "Reply cannot be empty".to_string()
+                                } else {
+                                    "Comment cannot be empty".to_string()
+                                };
+                                return;
+                            }
+                            let task_id = _task.id.clone();
+                            let parent_id = match &self.comment_view_mode {
+                                CommentViewMode::InThread {
+                                    parent_comment_id, ..
+                                } => Some(parent_comment_id.clone()),
+                                CommentViewMode::TopLevel => None,
+                            };
+                            self.create_comment(task_id, text, parent_id);
+                        }
+                    } else {
+                        if let Some(_task) = &self.task_detail.task {
+                            let text = self.comment_new_text.clone();
+                            if text.trim().is_empty() {
+                                self.status = "Comment cannot be empty".to_string();
+                                return;
+                            }
+                            let comment_id = self.comments[edit_idx].id.clone();
+                            self.update_comment(comment_id, text);
+                        }
+                    }
+                } else if !self.comment_new_text.is_empty() {
+                    if let Some(_task) = &self.task_detail.task {
+                        let text = self.comment_new_text.clone();
+                        if text.trim().is_empty() {
+                            self.status = if matches!(
+                                self.comment_view_mode,
+                                CommentViewMode::InThread { .. }
+                            ) {
+                                "Reply cannot be empty".to_string()
+                            } else {
+                                "Comment cannot be empty".to_string()
+                            };
+                            return;
+                        }
+                        let task_id = _task.id.clone();
+                        let parent_id = match &self.comment_view_mode {
+                            CommentViewMode::InThread {
+                                parent_comment_id, ..
+                            } => Some(parent_comment_id.clone()),
+                            CommentViewMode::TopLevel => None,
+                        };
+                        self.create_comment(task_id, text, parent_id);
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                self.comment_new_text.clear();
+                self.comment_editing_index = None;
+                self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. })
+                {
+                    "Reply cancelled".to_string()
+                } else {
+                    "Comment editing cancelled".to_string()
+                };
+            }
+            KeyCode::Char(c) => {
+                self.comment_new_text.push(c);
+            }
+            KeyCode::Backspace => {
+                self.comment_new_text.pop();
+            }
+            _ => {}
+        }
+    }
+
     /// Get the current user ID (for testing)
     #[allow(dead_code)]
     pub fn current_user_id(&self) -> Option<i32> {
@@ -314,6 +518,73 @@ impl TuiApp {
     #[allow(dead_code)]
     pub fn is_help_visible(&self) -> bool {
         self.help.visible
+    }
+
+    /// Check if comment editing is active (for testing)
+    #[allow(dead_code)]
+    pub fn is_comment_editing_active(&self) -> bool {
+        self.comment_editing_index.is_some()
+    }
+
+    /// Check if task creation is active (for testing)
+    #[allow(dead_code)]
+    pub fn is_task_creating(&self) -> bool {
+        self.task_creating
+    }
+
+    /// Get the comment new text (for testing)
+    #[allow(dead_code)]
+    pub fn comment_new_text(&self) -> &str {
+        &self.comment_new_text
+    }
+
+    /// Get the task name input (for testing)
+    #[allow(dead_code)]
+    pub fn task_name_input(&self) -> &str {
+        &self.task_name_input
+    }
+
+    /// Get the task description input (for testing)
+    #[allow(dead_code)]
+    pub fn task_description_input(&self) -> &str {
+        &self.task_description_input
+    }
+
+    /// Get the task creation focus field (for testing)
+    #[allow(dead_code)]
+    pub fn task_creation_focus(&self) -> &TaskCreationField {
+        &self.task_creation_focus
+    }
+
+    /// Set task creating state (for testing)
+    #[allow(dead_code)]
+    pub fn set_task_creating(&mut self, creating: bool) {
+        self.task_creating = creating;
+        self.task_detail.creating = creating;
+    }
+
+    /// Set task creation focus (for testing)
+    #[allow(dead_code)]
+    pub fn set_task_creation_focus(&mut self, focus: TaskCreationField) {
+        self.task_creation_focus = focus;
+    }
+
+    /// Set task detail task (for testing)
+    #[allow(dead_code)]
+    pub fn set_task_detail_task(&mut self, task: Task) {
+        self.task_detail.task = Some(task);
+    }
+
+    /// Set comments (for testing)
+    #[allow(dead_code)]
+    pub fn set_comments(&mut self, comments: Vec<crate::models::Comment>) {
+        self.comments = comments;
+    }
+
+    /// Set comment focus (for testing)
+    #[allow(dead_code)]
+    pub fn set_comment_focus(&mut self, focus: bool) {
+        self.comment_focus = focus;
     }
 
     /// Get help dialog current page (for testing)
@@ -1576,6 +1847,13 @@ impl TuiApp {
             // Handle status picker input (modal overlay)
             if self.status_picker_open {
                 self.handle_status_picker_input(key);
+                return;
+            }
+
+            // Handle text input — delegate to appropriate handler when any text input is active
+            // This guards global shortcuts like 'u' from interfering with typing
+            if self.is_text_input_active() {
+                self.handle_text_input(key);
                 return;
             }
 
@@ -4177,7 +4455,82 @@ mod tests {
     use crate::models::task::Task;
     use std::sync::Arc;
 
-    /// Test that session state includes user_id
+    /// Test is_text_input_active() returns false when no input is active
+    #[test]
+    fn test_is_text_input_active_inactive() {
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        assert!(!app.is_text_input_active());
+    }
+
+    /// Test is_text_input_active() returns true when URL input is open
+    #[test]
+    fn test_is_text_input_active_url_input() {
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        app.url_input_open = true;
+
+        assert!(app.is_text_input_active());
+    }
+
+    /// Test is_text_input_active() returns true when status picker is open
+    #[test]
+    fn test_is_text_input_active_status_picker() {
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        app.status_picker_open = true;
+
+        assert!(app.is_text_input_active());
+    }
+
+    /// Test is_text_input_active() returns true when assignee picker is open
+    #[test]
+    fn test_is_text_input_active_assignee_picker() {
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        app.assignee_picker_open = true;
+
+        assert!(app.is_text_input_active());
+    }
+
+    /// Test is_text_input_active() returns true when task creating
+    #[test]
+    fn test_is_text_input_active_task_creating() {
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        app.task_creating = true;
+
+        assert!(app.is_text_input_active());
+    }
+
+    /// Test is_text_input_active() returns true when comment editing index is set
+    #[test]
+    fn test_is_text_input_active_comment_editing() {
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        app.comment_editing_index = Some(0);
+
+        assert!(app.is_text_input_active());
+    }
+
+    /// Test is_text_input_active() returns true when comment new text is not empty
+    #[test]
+    fn test_is_text_input_active_comment_new_text() {
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        app.comment_new_text = "typing...".to_string();
+
+        assert!(app.is_text_input_active());
+    }
+
+    /// Test session state includes user_id
     #[test]
     fn test_session_state_includes_user_id() {
         use crate::models::SessionState;

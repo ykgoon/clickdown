@@ -1,0 +1,6 @@
+---
+source: tests/snapshot_test.rs
+assertion_line: 1160
+expression: comment_text
+---
+u
