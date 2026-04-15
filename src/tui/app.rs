@@ -2331,12 +2331,14 @@ impl TuiApp {
                         return;
                     }
 
+                    // if top level comment, prevent user from going beyond top level limit
                     if self.comment_view_mode == CommentViewMode::TopLevel {
                         if self.comment_selected_index < self.comment_top_level_count - 1 {
                             self.comment_selected_index += 1;
                             return;
                         }
 
+                        // loop to first item
                         self.comment_selected_index = 0;
                         return;
                     }
