@@ -155,7 +155,7 @@ pub struct TuiApp {
 
     /// Comment UI state
     comment_selected_index: usize,
-    comment_top_level_count: usize, // stores comment length before merging with replies
+    comment_top_level_count: usize, // stores top level comment length
     comment_editing_index: Option<usize>,
     comment_new_text: String,
     comment_focus: bool, // true = focus on comments, false = focus on task form
