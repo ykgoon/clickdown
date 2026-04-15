@@ -62,6 +62,12 @@ pub enum TaskCreationField {
     Description,
 }
 
+#[derive(Debug, Clone)]
+pub struct CommentsLoadedResponse {
+    all_comments: Vec<Comment>,
+    top_level_comments: usize
+}
+
 /// Async messages for API results
 #[derive(Debug, Clone)]
 pub enum AppMessage {
@@ -70,7 +76,7 @@ pub enum AppMessage {
     FoldersLoaded(Result<Vec<Folder>, String>),
     ListsLoaded(Result<Vec<List>, String>),
     TasksLoaded(Result<Vec<Task>, String>),
-    CommentsLoaded(Result<Vec<Comment>, String>),
+    CommentsLoaded(Result<CommentsLoadedResponse, String>),
     CommentCreated(Result<Comment, String>, bool), // bool = is_reply
     CommentUpdated(Result<Comment, String>),
     CurrentUserLoaded(Result<User, String>),
@@ -149,6 +155,7 @@ pub struct TuiApp {
 
     /// Comment UI state
     comment_selected_index: usize,
+    comment_top_level_count: usize, // stores comment length before merging with replies
     comment_editing_index: Option<usize>,
     comment_new_text: String,
     comment_focus: bool, // true = focus on comments, false = focus on task form
@@ -702,6 +709,7 @@ impl TuiApp {
             comment_editing_index: None,
             comment_new_text: String::new(),
             comment_focus: false,
+            comment_top_level_count: 0,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
             task_name_input: String::new(),
@@ -821,6 +829,7 @@ impl TuiApp {
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
+            comment_top_level_count: 0,
             task_name_input: String::new(),
             task_description_input: String::new(),
             task_creating: false,
@@ -909,6 +918,7 @@ impl TuiApp {
             comments: Vec::new(),
             comment_selected_index: 0,
             comment_editing_index: None,
+            comment_top_level_count: 0,
             comment_new_text: String::new(),
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
@@ -1393,8 +1403,8 @@ impl TuiApp {
                         self.loading = false;
                         match result {
                             Ok(comments) => {
-                                tracing::debug!("Loaded {} comments", comments.len());
-                                for (i, comment) in comments.iter().enumerate() {
+                                tracing::debug!("Loaded {} comments", comments.all_comments.len());
+                                for (i, comment) in comments.all_comments.iter().enumerate() {
                                     tracing::debug!(
                                         "Comment {}: id={}, parent_id={:?}, author={:?}",
                                         i,
@@ -1403,7 +1413,8 @@ impl TuiApp {
                                         comment.commenter.as_ref().map(|c| &c.username)
                                     );
                                 }
-                                self.comments = comments;
+                                self.comment_top_level_count = comments.top_level_comments;
+                                self.comments = comments.all_comments;
                                 self.comment_selected_index = 0;
                                 self.error = None;
                                 self.status = format!("Loaded {} comment(s)", self.comments.len());
@@ -2319,14 +2330,22 @@ impl TuiApp {
                     if self.comments.is_empty() {
                         return;
                     }
-                    if self.comment_selected_index < self.comments.len() - 1 {
+                    if self.comment_selected_index < self.comment_top_level_count - 1 {
                         self.comment_selected_index += 1;
+                        return;
                     }
+
+                    // loop back to first item
+                    self.comment_selected_index = 0;
                 }
                 KeyCode::Char('k') if self.comment_focus => {
                     if self.comment_selected_index > 0 {
                         self.comment_selected_index -= 1;
+                        return;
                     }
+
+                    // loop to last item
+                    self.comment_selected_index = self.comment_top_level_count - 1;
                 }
                 KeyCode::Char('n') if self.comment_focus => {
                     // Start new comment
@@ -3119,6 +3138,7 @@ impl TuiApp {
             match top_level_result {
                 Ok(top_level_comments) => {
                     // For each top-level comment, fetch its replies
+                    let total_top_level_comments = top_level_comments.len();
                     let mut all_comments = top_level_comments;
 
                     // Collect all reply fetches
@@ -3145,7 +3165,7 @@ impl TuiApp {
                         }
                     }
 
-                    let msg = AppMessage::CommentsLoaded(Ok(all_comments));
+                    let msg = AppMessage::CommentsLoaded(Ok(CommentsLoadedResponse { all_comments, top_level_comments: total_top_level_comments }));
                     let _ = tx.send(msg).await;
                 }
                 Err(e) => {
