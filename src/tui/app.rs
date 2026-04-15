@@ -2330,13 +2330,19 @@ impl TuiApp {
                     if self.comments.is_empty() {
                         return;
                     }
-                    if self.comment_selected_index < self.comment_top_level_count - 1 {
-                        self.comment_selected_index += 1;
+
+                    if self.comment_view_mode == CommentViewMode::TopLevel {
+                        if self.comment_selected_index < self.comment_top_level_count - 1 {
+                            self.comment_selected_index += 1;
+                            return;
+                        }
+
+                        self.comment_selected_index = 0;
                         return;
                     }
 
+                    self.comment_selected_index += 1;
                     // loop back to first item
-                    self.comment_selected_index = 0;
                 }
                 KeyCode::Char('k') if self.comment_focus => {
                     if self.comment_selected_index > 0 {
@@ -2344,8 +2350,10 @@ impl TuiApp {
                         return;
                     }
 
-                    // loop to last item
-                    self.comment_selected_index = self.comment_top_level_count - 1;
+                    // loop to last item if top level comment
+                    if self.comment_view_mode == CommentViewMode::TopLevel {
+                        self.comment_selected_index = self.comment_top_level_count - 1;
+                    }
                 }
                 KeyCode::Char('n') if self.comment_focus => {
                     // Start new comment
