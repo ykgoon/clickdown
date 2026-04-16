@@ -2344,7 +2344,6 @@ impl TuiApp {
                     }
 
                     self.comment_selected_index += 1;
-                    // loop back to first item
                 }
                 KeyCode::Char('k') if self.comment_focus => {
                     if self.comment_selected_index > 0 {
