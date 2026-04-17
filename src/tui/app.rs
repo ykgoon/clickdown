@@ -1438,6 +1438,10 @@ impl TuiApp {
                                 } else {
                                     "Comment added".to_string()
                                 };
+
+                                if !is_reply {
+                                    self.comment_top_level_count += 1;
+                                }
                             }
                             Err(e) => {
                                 self.error = Some(format!(
