@@ -2352,7 +2352,7 @@ impl TuiApp {
                     }
 
                     // loop to last item if top level comment
-                    if self.comment_view_mode == CommentViewMode::TopLevel {
+                    if self.comment_view_mode == CommentViewMode::TopLevel && self.comment_top_level_count > 0 {
                         self.comment_selected_index = self.comment_top_level_count - 1;
                     }
                 }
