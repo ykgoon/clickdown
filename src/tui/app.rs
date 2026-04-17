@@ -62,6 +62,12 @@ pub enum TaskCreationField {
     Description,
 }
 
+#[derive(Debug, Clone)]
+pub struct CommentCreatedMessageMeta {
+    is_reply: bool,
+    task_id: String,
+}
+
 /// Async messages for API results
 #[derive(Debug, Clone)]
 pub enum AppMessage {
@@ -71,7 +77,7 @@ pub enum AppMessage {
     ListsLoaded(Result<Vec<List>, String>),
     TasksLoaded(Result<Vec<Task>, String>),
     CommentsLoaded(Result<Vec<Comment>, String>),
-    CommentCreated(Result<Comment, String>, bool), // bool = is_reply
+    CommentCreated(Result<Comment, String>, CommentCreatedMessageMeta),
     CommentUpdated(Result<Comment, String>),
     CurrentUserLoaded(Result<User, String>),
     MembersLoaded(Result<Vec<User>, String>),
@@ -1415,28 +1421,31 @@ impl TuiApp {
                             }
                         }
                     }
-                    AppMessage::CommentCreated(result, is_reply) => {
+                    AppMessage::CommentCreated(result, comment_meta) => {
                         self.loading = false;
                         match result {
                             Ok(comment) => {
                                 self.comments.insert(0, comment);
                                 self.comment_new_text.clear();
                                 self.comment_editing_index = None;
-                                self.status = if is_reply {
+                                self.status = if comment_meta.is_reply {
                                     "Reply added".to_string()
                                 } else {
                                     "Comment added".to_string()
                                 };
+
+                                // refetch comments on comment created
+                                self.load_comments(comment_meta.task_id);
                             }
                             Err(e) => {
                                 self.error = Some(format!(
                                     "Failed to create {}: {}",
-                                    if is_reply { "reply" } else { "comment" },
+                                    if comment_meta.is_reply { "reply" } else { "comment" },
                                     e
                                 ));
                                 self.status = format!(
                                     "Failed to create {}",
-                                    if is_reply { "reply" } else { "comment" }
+                                    if comment_meta.is_reply { "reply" } else { "comment" }
                                 );
                             }
                         }
@@ -3194,9 +3203,10 @@ impl TuiApp {
                 client.create_comment(&task_id, &request).await
             };
 
+            let meta = CommentCreatedMessageMeta { is_reply, task_id };
             let msg = match result {
-                Ok(comment) => AppMessage::CommentCreated(Ok(comment), is_reply),
-                Err(e) => AppMessage::CommentCreated(Err(e.to_string()), is_reply),
+                Ok(comment) => AppMessage::CommentCreated(Ok(comment), meta),
+                Err(e) => AppMessage::CommentCreated(Err(e.to_string()), meta),
             };
             let _ = tx.send(msg).await;
         });
