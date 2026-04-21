@@ -1270,3 +1270,206 @@ fn test_g_u_chord_still_opens_url_dialog() {
     assert!(app.is_url_input_open(), "URL input dialog should open with 'g' 'u' chord");
     assert_snapshot!("g_u_chord_opens_url_dialog", app.url_input_text().to_string());
 }
+
+/// Test that Tab key switches focus between name and description fields
+#[test]
+fn test_tab_switches_task_creation_field() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    app.set_screen(Screen::TaskDetail);
+    app.set_current_list_id(Some("list-1".to_string()));
+    app.set_task_creating(true);
+    app.set_task_creation_focus(TaskCreationField::Name);
+
+    let tab_key = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+    app.update(InputEvent::Key(tab_key));
+
+    let focus = app.task_creation_focus().clone();
+    assert_snapshot!("tab_switches_to_description", format!("{:?}", focus));
+    assert!(matches!(focus, TaskCreationField::Description),
+        "Tab should switch focus to Description field");
+}
+
+/// Test that Esc cancels task creation
+#[test]
+fn test_esc_cancels_task_creation() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    app.set_screen(Screen::TaskDetail);
+    app.set_current_list_id(Some("list-1".to_string()));
+    app.set_task_creating(true);
+    app.set_task_creation_focus(TaskCreationField::Name);
+
+    let esc_key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    app.update(InputEvent::Key(esc_key));
+
+    assert_snapshot!("esc_cancels_task_creation", app.is_task_creating());
+    assert!(!app.is_task_creating(), "Esc should cancel task creation");
+}
+
+/// Test that Enter key in task name field moves to description field
+#[test]
+fn test_enter_in_task_name_field() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    app.set_screen(Screen::TaskDetail);
+    app.set_current_list_id(Some("list-1".to_string()));
+    app.set_task_creating(true);
+    app.set_task_creation_focus(TaskCreationField::Name);
+
+    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    app.update(InputEvent::Key(enter_key));
+
+    let focus = app.task_creation_focus().clone();
+    assert_snapshot!("enter_moves_to_description", format!("{:?}", focus));
+    assert!(matches!(focus, TaskCreationField::Description),
+        "Enter should move focus to Description field");
+}
+
+/// Test that 't' key in task name creation mode types the letter instead of switching fields
+#[test]
+fn test_task_creation_can_type_t() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_tasks(vec![]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Set up task creation mode with name field focused
+    app.set_screen(Screen::TaskDetail);
+    app.set_current_list_id(Some("list-1".to_string()));
+    app.set_task_creating(true);
+    app.set_task_creation_focus(TaskCreationField::Name);
+
+    // Type 't' key - should add 't' to task name, NOT switch fields
+    let t_key = KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(t_key));
+
+    // Assert 't' appears in task_name_input
+    let task_name = app.task_name_input().to_string();
+    assert_snapshot!("task_creation_can_type_t", task_name);
+
+    assert!(
+        task_name.contains('t'),
+        "Task name should contain 't' - BUG: 't' was intercepted by field switch shortcut!"
+    );
+}
+
+/// Test that 'g' key in task name creation mode types the letter instead of being intercepted by chord leader
+#[test]
+fn test_task_creation_can_type_g() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_tasks(vec![]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Set up task creation mode with name field focused
+    app.set_screen(Screen::TaskDetail);
+    app.set_current_list_id(Some("list-1".to_string()));
+    app.set_task_creating(true);
+    app.set_task_creation_focus(TaskCreationField::Name);
+
+    // Type 'g' key - should add 'g' to task name, NOT trigger chord leader
+    let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+    app.update(InputEvent::Key(g_key));
+
+    // Assert 'g' appears in task_name_input
+    let task_name = app.task_name_input().to_string();
+    assert_snapshot!("task_creation_can_type_g", task_name);
+
+    assert!(
+        task_name.contains('g'),
+        "Task name should contain 'g' - BUG: 'g' was intercepted by chord leader!"
+    );
+}
+
+/// Test that Enter closes quit dialog during task creation
+/// Bug: Enter in task creation mode routes to handle_task_creation_input instead of dialog handling
+#[test]
+fn test_quit_dialog_enter_in_task_creation() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use clickdown::tui::widgets::DialogType;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mock_client = MockClickUpClient::new()
+        .with_tasks(vec![]);
+
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(mock_client))
+    }).unwrap();
+
+    // Set up task creation mode
+    app.set_screen(Screen::TaskDetail);
+    app.set_current_list_id(Some("list-1".to_string()));
+    app.set_task_creating(true);
+    app.set_task_creation_focus(TaskCreationField::Name);
+
+    // Show quit dialog
+    app.dialog_mut_for_test().show(DialogType::ConfirmQuit);
+    assert!(app.is_dialog_visible(), "Dialog should be visible");
+
+    // Type Enter - should close dialog (not just switch field in task creation)
+    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    app.update(InputEvent::Key(enter_key));
+
+    // Assert dialog is hidden after Enter
+    assert_snapshot!("quit_dialog_enter_in_task_creation", app.is_dialog_visible());
+    assert!(
+        !app.is_dialog_visible(),
+        "BUG: Dialog should close on Enter but it didn't!"
+    );
+}

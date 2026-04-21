@@ -1,0 +1,5 @@
+---
+source: tests/snapshot_test.rs
+expression: app.is_task_creating()
+---
+false

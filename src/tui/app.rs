@@ -320,6 +320,40 @@ impl TuiApp {
     /// Handle keyboard input within task creation form
     fn handle_task_creation_input(&mut self, key: crossterm::event::KeyEvent) {
         use crossterm::event::{KeyCode, KeyModifiers};
+        match key.code {
+            KeyCode::Tab => {
+                self.task_creation_focus = match self.task_creation_focus {
+                    TaskCreationField::Name => TaskCreationField::Description,
+                    TaskCreationField::Description => TaskCreationField::Name,
+                };
+                self.status = format!(
+                    "Focus: {}",
+                    match self.task_creation_focus {
+                        TaskCreationField::Name => "Task Name",
+                        TaskCreationField::Description => "Description",
+                    }
+                );
+                return;
+            }
+            KeyCode::Esc => {
+                self.task_name_input.clear();
+                self.task_description_input.clear();
+                self.task_creating = false;
+                self.task_detail.creating = false;
+                self.screen = Screen::Tasks;
+                self.update_screen_title();
+                self.status = "Task creation cancelled".to_string();
+                return;
+            }
+            KeyCode::Enter => {
+                if matches!(self.task_creation_focus, TaskCreationField::Name) {
+                    self.task_creation_focus = TaskCreationField::Description;
+                    self.status = "Focus: Description".to_string();
+                }
+                return;
+            }
+            _ => {}
+        }
         if let KeyCode::Char('s') = key.code {
             if key.modifiers.contains(KeyModifiers::CONTROL) {
                 if self.task_name_input.trim().is_empty() {
@@ -331,21 +365,6 @@ impl TuiApp {
                 }
                 return;
             }
-        }
-        if let KeyCode::Char('t') = key.code {
-            // Toggle focus between name and description fields
-            self.task_creation_focus = match self.task_creation_focus {
-                TaskCreationField::Name => TaskCreationField::Description,
-                TaskCreationField::Description => TaskCreationField::Name,
-            };
-            self.status = format!(
-                "Focus: {}",
-                match self.task_creation_focus {
-                    TaskCreationField::Name => "Task Name",
-                    TaskCreationField::Description => "Description",
-                }
-            );
-            return;
         }
         if let KeyCode::Char(c) = key.code {
             // Add character to focused field
@@ -1839,8 +1858,8 @@ impl TuiApp {
                 }
                 // Non-matching second key: pass through to normal handling below
                 // (the key variable still holds the original KeyEvent)
-            } else if key.code == KeyCode::Char('g') {
-                // Set leader pending and wait for second key
+            } else if key.code == KeyCode::Char('g') && !self.is_text_input_active() {
+                // Set leader pending and wait for second key (only when not in text input)
                 self.chord_leader_pending = Some(KeyCode::Char('g'));
                 return;
             }
@@ -1865,23 +1884,8 @@ impl TuiApp {
                 return;
             }
 
-            // Handle text input — delegate to appropriate handler when any text input is active
-            // This guards global shortcuts like 'u' from interfering with typing
-            if self.is_text_input_active() {
-                self.handle_text_input(key);
-                return;
-            }
-
-            // Handle URL copy with single key 'u' (for URL)
-            // This is simpler and more reliable than modifier combinations
-            if key.code == KeyCode::Char('u') {
-                tracing::debug!("URL copy shortcut detected (u key)");
-                self.copy_url();
-                return;
-            }
-
-            // Handle dialog confirmation (Enter/Esc) — must be before screen handlers
-            // so dialog takes priority over any screen-specific Enter/Esc behavior
+            // Handle dialog confirmation (Enter/Esc) — must be first, before ANY other handler
+            // so dialog takes priority over text input, screen handlers, etc.
             if self.dialog.is_visible() {
                 match key.code {
                     KeyCode::Enter => {
@@ -1913,6 +1917,21 @@ impl TuiApp {
                     }
                     _ => {}
                 }
+            }
+
+            // Handle text input — delegate to appropriate handler when any text input is active
+            // This guards global shortcuts like 'u' from interfering with typing
+            if self.is_text_input_active() {
+                self.handle_text_input(key);
+                return;
+            }
+
+            // Handle URL copy with single key 'u' (for URL)
+            // This is simpler and more reliable than modifier combinations
+            if key.code == KeyCode::Char('u') {
+                tracing::debug!("URL copy shortcut detected (u key)");
+                self.copy_url();
+                return;
             }
         }
 
