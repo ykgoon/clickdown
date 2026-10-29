@@ -700,19 +700,13 @@ mod tests {
             StatusGroupPriority::InProgress
         );
 
-        assert_eq!(
-            get_status_group_priority("todo"),
-            StatusGroupPriority::ToDo
-        );
+        assert_eq!(get_status_group_priority("todo"), StatusGroupPriority::ToDo);
         assert_eq!(
             get_status_group_priority("to_do"),
             StatusGroupPriority::ToDo
         );
 
-        assert_eq!(
-            get_status_group_priority("done"),
-            StatusGroupPriority::Done
-        );
+        assert_eq!(get_status_group_priority("done"), StatusGroupPriority::Done);
         assert_eq!(
             get_status_group_priority("complete"),
             StatusGroupPriority::Done
@@ -758,10 +752,7 @@ mod tests {
         );
 
         // Both empty → "other"
-        assert_eq!(
-            resolve_status_group(Some(&make_status(None, ""))),
-            "other"
-        );
+        assert_eq!(resolve_status_group(Some(&make_status(None, ""))), "other");
 
         // None status → "other"
         assert_eq!(resolve_status_group(None), "other");
@@ -917,7 +908,7 @@ mod tests {
         assert!(query.contains("assignees[]=123"));
         assert!(query.contains("assignees[]=456"));
         assert!(query.contains("statuses[]=todo"));
-        assert!(query.contains("statuses[]=in progress"));
+        assert!(query.contains("statuses[]=in%20progress"));
     }
 
     #[test]

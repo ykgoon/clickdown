@@ -18,6 +18,11 @@ pub fn format_timestamp(ts: i64) -> String {
     }
 }
 
+/// Truncate text to at most `max_chars` characters without splitting UTF-8 sequences.
+pub fn truncate_chars(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}
+
 /// Wrap text to fit within the given width
 pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
@@ -44,4 +49,16 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
     }
 
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_chars_multibyte() {
+        assert_eq!(truncate_chars("日本語のテキスト", 3), "日本語");
+        assert_eq!(truncate_chars("a😀bc", 2), "a😀");
+        assert_eq!(truncate_chars("short", 10), "short");
+    }
 }

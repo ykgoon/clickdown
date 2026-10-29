@@ -1,6 +1,8 @@
 //! Task list widget
 
-use crate::models::task::{get_status_group_priority, resolve_status_group, sort_tasks, StatusGroupPriority};
+use crate::models::task::{
+    get_status_group_priority, resolve_status_group, sort_tasks, StatusGroupPriority,
+};
 use crate::models::Task;
 use crate::tui::theme::Theme;
 use ratatui::{
@@ -14,7 +16,11 @@ use ratatui::{
 /// A row in the task list — either a status group header or a task
 #[derive(Debug, Clone)]
 pub enum ListRow {
-    Header { label: String, #[allow(dead_code)] count: usize },
+    Header {
+        label: String,
+        #[allow(dead_code)]
+        count: usize,
+    },
     Task(Task),
 }
 
@@ -53,7 +59,9 @@ impl GroupedTaskList {
             let group_name = resolve_status_group(task.status.as_ref());
             let priority = get_status_group_priority(&group_name);
             // Find existing group or create new one
-            if let Some((_, _, group_tasks)) = groups.iter_mut().find(|(name, _, _)| *name == group_name) {
+            if let Some((_, _, group_tasks)) =
+                groups.iter_mut().find(|(name, _, _)| *name == group_name)
+            {
                 group_tasks.push(task);
             } else {
                 groups.push((group_name, priority, vec![task]));
@@ -79,9 +87,7 @@ impl GroupedTaskList {
         }
 
         // Select first task (skip headers)
-        let first_task_index = rows
-            .iter()
-            .position(|r| matches!(r, ListRow::Task(_)));
+        let first_task_index = rows.iter().position(|r| matches!(r, ListRow::Task(_)));
 
         let mut list = ListState::default();
         list.select(first_task_index);
@@ -449,7 +455,9 @@ mod tests {
 
         // One header + two tasks
         assert_eq!(rows.len(), 3);
-        assert!(matches!(&rows[0], ListRow::Header { label, count } if label.contains("TODO") && *count == 2));
+        assert!(
+            matches!(&rows[0], ListRow::Header { label, count } if label.contains("TODO") && *count == 2)
+        );
         assert!(matches!(&rows[1], ListRow::Task(t) if t.id == "t1"));
         assert!(matches!(&rows[2], ListRow::Task(t) if t.id == "t2"));
     }
@@ -485,7 +493,9 @@ mod tests {
         // Both have Fallback priority so they sort alphabetically: "test" < "unknown_status"
         assert_eq!(rows.len(), 4); // 2 headers + 2 tasks
         assert!(matches!(&rows[0], ListRow::Header { label, .. } if label.contains("TEST")));
-        assert!(matches!(&rows[2], ListRow::Header { label, .. } if label.contains("UNKNOWN_STATUS")));
+        assert!(
+            matches!(&rows[2], ListRow::Header { label, .. } if label.contains("UNKNOWN_STATUS"))
+        );
     }
 
     /// Test that tasks with `status_group: None` but different `status.status` values
@@ -531,7 +541,8 @@ mod tests {
             .count();
 
         assert_eq!(
-            header_count, 5,
+            header_count,
+            5,
             "Expected 5 distinct status headers (IN PROGRESS, REVIEW, TODO, DONE, BLOCKED), \
              not collapsed into a single OTHER header. Rows: {:?}",
             rows.iter()
@@ -553,7 +564,10 @@ mod tests {
             .collect();
 
         // Known groups should be in priority order: IN PROGRESS < TODO < DONE
-        let in_progress_idx = headers.iter().position(|h| h.contains("IN PROGRESS")).unwrap();
+        let in_progress_idx = headers
+            .iter()
+            .position(|h| h.contains("IN PROGRESS"))
+            .unwrap();
         let todo_idx = headers.iter().position(|h| h.contains("TODO")).unwrap();
         let done_idx = headers.iter().position(|h| h.contains("DONE")).unwrap();
 
@@ -561,10 +575,7 @@ mod tests {
             in_progress_idx < todo_idx,
             "IN PROGRESS should appear before TODO"
         );
-        assert!(
-            todo_idx < done_idx,
-            "TODO should appear before DONE"
-        );
+        assert!(todo_idx < done_idx, "TODO should appear before DONE");
 
         // Unknown groups (REVIEW, BLOCKED) should appear after known groups
         let review_idx = headers.iter().position(|h| h.contains("REVIEW")).unwrap();

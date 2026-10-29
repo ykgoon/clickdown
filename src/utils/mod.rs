@@ -9,6 +9,6 @@ pub mod url_parser;
 
 pub use clipboard::ClipboardService;
 pub use query::QueryParams;
-pub use text::{format_timestamp, wrap_text};
+pub use text::{format_timestamp, truncate_chars, wrap_text};
 pub use url_generator::{ClickUpUrlGenerator, UrlGenerator};
 pub use url_parser::{ParsedUrl, UrlParser};

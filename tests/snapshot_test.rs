@@ -10,10 +10,11 @@
 mod fixtures;
 
 use clickdown::models::Task;
-use clickdown::tui::app::TaskCreationField;
+use clickdown::tui::app::{CommentViewMode, TaskCreationField};
 use clickdown::tui::layout::{generate_screen_title, TuiLayout};
 use clickdown::tui::widgets::{
     auth::{render_auth, AuthState},
+    comments::render_comments,
     dialog::{render_dialog, DialogState, DialogType},
     document::{render_document, DocumentState},
     help::{render_help, HelpContext, HelpState},
@@ -381,9 +382,9 @@ fn test_task_detail_empty() {
 /// This snapshot shows the status picker with status message and overlay widget.
 #[test]
 fn test_s_key_in_task_detail_no_response_snapshot() {
+    use clickdown::models::TaskStatus;
     use clickdown::tui::layout::TuiLayout;
     use clickdown::tui::widgets::status_picker::render_status_picker;
-    use clickdown::models::TaskStatus;
 
     // Set up task detail with a task
     let mut detail = TaskDetailState::new();
@@ -431,7 +432,14 @@ fn test_s_key_in_task_detail_no_response_snapshot() {
         layout.render_title(frame, "ClickDown - Task Detail");
 
         // Render task detail content
-        render_task_detail(frame, &detail, layout.content_area, "", "", &TaskCreationField::Name);
+        render_task_detail(
+            frame,
+            &detail,
+            layout.content_area,
+            "",
+            "",
+            &TaskCreationField::Name,
+        );
 
         // Render status bar (showing status picker instructions)
         let hints = "j/k: Navigate | Enter: Select | Esc: Cancel";
@@ -460,7 +468,14 @@ fn test_task_detail_before_s_key_baseline() {
         layout.render_title(frame, "ClickDown - Task Detail");
 
         // Render task detail content
-        render_task_detail(frame, &detail, layout.content_area, "", "", &TaskCreationField::Name);
+        render_task_detail(
+            frame,
+            &detail,
+            layout.content_area,
+            "",
+            "",
+            &TaskCreationField::Name,
+        );
 
         // Render status bar
         let hints = "e: Edit task | Tab: Comments | Esc: Back | ? - Help";
@@ -1069,12 +1084,11 @@ fn test_url_input_dialog_paste_preserves_u_characters() {
     use std::sync::Arc;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let mock_client = MockClickUpClient::new()
-        .with_workspaces(vec![fixtures::test_workspace()]);
+    let mock_client = MockClickUpClient::new().with_workspaces(vec![fixtures::test_workspace()]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     // Open URL input dialog with 'g' then 'u'
     let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
@@ -1098,13 +1112,36 @@ fn test_url_input_dialog_paste_preserves_u_characters() {
     // After the fix: "https://app.clickup.com/t/123" (correct)
     let url_text = app.url_input_text().to_string();
     assert_snapshot!("url_input_text_after_paste", url_text);
-    
+
     // Also verify programmatically for clearer test output
     assert_eq!(
         app.url_input_text(),
         "https://app.clickup.com/t/123",
         "URL should contain all characters including 'u' - BUG: 'u' characters are being dropped!"
     );
+}
+
+/// Test that a multi-byte comment author is truncated without splitting UTF-8.
+#[test]
+fn test_comments_thread_title_truncates_multibyte_author() {
+    let comments = vec![fixtures::test_comment()];
+    let view_mode = CommentViewMode::InThread {
+        parent_comment_id: "test-comment-1".to_string(),
+        parent_author: "吕文静是一个很长的名字用于测试截断逻辑是否正确处理".to_string(),
+    };
+
+    assert_widget_snapshot("comments_thread_title_unicode", 80, 20, |frame| {
+        render_comments(
+            frame,
+            &comments,
+            0,
+            None,
+            "",
+            true,
+            Rect::new(0, 0, 80, 20),
+            &view_mode,
+        );
+    });
 }
 
 /// Test that 'u' key in comment editing mode types the letter instead of copying URL
@@ -1123,9 +1160,9 @@ fn test_u_key_in_comment_editing() {
         .with_tasks(vec![fixtures::test_task()])
         .with_task_comments(vec![fixtures::test_comment()]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     // Navigate to TaskDetail
     app.set_screen(Screen::TaskDetail);
@@ -1140,7 +1177,7 @@ fn test_u_key_in_comment_editing() {
     app.set_current_list_id(Some("list-1".to_string()));
     app.set_task_detail_task(fixtures::test_task());
     app.set_comments(vec![fixtures::test_comment()]);
-    
+
     // Enable comment focus (so 'n' key triggers new comment)
     app.set_comment_focus(true);
 
@@ -1149,7 +1186,10 @@ fn test_u_key_in_comment_editing() {
     app.update(InputEvent::Key(n_key));
 
     // Verify comment editing is active
-    assert!(app.is_comment_editing_active(), "Comment editing should be active");
+    assert!(
+        app.is_comment_editing_active(),
+        "Comment editing should be active"
+    );
 
     // Type 'u' key - should add 'u' to comment, NOT trigger URL copy
     let u_key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
@@ -1175,12 +1215,11 @@ fn test_u_key_in_task_name_creation() {
     use std::sync::Arc;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let mock_client = MockClickUpClient::new()
-        .with_tasks(vec![]);
+    let mock_client = MockClickUpClient::new().with_tasks(vec![]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     // Set up task creation mode with name field focused
     app.set_screen(Screen::TaskDetail);
@@ -1212,12 +1251,11 @@ fn test_u_key_in_task_description_creation() {
     use std::sync::Arc;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let mock_client = MockClickUpClient::new()
-        .with_tasks(vec![]);
+    let mock_client = MockClickUpClient::new().with_tasks(vec![]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     // Set up task creation mode with description field focused
     app.set_screen(Screen::TaskDetail);
@@ -1250,12 +1288,11 @@ fn test_g_u_chord_still_opens_url_dialog() {
     use std::sync::Arc;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let mock_client = MockClickUpClient::new()
-        .with_workspaces(vec![fixtures::test_workspace()]);
+    let mock_client = MockClickUpClient::new().with_workspaces(vec![fixtures::test_workspace()]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     // Set up on Tasks screen (no text input active)
     app.set_screen(Screen::Tasks);
@@ -1267,8 +1304,14 @@ fn test_g_u_chord_still_opens_url_dialog() {
     app.update(InputEvent::Key(u_key));
 
     // Assert URL dialog is open
-    assert!(app.is_url_input_open(), "URL input dialog should open with 'g' 'u' chord");
-    assert_snapshot!("g_u_chord_opens_url_dialog", app.url_input_text().to_string());
+    assert!(
+        app.is_url_input_open(),
+        "URL input dialog should open with 'g' 'u' chord"
+    );
+    assert_snapshot!(
+        "g_u_chord_opens_url_dialog",
+        app.url_input_text().to_string()
+    );
 }
 
 /// Test that Tab key switches focus between name and description fields
@@ -1283,9 +1326,9 @@ fn test_tab_switches_task_creation_field() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mock_client = MockClickUpClient::new().with_tasks(vec![]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     app.set_screen(Screen::TaskDetail);
     app.set_current_list_id(Some("list-1".to_string()));
@@ -1297,8 +1340,10 @@ fn test_tab_switches_task_creation_field() {
 
     let focus = app.task_creation_focus().clone();
     assert_snapshot!("tab_switches_to_description", format!("{:?}", focus));
-    assert!(matches!(focus, TaskCreationField::Description),
-        "Tab should switch focus to Description field");
+    assert!(
+        matches!(focus, TaskCreationField::Description),
+        "Tab should switch focus to Description field"
+    );
 }
 
 /// Test that Esc cancels task creation
@@ -1313,9 +1358,9 @@ fn test_esc_cancels_task_creation() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mock_client = MockClickUpClient::new().with_tasks(vec![]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     app.set_screen(Screen::TaskDetail);
     app.set_current_list_id(Some("list-1".to_string()));
@@ -1341,9 +1386,9 @@ fn test_enter_in_task_name_field() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mock_client = MockClickUpClient::new().with_tasks(vec![]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     app.set_screen(Screen::TaskDetail);
     app.set_current_list_id(Some("list-1".to_string()));
@@ -1355,8 +1400,10 @@ fn test_enter_in_task_name_field() {
 
     let focus = app.task_creation_focus().clone();
     assert_snapshot!("enter_moves_to_description", format!("{:?}", focus));
-    assert!(matches!(focus, TaskCreationField::Description),
-        "Enter should move focus to Description field");
+    assert!(
+        matches!(focus, TaskCreationField::Description),
+        "Enter should move focus to Description field"
+    );
 }
 
 /// Test that 't' key in task name creation mode types the letter instead of switching fields
@@ -1369,12 +1416,11 @@ fn test_task_creation_can_type_t() {
     use std::sync::Arc;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let mock_client = MockClickUpClient::new()
-        .with_tasks(vec![]);
+    let mock_client = MockClickUpClient::new().with_tasks(vec![]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     // Set up task creation mode with name field focused
     app.set_screen(Screen::TaskDetail);
@@ -1406,12 +1452,11 @@ fn test_task_creation_can_type_g() {
     use std::sync::Arc;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let mock_client = MockClickUpClient::new()
-        .with_tasks(vec![]);
+    let mock_client = MockClickUpClient::new().with_tasks(vec![]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     // Set up task creation mode with name field focused
     app.set_screen(Screen::TaskDetail);
@@ -1445,12 +1490,11 @@ fn test_quit_dialog_enter_in_task_creation() {
     use std::sync::Arc;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let mock_client = MockClickUpClient::new()
-        .with_tasks(vec![]);
+    let mock_client = MockClickUpClient::new().with_tasks(vec![]);
 
-    let mut app = rt.block_on(async {
-        TuiApp::with_client(Arc::new(mock_client))
-    }).unwrap();
+    let mut app = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
+        .unwrap();
 
     // Set up task creation mode
     app.set_screen(Screen::TaskDetail);
@@ -1467,7 +1511,10 @@ fn test_quit_dialog_enter_in_task_creation() {
     app.update(InputEvent::Key(enter_key));
 
     // Assert dialog is hidden after Enter
-    assert_snapshot!("quit_dialog_enter_in_task_creation", app.is_dialog_visible());
+    assert_snapshot!(
+        "quit_dialog_enter_in_task_creation",
+        app.is_dialog_visible()
+    );
     assert!(
         !app.is_dialog_visible(),
         "BUG: Dialog should close on Enter but it didn't!"

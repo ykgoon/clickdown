@@ -193,7 +193,9 @@ fn render_task_creation_form(
 
     // Name field
     let name_style = if *focus == TaskCreationField::Name {
-        Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Theme::WARNING)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Theme::SECONDARY)
     };
@@ -205,23 +207,40 @@ fn render_task_creation_form(
     frame.render_widget(name_block, inner[0]);
 
     // Display cursor indicator for focused field
-    let cursor_indicator = if *focus == TaskCreationField::Name { "█" } else { "" };
+    let cursor_indicator = if *focus == TaskCreationField::Name {
+        "█"
+    } else {
+        ""
+    };
     let name_content = if name_input.is_empty() {
         Line::from(Span::styled(
-            format!("{}{}", cursor_indicator, if *focus == TaskCreationField::Name { "" } else { "" }),
+            format!(
+                "{}{}",
+                cursor_indicator,
+                if *focus == TaskCreationField::Name {
+                    ""
+                } else {
+                    ""
+                }
+            ),
             Style::default().fg(Theme::SECONDARY),
         ))
     } else {
         Line::from(vec![
             Span::styled(name_input.to_string(), name_style),
-            Span::styled(cursor_indicator.to_string(), Style::default().fg(Theme::WARNING)),
+            Span::styled(
+                cursor_indicator.to_string(),
+                Style::default().fg(Theme::WARNING),
+            ),
         ])
     };
     frame.render_widget(Paragraph::new(name_content), name_area);
 
     // Description field
     let desc_style = if *focus == TaskCreationField::Description {
-        Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Theme::WARNING)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Theme::SECONDARY)
     };
@@ -232,10 +251,22 @@ fn render_task_creation_form(
     let desc_area = desc_block.inner(inner[1]);
     frame.render_widget(desc_block, inner[1]);
 
-    let cursor_indicator = if *focus == TaskCreationField::Description { "█" } else { "" };
+    let cursor_indicator = if *focus == TaskCreationField::Description {
+        "█"
+    } else {
+        ""
+    };
     let desc_content = if description_input.is_empty() {
         Line::from(Span::styled(
-            format!("{}{}", cursor_indicator, if *focus == TaskCreationField::Description { "" } else { "" }),
+            format!(
+                "{}{}",
+                cursor_indicator,
+                if *focus == TaskCreationField::Description {
+                    ""
+                } else {
+                    ""
+                }
+            ),
             Style::default().fg(Theme::SECONDARY),
         ))
     } else {
@@ -255,7 +286,10 @@ fn render_task_creation_form(
         ));
         Line::from(spans)
     };
-    frame.render_widget(Paragraph::new(desc_content).wrap(Wrap { trim: false }), desc_area);
+    frame.render_widget(
+        Paragraph::new(desc_content).wrap(Wrap { trim: false }),
+        desc_area,
+    );
 
     // Hint text
     let hint = Paragraph::new("Tab: switch field | Ctrl+S: create | Esc: cancel")

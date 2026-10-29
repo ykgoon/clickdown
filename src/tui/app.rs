@@ -13,8 +13,8 @@ use crate::api::{AuthManager, ClickUpApi, ClickUpClient};
 use crate::cache::CacheManager;
 use crate::config::ConfigManager;
 use crate::models::{
-    ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, Folder, List, SessionState, Task,
-    UpdateCommentRequest, User, Workspace,
+    ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, Folder, List,
+    SessionState, Task, UpdateCommentRequest, User, Workspace,
 };
 use crate::tui::widgets::SidebarItem;
 use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlGenerator};
@@ -68,12 +68,6 @@ pub struct CommentCreatedMessageMeta {
     task_id: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct CommentsLoadedResponse {
-    all_comments: Vec<Comment>,
-    top_level_comments: usize
-}
-
 /// Async messages for API results
 #[derive(Debug, Clone)]
 pub enum AppMessage {
@@ -82,7 +76,7 @@ pub enum AppMessage {
     FoldersLoaded(Result<Vec<Folder>, String>),
     ListsLoaded(Result<Vec<List>, String>),
     TasksLoaded(Result<Vec<Task>, String>),
-    CommentsLoaded(Result<CommentsLoadedResponse, String>),
+    CommentsLoaded(Result<Vec<Comment>, String>),
     CommentCreated(Result<Comment, String>, CommentCreatedMessageMeta),
     CommentUpdated(Result<Comment, String>),
     CurrentUserLoaded(Result<User, String>),
@@ -161,7 +155,6 @@ pub struct TuiApp {
 
     /// Comment UI state
     comment_selected_index: usize,
-    comment_top_level_count: usize, // stores top level comment length
     comment_editing_index: Option<usize>,
     comment_new_text: String,
     comment_focus: bool, // true = focus on comments, false = focus on task form
@@ -196,8 +189,11 @@ pub struct TuiApp {
     status_picker_open: bool,
     status_picker_statuses: Vec<crate::models::TaskStatus>,
     status_picker_cursor: usize,
-    status_picker_original_status: Option<String>,
+    status_picker_original_status: Option<crate::models::TaskStatus>,
     status_picker_task_id: Option<String>,
+
+    /// Task captured when the delete confirmation dialog is opened
+    pending_delete_task_id: Option<String>,
 
     /// Async message receiver
     message_rx: Option<mpsc::Receiver<AppMessage>>,
@@ -252,6 +248,14 @@ pub enum AppState {
     Unauthenticated,
     Main,
     Quitting,
+}
+
+/// Convert a character index into a byte index, clamping to the string length.
+fn char_index_to_byte_index(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .nth(char_index)
+        .map(|(byte_index, _)| byte_index)
+        .unwrap_or(text.len())
 }
 
 /// Test-only methods
@@ -430,8 +434,18 @@ impl TuiApp {
                                 self.status = "Comment cannot be empty".to_string();
                                 return;
                             }
-                            let comment_id = self.comments[edit_idx].id.clone();
-                            self.update_comment(comment_id, text);
+                            match self
+                                .comments
+                                .get(edit_idx)
+                                .map(|comment| comment.id.clone())
+                            {
+                                Some(comment_id) => self.update_comment(comment_id, text),
+                                None => {
+                                    self.comment_new_text.clear();
+                                    self.comment_editing_index = None;
+                                    self.status = "Comment no longer exists".to_string();
+                                }
+                            }
                         }
                     }
                 } else if !self.comment_new_text.is_empty() {
@@ -734,7 +748,6 @@ impl TuiApp {
             comment_editing_index: None,
             comment_new_text: String::new(),
             comment_focus: false,
-            comment_top_level_count: 0,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
             task_name_input: String::new(),
@@ -754,6 +767,7 @@ impl TuiApp {
             status_picker_cursor: 0,
             status_picker_original_status: None,
             status_picker_task_id: None,
+            pending_delete_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -854,7 +868,6 @@ impl TuiApp {
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
-            comment_top_level_count: 0,
             task_name_input: String::new(),
             task_description_input: String::new(),
             task_creating: false,
@@ -872,6 +885,7 @@ impl TuiApp {
             status_picker_cursor: 0,
             status_picker_original_status: None,
             status_picker_task_id: None,
+            pending_delete_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -943,7 +957,6 @@ impl TuiApp {
             comments: Vec::new(),
             comment_selected_index: 0,
             comment_editing_index: None,
-            comment_top_level_count: 0,
             comment_new_text: String::new(),
             comment_focus: false,
             comment_view_mode: CommentViewMode::TopLevel,
@@ -965,6 +978,7 @@ impl TuiApp {
             status_picker_cursor: 0,
             status_picker_original_status: None,
             status_picker_task_id: None,
+            pending_delete_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
             clipboard: ClipboardService::new(),
@@ -1379,7 +1393,11 @@ impl TuiApp {
                                             self.restoring_session = false;
                                             self.status = format!(
                                                 "Restored to Tasks view - {} task(s) loaded",
-                                                self.task_list.rows().iter().filter(|r| matches!(r, ListRow::Task(_))).count()
+                                                self.task_list
+                                                .rows()
+                                                .iter()
+                                                .filter(|r| matches!(r, ListRow::Task(_)))
+                                                .count()
                                             );
                                             tracing::info!("Session restore complete: tasks loaded, task {} selected", restored_id);
                                         } else {
@@ -1397,14 +1415,22 @@ impl TuiApp {
                                         self.task_list.select_first();
                                         self.status = format!(
                                             "Loaded {} task(s)",
-                                            self.task_list.rows().iter().filter(|r| matches!(r, ListRow::Task(_))).count()
+                                            self.task_list
+                                            .rows()
+                                            .iter()
+                                            .filter(|r| matches!(r, ListRow::Task(_)))
+                                            .count()
                                         );
                                     }
                                 } else {
                                     self.task_list.select_first();
                                     self.status = format!(
                                         "Loaded {} task(s)",
-                                        self.task_list.rows().iter().filter(|r| matches!(r, ListRow::Task(_))).count()
+                                        self.task_list
+                                        .rows()
+                                        .iter()
+                                        .filter(|r| matches!(r, ListRow::Task(_)))
+                                        .count()
                                     );
                                 }
 
@@ -1428,8 +1454,8 @@ impl TuiApp {
                         self.loading = false;
                         match result {
                             Ok(comments) => {
-                                tracing::debug!("Loaded {} comments", comments.all_comments.len());
-                                for (i, comment) in comments.all_comments.iter().enumerate() {
+                                tracing::debug!("Loaded {} comments", comments.len());
+                                for (i, comment) in comments.iter().enumerate() {
                                     tracing::debug!(
                                         "Comment {}: id={}, parent_id={:?}, author={:?}",
                                         i,
@@ -1438,8 +1464,7 @@ impl TuiApp {
                                         comment.commenter.as_ref().map(|c| &c.username)
                                     );
                                 }
-                                self.comment_top_level_count = comments.top_level_comments;
-                                self.comments = comments.all_comments;
+                                self.comments = comments;
                                 self.comment_selected_index = 0;
                                 self.error = None;
                                 self.status = format!("Loaded {} comment(s)", self.comments.len());
@@ -1448,6 +1473,9 @@ impl TuiApp {
                                 self.error = Some(format!("Failed to load comments: {}", e));
                                 self.status = "Failed to load comments".to_string();
                                 self.comments.clear();
+                                self.comment_selected_index = 0;
+                                self.comment_editing_index = None;
+                                self.comment_new_text.clear();
                             }
                         }
                     }
@@ -1466,19 +1494,24 @@ impl TuiApp {
 
                                 // refetch comments on comment created
                                 self.load_comments(comment_meta.task_id);
-                                if !comment_meta.is_reply {
-                                    self.comment_top_level_count += 1;
-                                }
                             }
                             Err(e) => {
                                 self.error = Some(format!(
                                     "Failed to create {}: {}",
-                                    if comment_meta.is_reply { "reply" } else { "comment" },
+                                    if comment_meta.is_reply {
+                                        "reply"
+                                    } else {
+                                        "comment"
+                                    },
                                     e
                                 ));
                                 self.status = format!(
                                     "Failed to create {}",
-                                    if comment_meta.is_reply { "reply" } else { "comment" }
+                                    if comment_meta.is_reply {
+                                        "reply"
+                                    } else {
+                                        "comment"
+                                    }
                                 );
                             }
                         }
@@ -1582,19 +1615,19 @@ impl TuiApp {
                             }
                             Err(e) => {
                                 // Rollback: restore original status in tasks
-                                if let Some(ref original_status) = self.status_picker_original_status {
+                                if let Some(ref original_status) =
+                                    self.status_picker_original_status
+                                {
                                     if let Some(ref task_id) = self.status_picker_task_id {
                                         for task in &mut self.tasks {
                                             if task.id == *task_id {
-                                                task.status = Some(crate::models::TaskStatus {
-                                                    id: None,
-                                                    status: original_status.clone(),
-                                                    color: None,
-                                                    type_field: None,
-                                                    orderindex: None,
-                                                    status_group: None,
-                                                });
+                                                task.status = Some(original_status.clone());
                                                 break;
+                                            }
+                                        }
+                                        if let Some(detail_task) = &mut self.task_detail.task {
+                                            if detail_task.id == *task_id {
+                                                detail_task.status = Some(original_status.clone());
                                             }
                                         }
                                     }
@@ -1662,12 +1695,10 @@ impl TuiApp {
                                                 comment_id,
                                             )
                                         }
-                                        Err(e) => {
-                                            AppMessage::CommentsLoadedForCommentNavigation(
-                                                Err(e.to_string()),
-                                                comment_id,
-                                            )
-                                        }
+                                        Err(e) => AppMessage::CommentsLoadedForCommentNavigation(
+                                            Err(e.to_string()),
+                                            comment_id,
+                                        ),
                                     };
                                     let _ = tx.send(msg).await;
                                 });
@@ -1680,41 +1711,36 @@ impl TuiApp {
                             }
                         }
                     }
-                    AppMessage::DocumentFetchedForNavigation(result, prev_screen) => {
-                        match result {
-                            Ok(doc) => {
-                                self.navigating = false;
-                                self.navigating_level.clear();
-                                self.documents = vec![doc.clone()];
-                                self.screen = Screen::Document;
-                                self.screen_title = generate_screen_title(&doc.name);
-                                self.status = format!("Navigated to document: {}", doc.name);
-                            }
-                            Err(e) => {
-                                self.navigating = false;
-                                self.navigating_level.clear();
-                                self.status = format!("Document not found: {}", e);
-                                self.screen = prev_screen;
-                            }
+                    AppMessage::DocumentFetchedForNavigation(result, prev_screen) => match result {
+                        Ok(doc) => {
+                            self.navigating = false;
+                            self.navigating_level.clear();
+                            self.documents = vec![doc.clone()];
+                            self.screen = Screen::Document;
+                            self.screen_title = generate_screen_title(&doc.name);
+                            self.status = format!("Navigated to document: {}", doc.name);
                         }
-                    }
+                        Err(e) => {
+                            self.navigating = false;
+                            self.navigating_level.clear();
+                            self.status = format!("Document not found: {}", e);
+                            self.screen = prev_screen;
+                        }
+                    },
                     AppMessage::CommentsLoadedForCommentNavigation(result, comment_id) => {
                         match result {
                             Ok(comments) => {
                                 self.comments = comments;
                                 self.comment_view_mode = CommentViewMode::TopLevel;
                                 // Find and select the target comment
-                                let found = self
-                                    .comments
-                                    .iter()
-                                    .position(|c| c.id == comment_id);
+                                let found = self.comments.iter().position(|c| c.id == comment_id);
                                 if let Some(idx) = found {
                                     self.comment_selected_index = idx;
                                     self.navigating = false;
                                     self.navigating_level.clear();
                                     self.status = format!(
                                         "Navigated to comment: {}",
-                                        &self.comments[idx].text[..self.comments[idx].text.len().min(40)]
+                                        crate::utils::truncate_chars(&self.comments[idx].text, 40)
                                     );
                                 } else {
                                     self.navigating = false;
@@ -1763,9 +1789,32 @@ impl TuiApp {
                         match result {
                             Ok(task_id) => {
                                 // Remove the task from the local list
-                                self.tasks.retain(|t| t.id != task_id);
-                                // Clear selection
-                                self.task_list.select(None);
+                                self.tasks.retain(|task| task.id != task_id);
+
+                                let deleted_open_task = self
+                                    .task_detail
+                                    .task
+                                    .as_ref()
+                                    .is_some_and(|task| task.id == task_id);
+                                if deleted_open_task {
+                                    self.task_detail.task = None;
+                                    self.task_detail.editing = false;
+                                    self.task_detail.creating = false;
+                                    self.comments.clear();
+                                    self.comment_selected_index = 0;
+                                    self.comment_editing_index = None;
+                                    self.comment_new_text.clear();
+                                    self.comment_focus = false;
+                                    self.comment_view_mode = CommentViewMode::TopLevel;
+                                    if self.screen == Screen::TaskDetail {
+                                        self.screen = Screen::Tasks;
+                                    }
+                                }
+
+                                // Rebuild grouped rows so the deleted task disappears
+                                // from the widget, not just from `self.tasks`.
+                                self.rebuild_task_list();
+                                self.update_screen_title();
                                 self.status = "Task deleted".to_string();
                             }
                             Err(e) => {
@@ -1853,7 +1902,10 @@ impl TuiApp {
 
         // Handle help toggle with ?
         if let InputEvent::Key(key) = event {
-            if key.code == KeyCode::Char('?') {
+            if key.code == KeyCode::Char('?')
+                && !self.is_text_input_active()
+                && self.screen != Screen::Auth
+            {
                 self.help.toggle();
                 return;
             }
@@ -1920,6 +1972,7 @@ impl TuiApp {
                         return;
                     }
                     KeyCode::Esc => {
+                        self.pending_delete_task_id = None;
                         self.dialog.hide();
                         return;
                     }
@@ -2052,16 +2105,24 @@ impl TuiApp {
                     self.status = "Enter task name (Ctrl+S to create, Esc to cancel)".to_string();
                 }
                 KeyCode::Char('e') => {
-                    if self.task_detail.task.is_some() {
+                    if let Some(task) = self.task_list.selected_task().cloned() {
+                        self.task_detail.task = Some(task.clone());
                         self.task_detail.editing = true;
+                        self.task_detail.creating = false;
+                        self.comments.clear();
+                        self.comment_selected_index = 0;
+                        self.comment_editing_index = None;
+                        self.comment_new_text.clear();
+                        self.comment_focus = false;
+                        self.comment_view_mode = CommentViewMode::TopLevel;
                         self.screen = Screen::TaskDetail;
                         self.update_screen_title();
+                        self.load_comments(task.id);
                     }
                 }
                 KeyCode::Char('d') => {
-                    if self.task_list.selected_task().is_some() {
-                        self.dialog.show(DialogType::ConfirmDelete);
-                    }
+                    let task_id = self.task_list.selected_task().map(|task| task.id.clone());
+                    self.open_delete_confirmation(task_id);
                 }
                 KeyCode::Char('a') => {
                     // Toggle "Assigned to Me" filter
@@ -2185,8 +2246,12 @@ impl TuiApp {
                     KeyCode::Backspace => {
                         // Remove character from focused field
                         match self.task_creation_focus {
-                            TaskCreationField::Name => { self.task_name_input.pop(); }
-                            TaskCreationField::Description => { self.task_description_input.pop(); }
+                            TaskCreationField::Name => {
+                                self.task_name_input.pop();
+                            }
+                            TaskCreationField::Description => {
+                                self.task_description_input.pop();
+                            }
                         }
                         return;
                     }
@@ -2240,8 +2305,19 @@ impl TuiApp {
                                         self.status = "Comment cannot be empty".to_string();
                                         return;
                                     }
-                                    let comment_id = self.comments[edit_idx].id.clone();
-                                    self.update_comment(comment_id, text);
+                                    match self
+                                        .comments
+                                        .get(edit_idx)
+                                        .map(|comment| comment.id.clone())
+                                    {
+                                        Some(comment_id) => self.update_comment(comment_id, text),
+                                        None => {
+                                            self.comment_new_text.clear();
+                                            self.comment_editing_index = None;
+                                            self.status = "Comment no longer exists".to_string();
+                                            return;
+                                        }
+                                    }
                                 }
                             }
                         } else if !self.comment_new_text.is_empty() {
@@ -2328,7 +2404,8 @@ impl TuiApp {
                     self.task_detail.editing = true;
                 }
                 KeyCode::Char('d') => {
-                    self.dialog.show(DialogType::ConfirmDelete);
+                    let task_id = self.task_detail.task.as_ref().map(|task| task.id.clone());
+                    self.open_delete_confirmation(task_id);
                 }
                 KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     // Save task - not yet implemented
@@ -2358,34 +2435,10 @@ impl TuiApp {
                     };
                 }
                 KeyCode::Char('j') if self.comment_focus => {
-                    if self.comments.is_empty() {
-                        return;
-                    }
-
-                    // if top level comment, prevent user from going beyond top level limit
-                    if self.comment_view_mode == CommentViewMode::TopLevel {
-                        if self.comment_selected_index < self.comment_top_level_count - 1 {
-                            self.comment_selected_index += 1;
-                            return;
-                        }
-
-                        // loop to first item
-                        self.comment_selected_index = 0;
-                        return;
-                    }
-
-                    self.comment_selected_index += 1;
+                    self.move_comment_selection(1);
                 }
                 KeyCode::Char('k') if self.comment_focus => {
-                    if self.comment_selected_index > 0 {
-                        self.comment_selected_index -= 1;
-                        return;
-                    }
-
-                    // loop to last item if top level comment
-                    if self.comment_view_mode == CommentViewMode::TopLevel && self.comment_top_level_count > 0 {
-                        self.comment_selected_index = self.comment_top_level_count - 1;
-                    }
+                    self.move_comment_selection(-1);
                 }
                 KeyCode::Char('n') if self.comment_focus => {
                     // Start new comment
@@ -2467,6 +2520,60 @@ impl TuiApp {
                 _ => {}
             }
         }
+    }
+
+    /// Indices of comments visible in the current comment view, in display order.
+    fn comment_indices_in_view(&self) -> Vec<usize> {
+        match &self.comment_view_mode {
+            CommentViewMode::TopLevel => self
+                .comments
+                .iter()
+                .enumerate()
+                .filter(|(_, comment)| comment.parent_id.is_none())
+                .map(|(index, _)| index)
+                .collect(),
+            CommentViewMode::InThread {
+                parent_comment_id, ..
+            } => {
+                let mut indices = Vec::new();
+                if let Some(parent_index) = self
+                    .comments
+                    .iter()
+                    .position(|comment| &comment.id == parent_comment_id)
+                {
+                    indices.push(parent_index);
+                }
+                indices.extend(
+                    self.comments
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, comment)| {
+                            comment.parent_id.as_ref() == Some(parent_comment_id)
+                        })
+                        .map(|(index, _)| index),
+                );
+                indices
+            }
+        }
+    }
+
+    /// Move the comment selection within the currently visible comments.
+    fn move_comment_selection(&mut self, delta: isize) {
+        let indices = self.comment_indices_in_view();
+        if indices.is_empty() {
+            return;
+        }
+
+        let current_position = indices
+            .iter()
+            .position(|index| *index == self.comment_selected_index);
+        let next_position = match current_position {
+            Some(position) => {
+                (position as isize + delta).rem_euclid(indices.len() as isize) as usize
+            }
+            None => 0,
+        };
+        self.comment_selected_index = indices[next_position];
     }
 
     fn update_document(&mut self, event: InputEvent) {
@@ -2679,8 +2786,14 @@ impl TuiApp {
             Screen::TaskDetail => {
                 // Navigate back to Tasks
                 self.screen = Screen::Tasks;
-                if let Some(list) = self.lists.first() {
+                if let Some(list) = self
+                    .current_list_id
+                    .as_ref()
+                    .and_then(|id| self.lists.iter().find(|list| &list.id == id))
+                {
                     self.screen_title = generate_screen_title(&format!("Tasks: {}", list.name));
+                } else {
+                    self.screen_title = generate_screen_title("Tasks");
                 }
             }
             Screen::Document => {
@@ -3009,50 +3122,86 @@ impl TuiApp {
         });
     }
 
-    /// Open the status picker for a task
+    /// Open the status picker for a task.
+    ///
+    /// The ClickUp API does not expose list statuses through the endpoints we use
+    /// here, so derive the options from statuses already observed on loaded tasks.
+    /// This still lets users pick any status actually in use in the list.
     fn open_status_picker(&mut self, task: crate::models::Task) {
+        use crate::models::TaskStatus;
+
         // Store the task ID we're changing status for
         self.status_picker_task_id = Some(task.id.clone());
-        
+
         // Store original status for potential rollback
-        self.status_picker_original_status = task.status.as_ref().map(|s| s.status.clone());
-        
-        // Build list of available statuses (from task's space, or default)
-        let statuses = vec![
-            crate::models::TaskStatus {
-                id: None,
-                status: "To Do".to_string(),
-                color: Some("#8794a6".to_string()),
-                type_field: None,
-                orderindex: Some(0),
-                status_group: Some("todo".to_string()),
-            },
-            crate::models::TaskStatus {
-                id: None,
-                status: "In Progress".to_string(),
-                color: Some("#4f46de".to_string()),
-                type_field: None,
-                orderindex: Some(1),
-                status_group: Some("in_progress".to_string()),
-            },
-            crate::models::TaskStatus {
-                id: None,
-                status: "Done".to_string(),
-                color: Some("#0f4a58".to_string()),
-                type_field: None,
-                orderindex: Some(2),
-                status_group: Some("done".to_string()),
-            },
-        ];
-        
-        // If task has custom statuses, add them
-        if let Some(_space) = &task.space {
-            // TODO: Fetch actual space statuses from API
-            // For now, use the space's status list if available
+        self.status_picker_original_status = task.status.clone();
+
+        let mut statuses: Vec<TaskStatus> = Vec::new();
+        let add_status = |status: &TaskStatus, statuses: &mut Vec<TaskStatus>| {
+            if !statuses
+                .iter()
+                .any(|existing| existing.status.eq_ignore_ascii_case(&status.status))
+            {
+                statuses.push(status.clone());
+            }
+        };
+
+        for loaded_task in &self.tasks {
+            if let Some(status) = &loaded_task.status {
+                add_status(status, &mut statuses);
+            }
         }
-        
+        if let Some(status) = &task.status {
+            add_status(status, &mut statuses);
+        }
+
+        // Last-resort defaults when no task has any status information.
+        if statuses.is_empty() {
+            statuses = vec![
+                TaskStatus {
+                    id: None,
+                    status: "To Do".to_string(),
+                    color: Some("#8794a6".to_string()),
+                    type_field: None,
+                    orderindex: Some(0),
+                    status_group: Some("todo".to_string()),
+                },
+                TaskStatus {
+                    id: None,
+                    status: "In Progress".to_string(),
+                    color: Some("#4f46de".to_string()),
+                    type_field: None,
+                    orderindex: Some(1),
+                    status_group: Some("in_progress".to_string()),
+                },
+                TaskStatus {
+                    id: None,
+                    status: "Done".to_string(),
+                    color: Some("#0f4a58".to_string()),
+                    type_field: None,
+                    orderindex: Some(2),
+                    status_group: Some("done".to_string()),
+                },
+            ];
+        }
+
+        statuses.sort_by(|a, b| {
+            a.orderindex
+                .unwrap_or(u32::MAX)
+                .cmp(&b.orderindex.unwrap_or(u32::MAX))
+                .then_with(|| a.status.to_lowercase().cmp(&b.status.to_lowercase()))
+        });
+
+        self.status_picker_cursor = task
+            .status
+            .as_ref()
+            .and_then(|current| {
+                statuses
+                    .iter()
+                    .position(|status| status.status.eq_ignore_ascii_case(&current.status))
+            })
+            .unwrap_or(0);
         self.status_picker_statuses = statuses;
-        self.status_picker_cursor = 0;
         self.status_picker_open = true;
         self.status = "Select new status (j/k navigate, Enter select, Esc cancel)".to_string();
     }
@@ -3093,7 +3242,7 @@ impl TuiApp {
         };
 
         let new_status = match self.status_picker_statuses.get(self.status_picker_cursor) {
-            Some(status) => status.status.clone(),
+            Some(status) => status.clone(),
             None => {
                 self.status_picker_open = false;
                 self.status = "No status selected".to_string();
@@ -3104,15 +3253,13 @@ impl TuiApp {
         // Optimistic UI update: update the task in self.tasks and rebuild grouped list
         for task in &mut self.tasks {
             if task.id == task_id {
-                task.status = Some(crate::models::TaskStatus {
-                    id: None,
-                    status: new_status.clone(),
-                    color: None,
-                    type_field: None,
-                    orderindex: None,
-                    status_group: None,
-                });
+                task.status = Some(new_status.clone());
                 break;
+            }
+        }
+        if let Some(detail_task) = &mut self.task_detail.task {
+            if detail_task.id == task_id {
+                detail_task.status = Some(new_status.clone());
             }
         }
         self.rebuild_task_list();
@@ -3131,7 +3278,7 @@ impl TuiApp {
         self.status = "Updating status...".to_string();
 
         let task_id_clone = task_id.clone();
-        let new_status_clone = new_status.clone();
+        let new_status_clone = new_status.status.clone();
         let tx = self.message_tx.clone().unwrap();
 
         use crate::models::UpdateTaskRequest;
@@ -3178,7 +3325,6 @@ impl TuiApp {
             match top_level_result {
                 Ok(top_level_comments) => {
                     // For each top-level comment, fetch its replies
-                    let total_top_level_comments = top_level_comments.len();
                     let mut all_comments = top_level_comments;
 
                     // Collect all reply fetches
@@ -3205,7 +3351,7 @@ impl TuiApp {
                         }
                     }
 
-                    let msg = AppMessage::CommentsLoaded(Ok(CommentsLoadedResponse { all_comments, top_level_comments: total_top_level_comments }));
+                    let msg = AppMessage::CommentsLoaded(Ok(all_comments));
                     let _ = tx.send(msg).await;
                 }
                 Err(e) => {
@@ -3304,13 +3450,38 @@ impl TuiApp {
         });
     }
 
-    /// Delete the currently selected task
-    fn delete_selected_task(&mut self) {
-        let task_id = match self.task_list.selected_task() {
-            Some(task) => task.id.clone(),
+    /// Open the delete confirmation for a specific task.
+    fn open_delete_confirmation(&mut self, task_id: Option<String>) {
+        match task_id {
+            Some(task_id) => {
+                self.pending_delete_task_id = Some(task_id);
+                self.dialog.show(DialogType::ConfirmDelete);
+            }
             None => {
                 self.status = "No task selected".to_string();
-                return;
+            }
+        }
+    }
+
+    /// Delete the task captured when the confirmation dialog was opened.
+    fn delete_selected_task(&mut self) {
+        let task_id = match self.pending_delete_task_id.take() {
+            Some(task_id) => task_id,
+            None => {
+                // Fallback for callers that show the dialog without going through
+                // open_delete_confirmation (e.g. older tests).
+                let fallback = if self.screen == Screen::TaskDetail {
+                    self.task_detail.task.as_ref().map(|task| task.id.clone())
+                } else {
+                    self.task_list.selected_task().map(|task| task.id.clone())
+                };
+                match fallback {
+                    Some(task_id) => task_id,
+                    None => {
+                        self.status = "No task selected".to_string();
+                        return;
+                    }
+                }
             }
         };
 
@@ -3371,28 +3542,44 @@ impl TuiApp {
             Screen::Auth => generate_screen_title("Authentication"),
             Screen::Workspaces => generate_screen_title("Workspaces"),
             Screen::Spaces => {
-                if let Some(space) = self.spaces.first() {
-                    generate_screen_title(&space.name)
+                if let Some(workspace) = self
+                    .current_workspace_id
+                    .as_ref()
+                    .and_then(|id| self.workspaces.iter().find(|workspace| &workspace.id == id))
+                {
+                    generate_screen_title(&workspace.name)
                 } else {
                     generate_screen_title("Spaces")
                 }
             }
             Screen::Folders => {
-                if let Some(folder) = self.folders.first() {
-                    generate_screen_title(&folder.name)
+                if let Some(space) = self
+                    .current_space_id
+                    .as_ref()
+                    .and_then(|id| self.spaces.iter().find(|space| &space.id == id))
+                {
+                    generate_screen_title(&space.name)
                 } else {
                     generate_screen_title("Folders")
                 }
             }
             Screen::Lists => {
-                if let Some(list) = self.lists.first() {
-                    generate_screen_title(&list.name)
+                if let Some(folder) = self
+                    .current_folder_id
+                    .as_ref()
+                    .and_then(|id| self.folders.iter().find(|folder| &folder.id == id))
+                {
+                    generate_screen_title(&folder.name)
                 } else {
                     generate_screen_title("Lists")
                 }
             }
             Screen::Tasks => {
-                if let Some(list) = self.lists.first() {
+                if let Some(list) = self
+                    .current_list_id
+                    .as_ref()
+                    .and_then(|id| self.lists.iter().find(|list| &list.id == id))
+                {
                     let base = format!("Tasks: {}", list.name);
                     if self.assigned_filter_active {
                         generate_screen_title(&format!("{} (Assigned to Me)", base))
@@ -3473,15 +3660,12 @@ impl TuiApp {
 
             // Render status picker overlay if open
             if self.status_picker_open {
-                let current_status = self
-                    .status_picker_task_id
-                    .as_ref()
-                    .and_then(|task_id| {
-                        self.tasks
-                            .iter()
-                            .find(|t| &t.id == task_id)
-                            .and_then(|t| t.status.as_ref().map(|s| s.status.as_str()))
-                    });
+                let current_status = self.status_picker_task_id.as_ref().and_then(|task_id| {
+                    self.tasks
+                        .iter()
+                        .find(|t| &t.id == task_id)
+                        .and_then(|t| t.status.as_ref().map(|s| s.status.as_str()))
+                });
                 render_status_picker(
                     frame,
                     area,
@@ -3615,12 +3799,12 @@ impl TuiApp {
             .direction(ratatui::layout::Direction::Vertical)
             .margin(2)
             .constraints([
-                ratatui::layout::Constraint::Length(1),  // prompt
-                ratatui::layout::Constraint::Length(1),  // spacer
-                ratatui::layout::Constraint::Length(3),  // input field
-                ratatui::layout::Constraint::Length(2),  // error message
-                ratatui::layout::Constraint::Length(1),  // spacer
-                ratatui::layout::Constraint::Length(1),  // hints
+                ratatui::layout::Constraint::Length(1), // prompt
+                ratatui::layout::Constraint::Length(1), // spacer
+                ratatui::layout::Constraint::Length(3), // input field
+                ratatui::layout::Constraint::Length(2), // error message
+                ratatui::layout::Constraint::Length(1), // spacer
+                ratatui::layout::Constraint::Length(1), // hints
             ])
             .split(dialog_area);
 
@@ -3633,7 +3817,9 @@ impl TuiApp {
         frame.render_widget(prompt, inner[0]);
 
         // Input field with cursor
-        let cursor_pos = self.url_input_cursor.min(self.url_input_text.len());
+        let cursor_pos = self
+            .url_input_cursor
+            .min(self.url_input_text.chars().count());
         let input_line: Line = if self.url_input_text.is_empty() {
             Line::from(Span::styled(
                 "https://app.clickup.com/...",
@@ -3643,12 +3829,10 @@ impl TuiApp {
             // Build the line with cursor position tracking
             let before_cursor: String = self.url_input_text.chars().take(cursor_pos).collect();
             let after_cursor: String = self.url_input_text.chars().skip(cursor_pos).collect();
-            let mut spans = vec![
-                Span::styled(
-                    before_cursor,
-                    Style::default().fg(ratatui::style::Color::Rgb(205, 214, 244)),
-                ),
-            ];
+            let mut spans = vec![Span::styled(
+                before_cursor,
+                Style::default().fg(ratatui::style::Color::Rgb(205, 214, 244)),
+            )];
             if after_cursor.is_empty() {
                 // Show cursor block at end
                 spans.push(Span::styled(
@@ -3679,10 +3863,8 @@ impl TuiApp {
         }
 
         // Hints
-        let hints = Paragraph::new("Enter: Navigate | Esc: Cancel | Ctrl+V: Paste").style(
-            Style::default()
-                .fg(ratatui::style::Color::DarkGray),
-        );
+        let hints = Paragraph::new("Enter: Navigate | Esc: Cancel | Ctrl+V: Paste")
+            .style(Style::default().fg(ratatui::style::Color::DarkGray));
         frame.render_widget(hints, inner[5]);
     }
 
@@ -3770,7 +3952,7 @@ impl TuiApp {
                 self.url_input_text = url.clone();
                 let error_msg = format!("Unrecognized ClickUp URL format: {}", e);
                 self.url_input_error = Some(error_msg);
-                self.url_input_cursor = url.len();
+                self.url_input_cursor = url.chars().count();
             }
         }
     }
@@ -3799,7 +3981,11 @@ impl TuiApp {
                 if let Ok(mut clipboard) = Clipboard::new() {
                     if let Ok(text) = clipboard.get_text() {
                         for c in text.chars() {
-                            self.url_input_text.insert(self.url_input_cursor, c);
+                            let byte_index = char_index_to_byte_index(
+                                &self.url_input_text,
+                                self.url_input_cursor,
+                            );
+                            self.url_input_text.insert(byte_index, c);
                             self.url_input_cursor += 1;
                         }
                         self.url_input_error = None;
@@ -3807,13 +3993,18 @@ impl TuiApp {
                 }
             }
             KeyCode::Char(c) => {
-                self.url_input_text.insert(self.url_input_cursor, c);
+                let byte_index =
+                    char_index_to_byte_index(&self.url_input_text, self.url_input_cursor);
+                self.url_input_text.insert(byte_index, c);
                 self.url_input_cursor += 1;
                 self.url_input_error = None;
             }
             KeyCode::Backspace => {
                 if self.url_input_cursor > 0 {
-                    self.url_input_text.remove(self.url_input_cursor - 1);
+                    let start =
+                        char_index_to_byte_index(&self.url_input_text, self.url_input_cursor - 1);
+                    let end = char_index_to_byte_index(&self.url_input_text, self.url_input_cursor);
+                    self.url_input_text.replace_range(start..end, "");
                     self.url_input_cursor -= 1;
                     self.url_input_error = None;
                 }
@@ -3824,7 +4015,7 @@ impl TuiApp {
                 }
             }
             KeyCode::Right => {
-                if self.url_input_cursor < self.url_input_text.len() {
+                if self.url_input_cursor < self.url_input_text.chars().count() {
                     self.url_input_cursor += 1;
                 }
             }
@@ -3839,19 +4030,31 @@ impl TuiApp {
             ParsedUrl::Workspace { workspace_id } => {
                 self.navigate_to_workspace(workspace_id);
             }
-            ParsedUrl::Space { workspace_id, space_id } => {
+            ParsedUrl::Space {
+                workspace_id,
+                space_id,
+            } => {
                 self.navigate_to_space(workspace_id, space_id);
             }
-            ParsedUrl::Folder { workspace_id, folder_id } => {
+            ParsedUrl::Folder {
+                workspace_id,
+                folder_id,
+            } => {
                 self.navigate_to_folder(workspace_id, folder_id);
             }
-            ParsedUrl::List { workspace_id, list_id } => {
+            ParsedUrl::List {
+                workspace_id,
+                list_id,
+            } => {
                 self.navigate_to_list(workspace_id, list_id);
             }
             ParsedUrl::Task { task_id } => {
                 self.navigate_to_task(task_id);
             }
-            ParsedUrl::Comment { task_id, comment_id } => {
+            ParsedUrl::Comment {
+                task_id,
+                comment_id,
+            } => {
                 self.navigate_to_comment(task_id, comment_id);
             }
             ParsedUrl::Document { doc_id } => {
@@ -4092,7 +4295,10 @@ impl TuiApp {
                     let doc = docs.iter().find(|d| d.id == target_doc_id);
                     if let Some(doc) = doc.cloned() {
                         let _ = tx
-                            .send(AppMessage::DocumentFetchedForNavigation(Ok(doc), prev_screen))
+                            .send(AppMessage::DocumentFetchedForNavigation(
+                                Ok(doc),
+                                prev_screen,
+                            ))
                             .await;
                     } else {
                         let _ = tx
@@ -4725,8 +4931,7 @@ mod tests {
     fn test_n_key_opens_task_creation_form() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-        let mock_client = MockClickUpClient::new()
-            .with_tasks(vec![]);
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
 
         let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
 
@@ -4739,18 +4944,32 @@ mod tests {
         app.update(InputEvent::Key(n_key));
 
         // Should navigate to TaskDetail screen
-        assert_eq!(app.screen, Screen::TaskDetail, "Should navigate to TaskDetail");
+        assert_eq!(
+            app.screen,
+            Screen::TaskDetail,
+            "Should navigate to TaskDetail"
+        );
 
         // Should be in creation mode
         assert!(app.task_creating, "task_creating should be true");
-        assert!(app.task_detail.creating, "task_detail.creating should be true");
+        assert!(
+            app.task_detail.creating,
+            "task_detail.creating should be true"
+        );
 
         // Input fields should be empty
         assert_eq!(app.task_name_input, "", "Name input should be empty");
-        assert_eq!(app.task_description_input, "", "Description input should be empty");
+        assert_eq!(
+            app.task_description_input, "",
+            "Description input should be empty"
+        );
 
         // Focus should be on name field
-        assert_eq!(app.task_creation_focus, TaskCreationField::Name, "Focus should be on Name");
+        assert_eq!(
+            app.task_creation_focus,
+            TaskCreationField::Name,
+            "Focus should be on Name"
+        );
 
         // Status message should indicate how to create
         assert!(
@@ -4765,5 +4984,303 @@ mod tests {
             "Title should say 'New Task': {}",
             app.screen_title
         );
+    }
+
+    fn make_task(id: &str, name: &str) -> Task {
+        Task {
+            id: id.to_string(),
+            name: name.to_string(),
+            ..Default::default()
+        }
+    }
+
+    fn make_comment(id: &str, text: &str, parent_id: Option<&str>) -> crate::models::Comment {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "comment_text": text,
+            "parent_id": parent_id,
+        }))
+            .expect("comment fixture should deserialize")
+    }
+
+    #[tokio::test]
+    async fn test_delete_confirmation_deletes_captured_task_not_current_selection() {
+        use std::time::Duration;
+
+        let first = make_task("task-1", "First");
+        let second = make_task("task-2", "Second");
+        let mock_client = MockClickUpClient::new()
+            .with_tasks(vec![first.clone(), second.clone()])
+            .with_delete_task_success();
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        app.tasks = vec![first.clone(), second.clone()];
+        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.task_list.select_first();
+        app.open_delete_confirmation(Some(first.id.clone()));
+        let second_index = app
+            .task_list
+            .rows()
+            .iter()
+            .position(|row| matches!(row, ListRow::Task(task) if task.id == second.id))
+            .expect("second task row should exist");
+        app.task_list.select(Some(second_index));
+        assert_eq!(
+            app.task_list.selected_task().map(|task| task.id.as_str()),
+            Some("task-2")
+        );
+
+        app.delete_selected_task();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        app.process_async_messages();
+
+        assert_eq!(
+            app.tasks
+            .iter()
+            .map(|task| task.id.as_str())
+            .collect::<Vec<_>>(),
+            vec!["task-2"]
+        );
+        assert_eq!(
+            app.task_list
+            .rows()
+            .iter()
+            .filter(|row| matches!(row, ListRow::Task(_)))
+            .count(),
+            1
+        );
+        assert!(app.pending_delete_task_id.is_none());
+    }
+
+    #[test]
+    fn test_task_deleted_message_rebuilds_grouped_list_and_leaves_detail() {
+        let first = make_task("task-1", "First");
+        let second = make_task("task-2", "Second");
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        app.tasks = vec![first.clone(), second.clone()];
+        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.screen = Screen::TaskDetail;
+        app.task_detail.task = Some(first.clone());
+
+        let tx = app.message_tx.clone().unwrap();
+        tx.try_send(AppMessage::TaskDeleted(Ok(first.id.clone())))
+            .unwrap();
+        app.process_async_messages();
+
+        assert_eq!(app.tasks.len(), 1);
+        assert_eq!(
+            app.task_list
+            .rows()
+            .iter()
+            .filter(|row| matches!(row, ListRow::Task(_)))
+            .count(),
+            1
+        );
+        assert!(app.task_detail.task.is_none());
+        assert_eq!(app.screen, Screen::Tasks);
+    }
+
+    #[test]
+    fn test_question_mark_does_not_toggle_help_in_text_inputs_or_auth() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        let question = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE);
+
+        app.url_input_open = true;
+        app.update(InputEvent::Key(question));
+        assert!(!app.is_help_visible());
+
+        app.url_input_open = false;
+        app.screen = Screen::TaskDetail;
+        app.task_detail.task = Some(make_task("task-1", "Task"));
+        app.comments = vec![make_comment("comment-1", "Body", None)];
+        app.comment_editing_index = Some(0);
+        app.update(InputEvent::Key(question));
+        assert!(!app.is_help_visible());
+
+        app.comment_editing_index = None;
+        app.comment_new_text.clear();
+        app.screen = Screen::Auth;
+        app.update(InputEvent::Key(question));
+        assert!(!app.is_help_visible());
+    }
+
+    #[test]
+    fn test_url_input_handles_multibyte_cursor_positions() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.url_input_text = "é".to_string();
+        app.url_input_cursor = 1;
+
+        app.handle_url_input(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert_eq!(app.url_input_text, "éx");
+        assert_eq!(app.url_input_cursor, 2);
+
+        app.handle_url_input(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.url_input_text, "é");
+        assert_eq!(app.url_input_cursor, 1);
+    }
+
+    #[test]
+    fn test_comment_navigation_skips_hidden_replies_and_wraps() {
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.comments = vec![
+            make_comment("1", "parent", None),
+            make_comment("2", "reply one", Some("1")),
+            make_comment("3", "reply two", Some("1")),
+            make_comment("4", "other", None),
+        ];
+        app.comment_view_mode = CommentViewMode::TopLevel;
+        app.comment_selected_index = 0;
+
+        app.move_comment_selection(-1);
+        assert_eq!(app.comment_selected_index, 3);
+
+        app.comment_view_mode = CommentViewMode::InThread {
+            parent_comment_id: "1".to_string(),
+            parent_author: "author".to_string(),
+        };
+        app.comment_selected_index = 2;
+        app.move_comment_selection(1);
+        assert_eq!(app.comment_selected_index, 0);
+    }
+
+    #[test]
+    fn test_stale_comment_edit_index_does_not_panic() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.task_detail.task = Some(make_task("task-1", "Task"));
+        app.comments.clear();
+        app.comment_editing_index = Some(7);
+        app.comment_new_text = "stale edit".to_string();
+
+        app.handle_comment_input(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+
+        assert!(app.comment_editing_index.is_none());
+        assert!(app.comment_new_text.is_empty());
+        assert_eq!(app.status(), "Comment no longer exists");
+    }
+
+    #[tokio::test]
+    async fn test_e_key_loads_selected_task_into_detail() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let task = make_task("task-1", "Selected");
+        let mock_client = MockClickUpClient::new().with_tasks(vec![task.clone()]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.tasks = vec![task.clone()];
+        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.task_list.select_first();
+        app.screen = Screen::Tasks;
+        app.current_list_id = Some("list-1".to_string());
+
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('e'),
+            KeyModifiers::NONE,
+        )));
+
+        assert_eq!(app.screen, Screen::TaskDetail);
+        assert!(app.task_detail.editing);
+        assert_eq!(
+            app.task_detail.task.as_ref().map(|task| task.id.as_str()),
+            Some("task-1")
+        );
+    }
+
+    #[test]
+    fn test_screen_titles_use_current_hierarchy_ids() {
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        app.workspaces = serde_json::from_value(serde_json::json!([
+            {"id": "w1", "name": "Alpha"},
+            {"id": "w2", "name": "Beta"}
+        ]))
+            .unwrap();
+        app.spaces = serde_json::from_value(serde_json::json!([
+            {"id": "s1", "name": "Space One"},
+            {"id": "s2", "name": "Space Two"}
+        ]))
+            .unwrap();
+        app.folders = serde_json::from_value(serde_json::json!([
+            {"id": "f1", "name": "Folder One"},
+            {"id": "f2", "name": "Folder Two"}
+        ]))
+            .unwrap();
+        app.lists = serde_json::from_value(serde_json::json!([
+            {"id": "l1", "name": "List One"},
+            {"id": "l2", "name": "List Two"}
+        ]))
+            .unwrap();
+
+        app.current_workspace_id = Some("w2".to_string());
+        app.screen = Screen::Spaces;
+        app.update_screen_title();
+        assert!(app.screen_title.contains("Beta"));
+
+        app.current_space_id = Some("s2".to_string());
+        app.screen = Screen::Folders;
+        app.update_screen_title();
+        assert!(app.screen_title.contains("Space Two"));
+
+        app.current_folder_id = Some("f2".to_string());
+        app.screen = Screen::Lists;
+        app.update_screen_title();
+        assert!(app.screen_title.contains("Folder Two"));
+
+        app.current_list_id = Some("l2".to_string());
+        app.screen = Screen::Tasks;
+        app.update_screen_title();
+        assert!(app.screen_title.contains("List Two"));
+    }
+
+    #[test]
+    fn test_status_picker_uses_statuses_present_in_loaded_tasks() {
+        use crate::models::TaskStatus;
+
+        let status = |name: &str, order: u32| TaskStatus {
+            id: None,
+            status: name.to_string(),
+            color: Some("#123456".to_string()),
+            type_field: None,
+            orderindex: Some(order),
+            status_group: None,
+        };
+        let todo = status("To Do", 0);
+        let in_progress = status("In Progress", 1);
+        let review = status("Review", 2);
+
+        let mut todo_task = make_task("task-1", "Todo task");
+        todo_task.status = Some(todo.clone());
+        let mut progress_task = make_task("task-2", "Progress task");
+        progress_task.status = Some(in_progress.clone());
+        let mut review_task = make_task("task-3", "Review task");
+        review_task.status = Some(review.clone());
+
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.tasks = vec![todo_task.clone(), progress_task, review_task.clone()];
+
+        app.open_status_picker(review_task);
+
+        assert_eq!(app.status_picker_statuses.len(), 3);
+        assert_eq!(app.status_picker_cursor, 2);
+        assert_eq!(
+            app.status_picker_original_status
+            .as_ref()
+            .map(|status| status.status.as_str()),
+            Some("Review")
+        );
+        assert_eq!(app.status_picker_statuses[2].status, "Review");
+        assert_eq!(app.status_picker_statuses[0].status, "To Do");
     }
 }

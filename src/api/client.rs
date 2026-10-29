@@ -12,9 +12,8 @@ use crate::models::TaskFilters;
 use crate::models::{
     ClickUpSpace as Space, Comment, CommentsResponse, CreateCommentRequest, CreateTaskRequest,
     Document, DocumentFilters, DocumentPagesResponse, DocumentsResponse, Folder, FoldersResponse,
-    List, ListsResponse, MembersResponse, Page, PageResponse,
-    SpacesResponse, Task, TasksResponse, UpdateCommentRequest, UpdateTaskRequest, User,
-    UserResponse, Workspace, WorkspacesResponse,
+    List, ListsResponse, MembersResponse, Page, PageResponse, SpacesResponse, Task, TasksResponse,
+    UpdateCommentRequest, UpdateTaskRequest, User, UserResponse, Workspace, WorkspacesResponse,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -167,8 +166,51 @@ impl ClickUpClient {
 
     // ==================== Tasks ====================
 
-    /// Get all tasks in a list
+    /// Get all tasks in a list.
+    ///
+    /// When the caller does not request a specific page, this walks every page so
+    /// lists with more than one page of tasks are not silently truncated.
     pub async fn get_tasks(&self, list_id: &str, filters: &TaskFilters) -> Result<Vec<Task>> {
+        if filters.page.is_some() {
+            return self.get_tasks_page(list_id, filters).await;
+        }
+
+        let page_size = filters.limit.unwrap_or(100).clamp(1, 100);
+        let mut all_tasks = Vec::new();
+        let mut seen_ids = std::collections::HashSet::new();
+
+        for page in 0..100 {
+            let mut page_filters = filters.clone();
+            page_filters.page = Some(page);
+            page_filters.limit = Some(page_size);
+
+            let tasks = self.get_tasks_page(list_id, &page_filters).await?;
+            let received = tasks.len();
+            let mut new_tasks = 0usize;
+            for task in tasks {
+                if seen_ids.insert(task.id.clone()) {
+                    all_tasks.push(task);
+                    new_tasks += 1;
+                }
+            }
+
+            tracing::debug!(
+                "Fetched {} task(s) from list {} page {} ({} new)",
+                received,
+                list_id,
+                page,
+                new_tasks
+            );
+
+            if received < page_size as usize || new_tasks == 0 {
+                break;
+            }
+        }
+
+        Ok(all_tasks)
+    }
+
+    async fn get_tasks_page(&self, list_id: &str, filters: &TaskFilters) -> Result<Vec<Task>> {
         let query = filters.to_query_string();
         let url = ApiEndpoints::tasks_in_list(list_id, &query);
         tracing::debug!("Fetching tasks from list {} with URL: {}", list_id, url);

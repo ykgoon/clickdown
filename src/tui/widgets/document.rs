@@ -2,13 +2,7 @@
 
 use crate::tui::theme::Theme;
 use pulldown_cmark::{Event, Parser, TagEnd};
-use ratatui::{
-    layout::Rect,
-    style::Style,
-    text::Line,
-    widgets::Paragraph,
-    Frame,
-};
+use ratatui::{layout::Rect, style::Style, text::Line, widgets::Paragraph, Frame};
 
 /// Document state
 #[derive(Debug, Clone)]

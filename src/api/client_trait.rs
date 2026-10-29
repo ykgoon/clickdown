@@ -2,8 +2,8 @@
 
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
-    Folder, List, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest,
-    User, Workspace,
+    Folder, List, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest, User,
+    Workspace,
 };
 use anyhow::Result;
 

@@ -3,7 +3,7 @@
 use crate::models::Comment;
 use crate::tui::app::CommentViewMode;
 use crate::tui::theme::Theme;
-use crate::utils::{format_timestamp, wrap_text};
+use crate::utils::{format_timestamp, truncate_chars, wrap_text};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
@@ -27,9 +27,9 @@ pub fn render_comments(
     let title = match view_mode {
         CommentViewMode::TopLevel => " Comments ".to_string(),
         CommentViewMode::InThread { parent_author, .. } => {
-            // Truncate long names
-            let truncated = if parent_author.len() > 20 {
-                format!("{}...", &parent_author[..17])
+            // Truncate long names without splitting UTF-8 sequences
+            let truncated = if parent_author.chars().count() > 20 {
+                format!("{}...", truncate_chars(parent_author, 17))
             } else {
                 parent_author.clone()
             };

@@ -55,9 +55,7 @@ impl std::error::Error for ParseError {}
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParsedUrl {
     /// Workspace URL: `https://app.clickup.com/{workspace_id}`
-    Workspace {
-        workspace_id: String,
-    },
+    Workspace { workspace_id: String },
     /// Space URL: `https://app.clickup.com/{workspace_id}/v/o/s/{space_id}`
     Space {
         workspace_id: String,
@@ -74,18 +72,11 @@ pub enum ParsedUrl {
         list_id: String,
     },
     /// Task URL (short-form): `https://app.clickup.com/t/{task_id}`
-    Task {
-        task_id: String,
-    },
+    Task { task_id: String },
     /// Comment URL (short-form): `https://app.clickup.com/t/{task_id}?comment={comment_id}`
-    Comment {
-        task_id: String,
-        comment_id: String,
-    },
+    Comment { task_id: String, comment_id: String },
     /// Document URL (short-form): `https://app.clickup.com/d/{doc_id}`
-    Document {
-        doc_id: String,
-    },
+    Document { doc_id: String },
 }
 
 /// URL parser for ClickUp resource URLs
@@ -188,11 +179,7 @@ impl UrlParser {
 
         // Space: {workspace_id}/v/o/s/{space_id}
         // Path has 5 segments: [workspace_id, v, o, s, space_id]
-        if segments.len() >= 5
-            && segments[1] == "v"
-            && segments[2] == "o"
-            && segments[3] == "s"
-        {
+        if segments.len() >= 5 && segments[1] == "v" && segments[2] == "o" && segments[3] == "s" {
             let space_id = Self::extract_id(segments[4])?;
             return Ok(ParsedUrl::Space {
                 workspace_id: workspace_id.to_string(),
@@ -202,11 +189,7 @@ impl UrlParser {
 
         // Folder: {workspace_id}/v/o/f/{folder_id}
         // Path has 5 segments: [workspace_id, v, o, f, folder_id]
-        if segments.len() >= 5
-            && segments[1] == "v"
-            && segments[2] == "o"
-            && segments[3] == "f"
-        {
+        if segments.len() >= 5 && segments[1] == "v" && segments[2] == "o" && segments[3] == "f" {
             let folder_id = Self::extract_id(segments[4])?;
             return Ok(ParsedUrl::Folder {
                 workspace_id: workspace_id.to_string(),
@@ -216,10 +199,7 @@ impl UrlParser {
 
         // List: {workspace_id}/v/l/{view}-{list_id}-{suffix}
         // Path has 4 segments: [workspace_id, v, l, pattern]
-        if segments.len() >= 4
-            && segments[1] == "v"
-            && segments[2] == "l"
-        {
+        if segments.len() >= 4 && segments[1] == "v" && segments[2] == "l" {
             let list_pattern = segments[3];
             if let Some(list_id) = Self::extract_list_id_from_pattern(list_pattern) {
                 return Ok(ParsedUrl::List {
@@ -229,10 +209,7 @@ impl UrlParser {
             }
         }
 
-        Err(ParseError::UnknownFormat(format!(
-            "path: {}",
-            path
-        )))
+        Err(ParseError::UnknownFormat(format!("path: {}", path)))
     }
 
     /// Extract a resource ID from a path segment, validating it's not empty
@@ -360,7 +337,8 @@ mod tests {
 
     #[test]
     fn test_parse_list_url_with_hyphens_in_id() {
-        let result = UrlParser::parse("https://app.clickup.com/ws123/v/l/6-my-list-name-1").unwrap();
+        let result =
+            UrlParser::parse("https://app.clickup.com/ws123/v/l/6-my-list-name-1").unwrap();
         match result {
             ParsedUrl::List {
                 workspace_id,
@@ -526,8 +504,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_comment_url() {
-        let generated =
-            ClickUpUrlGenerator::comment_url("", "", "task345", "comment678").unwrap();
+        let generated = ClickUpUrlGenerator::comment_url("", "", "task345", "comment678").unwrap();
         let parsed = UrlParser::parse(&generated).unwrap();
         match parsed {
             ParsedUrl::Comment {

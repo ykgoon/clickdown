@@ -17,7 +17,7 @@
 /// params.add_opt("page", Some(2));
 /// params.add_all("statuses", &["todo", "in progress"]);
 ///
-/// assert_eq!(params.to_query_string(), "?archived=true&page=2&statuses[]=todo&statuses[]=in progress");
+/// assert_eq!(params.to_query_string(), "?archived=true&page=2&statuses[]=todo&statuses[]=in%20progress");
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct QueryParams {
@@ -47,10 +47,12 @@ impl QueryParams {
         self
     }
 
-    /// Add all values from a slice as repeated parameters (e.g., statuses[]=a&statuses[]=b)
+    /// Add all values from a slice as repeated, URL-encoded parameters
+    /// (e.g., statuses[]=a&statuses[]=b)
     pub fn add_all<T: std::fmt::Display>(&mut self, key: &str, values: &[T]) -> &mut Self {
         for v in values {
-            self.params.push(format!("{}[]={}", key, v));
+            self.params
+                .push(format!("{}[]={}", key, urlencoding::encode(&v.to_string())));
         }
         self
     }
@@ -142,7 +144,18 @@ mod tests {
 
         assert_eq!(
             params.to_query_string(),
-            "?statuses[]=todo&statuses[]=in progress"
+            "?statuses[]=todo&statuses[]=in%20progress"
+        );
+    }
+
+    #[test]
+    fn test_add_all_encodes_special_characters() {
+        let mut params = QueryParams::new();
+        params.add_all("statuses", &["a&b=c", "done"]);
+
+        assert_eq!(
+            params.to_query_string(),
+            "?statuses[]=a%26b%3Dc&statuses[]=done"
         );
     }
 

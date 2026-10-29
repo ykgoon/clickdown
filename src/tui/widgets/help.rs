@@ -114,67 +114,88 @@ fn section(title: &str, items: &[(&str, &str)]) -> Vec<Line<'static>> {
 
 /// Get lines for a given page and context
 fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
-    let nav = section("Navigation", &[
-        ("j/k or ↑/↓", "Move selection"),
-        ("Enter", "Select/Open item"),
-        ("Esc", "Go back/Close"),
-        ("g u", "Navigate to URL"),
-    ]);
+    let nav = section(
+        "Navigation",
+        &[
+            ("j/k or ↑/↓", "Move selection"),
+            ("Enter", "Select/Open item"),
+            ("Esc", "Go back/Close"),
+            ("g u", "Navigate to URL"),
+        ],
+    );
 
-    let global = section("Global", &[
-        ("Ctrl+Q", "Quit (saves session)"),
-        ("Tab", "Toggle sidebar"),
-        ("?", "Show this help"),
-        ("u", "Copy element URL"),
-    ]);
+    let global = section(
+        "Global",
+        &[
+            ("Ctrl+Q", "Quit (saves session)"),
+            ("Tab", "Toggle sidebar"),
+            ("?", "Show this help"),
+            ("u", "Copy element URL"),
+        ],
+    );
 
-    let actions = section("Actions", &[
-        ("n", "Create new item"),
-        ("e", "Edit selected item"),
-        ("d", "Delete selected item"),
-    ]);
+    let actions = section(
+        "Actions",
+        &[
+            ("n", "Create new item"),
+            ("e", "Edit selected item"),
+            ("d", "Delete selected item"),
+        ],
+    );
 
-    let task_list = section("Task List", &[
-        ("a", "Toggle Assigned to Me filter"),
-        ("n", "Create new task"),
-        ("s", "Open status picker"),
-        ("d", "Delete selected task"),
-    ]);
+    let task_list = section(
+        "Task List",
+        &[
+            ("a", "Toggle Assigned to Me filter"),
+            ("n", "Create new task"),
+            ("s", "Open status picker"),
+            ("d", "Delete selected task"),
+        ],
+    );
 
-    let task_detail = section("Task Detail", &[
-        ("s", "Open status picker"),
-        ("A", "Open assignee picker"),
-        ("e", "Edit task"),
-        ("Tab", "Toggle comments focus"),
-        ("Esc", "Back to task list"),
-    ]);
+    let task_detail = section(
+        "Task Detail",
+        &[
+            ("s", "Open status picker"),
+            ("A", "Open assignee picker"),
+            ("e", "Edit task"),
+            ("Tab", "Toggle comments focus"),
+            ("Esc", "Back to task list"),
+        ],
+    );
 
-    let task_creation = section("Task Creation", &[
-        ("Tab", "Switch between name/description"),
-        ("Ctrl+S", "Create task"),
-        ("Esc", "Cancel creation"),
-    ]);
+    let task_creation = section(
+        "Task Creation",
+        &[
+            ("Tab", "Switch between name/description"),
+            ("Ctrl+S", "Create task"),
+            ("Esc", "Cancel creation"),
+        ],
+    );
 
-    let comments = section("Comments", &[
-        ("Tab", "Toggle focus (task/comments)"),
-        ("j/k", "Navigate comments"),
-        ("n", "New comment"),
-        ("e", "Edit selected comment"),
-        ("r", "Reply to thread (in thread view)"),
-        ("Enter", "View thread"),
-        ("Ctrl+S", "Save comment"),
-        ("Esc", "Cancel editing / Exit thread"),
-    ]);
+    let comments = section(
+        "Comments",
+        &[
+            ("Tab", "Toggle focus (task/comments)"),
+            ("j/k", "Navigate comments"),
+            ("n", "New comment"),
+            ("e", "Edit selected comment"),
+            ("r", "Reply to thread (in thread view)"),
+            ("Enter", "View thread"),
+            ("Ctrl+S", "Save comment"),
+            ("Esc", "Cancel editing / Exit thread"),
+        ],
+    );
 
-    let forms = section("Forms", &[
-        ("Ctrl+S", "Save"),
-        ("Esc", "Cancel"),
-    ]);
+    let forms = section("Forms", &[("Ctrl+S", "Save"), ("Esc", "Cancel")]);
 
-    let session = section("Session", &[
-        ("", "Session auto-saves on exit"),
-        ("", "Restores last view on startup"),
-    ]);
+    let session = section(
+        "Session",
+        &[
+            ("", "Session auto-saves on exit"),
+            ("", "Restores last view on startup"),
+        ],
+    );
 
     match page {
         0 => {
@@ -309,7 +330,7 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, context: &HelpContext, 
         .direction(Direction::Vertical)
         .margin(2)
         .constraints([
-            Constraint::Min(1), // Content
+            Constraint::Min(1),    // Content
             Constraint::Length(1), // Footer
         ])
         .split(help_area);
@@ -330,7 +351,11 @@ pub fn render_help(frame: &mut Frame, state: &HelpState, context: &HelpContext, 
 
 /// Get pagination hint for status bar
 pub fn get_help_hints(state: &HelpState) -> String {
-    format!("j/k: Pages | Esc: Close | {}/{}", state.page + 1, TOTAL_PAGES)
+    format!(
+        "j/k: Pages | Esc: Close | {}/{}",
+        state.page + 1,
+        TOTAL_PAGES
+    )
 }
 
 #[cfg(test)]
@@ -398,9 +423,15 @@ mod tests {
     #[test]
     fn test_page_title_format() {
         let ctx = HelpContext::TaskList;
-        assert_eq!(page_title(&ctx, 0), " Keyboard Shortcuts — Task List  (1/3) ");
+        assert_eq!(
+            page_title(&ctx, 0),
+            " Keyboard Shortcuts — Task List  (1/3) "
+        );
         assert_eq!(page_title(&ctx, 1), " Keyboard Shortcuts — Global  (2/3) ");
-        assert_eq!(page_title(&ctx, 2), " Keyboard Shortcuts — Reference  (3/3) ");
+        assert_eq!(
+            page_title(&ctx, 2),
+            " Keyboard Shortcuts — Reference  (3/3) "
+        );
     }
 
     #[test]
@@ -416,7 +447,11 @@ mod tests {
         ];
         for ctx in contexts {
             let lines = page_lines(&ctx, 1);
-            assert!(!lines.is_empty(), "Page 2 should not be empty for {:?}", ctx);
+            assert!(
+                !lines.is_empty(),
+                "Page 2 should not be empty for {:?}",
+                ctx
+            );
         }
     }
 
