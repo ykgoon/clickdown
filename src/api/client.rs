@@ -148,6 +148,13 @@ impl ClickUpClient {
         Ok(response.lists)
     }
 
+    /// Get a single list, including its full status configuration
+    pub async fn get_list(&self, list_id: &str) -> Result<List> {
+        let url = ApiEndpoints::list(list_id);
+        self.execute::<List>(self.request(reqwest::Method::GET, url))
+            .await
+    }
+
     /// Get all lists in a space (folderless lists)
     pub async fn get_lists_in_space(
         &self,
@@ -452,6 +459,10 @@ macro_rules! impl_clickup_api {
                 archived: Option<bool>,
             ) -> Result<Vec<List>> {
                 self.get_lists_in_space(space_id, archived).await
+            }
+
+            async fn get_list(&self, list_id: &str) -> Result<List> {
+                self.get_list(list_id).await
             }
 
             async fn get_tasks(&self, list_id: &str, filters: &TaskFilters) -> Result<Vec<Task>> {

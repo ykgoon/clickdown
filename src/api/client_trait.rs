@@ -55,6 +55,9 @@ pub trait ClickUpApi: Send + Sync {
     async fn get_lists_in_space(&self, space_id: &str, archived: Option<bool>)
         -> Result<Vec<List>>;
 
+    /// Get a single list, including its full status configuration
+    async fn get_list(&self, list_id: &str) -> Result<List>;
+
     // ==================== Tasks ====================
 
     /// Get all tasks in a list

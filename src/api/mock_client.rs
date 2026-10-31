@@ -56,6 +56,8 @@ pub struct MockClickUpClient {
     pub lists_in_folder_response: Option<Result<Vec<List>>>,
     /// Override for get_lists_in_space response
     pub lists_in_space_response: Option<Result<Vec<List>>>,
+    /// Override for get_list response
+    pub list_response: Option<Result<List>>,
     /// Override for get_tasks response
     pub tasks_response: Option<Result<Vec<Task>>>,
     /// Override for get_task response
@@ -100,6 +102,7 @@ impl MockClickUpClient {
             folders_response: None,
             lists_in_folder_response: None,
             lists_in_space_response: None,
+            list_response: None,
             tasks_response: None,
             task_response: None,
             create_task_response: None,
@@ -151,6 +154,12 @@ impl MockClickUpClient {
     /// Set the lists in space response (folderless lists)
     pub fn with_lists_in_space(mut self, lists: Vec<List>) -> Self {
         self.lists_in_space_response = Some(Ok(lists));
+        self
+    }
+
+    /// Override the get_list response (single list with statuses)
+    pub fn with_list(mut self, list: List) -> Self {
+        self.list_response = Some(Ok(list));
         self
     }
 
@@ -310,6 +319,10 @@ impl ClickUpApi for MockClickUpClient {
         _archived: Option<bool>,
     ) -> Result<Vec<List>> {
         return_vec_response(&self.lists_in_space_response)
+    }
+
+    async fn get_list(&self, _list_id: &str) -> Result<List> {
+        return_response(&self.list_response, "List not found")
     }
 
     async fn get_tasks(&self, _list_id: &str, _filters: &TaskFilters) -> Result<Vec<Task>> {

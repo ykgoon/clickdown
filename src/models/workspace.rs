@@ -1,6 +1,7 @@
 //! Workspace, Space, Folder, and List models
 
 use crate::models::Priority;
+use crate::models::TaskStatus;
 use crate::models::User;
 use serde::{Deserialize, Serialize};
 
@@ -89,6 +90,10 @@ pub struct List {
     pub status: Option<ListStatus>,
     #[serde(default)]
     pub priority: Option<Priority>,
+    /// Full status configuration. ClickUp returns this when the list has
+    /// custom statuses (i.e. `override_statuses` is set).
+    #[serde(default)]
+    pub statuses: Vec<TaskStatus>,
 }
 
 /// Reference to a Folder
