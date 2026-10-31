@@ -113,16 +113,19 @@ pub fn render_comments(
             Style::default().fg(Theme::SECONDARY)
         };
 
-        let input = Paragraph::new(input_text).style(input_style).block(
-            Block::default()
-                .title(edit_label)
-                .borders(Borders::ALL)
-                .style(Style::default().fg(if comment_focus {
-                    Theme::WARNING
-                } else {
-                    Theme::SECONDARY
-                })),
-        );
+        let input = Paragraph::new(input_text)
+            .style(input_style)
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .block(
+                Block::default()
+                    .title(edit_label)
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(if comment_focus {
+                        Theme::WARNING
+                    } else {
+                        Theme::SECONDARY
+                    })),
+            );
 
         frame.render_widget(input, chunks[1]);
     }
