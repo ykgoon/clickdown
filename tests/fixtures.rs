@@ -59,6 +59,7 @@ pub fn test_list() -> List {
         folder: None,
         status: None,
         priority: None,
+        statuses: Vec::new(),
     }
 }
 

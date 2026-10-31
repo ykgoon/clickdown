@@ -23,9 +23,10 @@ use super::input::{is_quit, InputEvent};
 use super::layout::{generate_screen_title, split_task_detail, TuiLayout};
 use super::terminal;
 use super::widgets::{
-    get_dialog_hints, get_help_hints, render_assignee_picker, render_auth, render_comments,
+    get_dialog_hints, get_help_hints, render_assignee_picker, render_auth, render_command_menu,
+    render_comments, render_mention_picker,
     render_dialog, render_document, render_help, render_sidebar, render_status_picker,
-    render_task_detail, render_task_list, AuthState, DialogState, DialogType, DocumentState,
+    render_task_detail, render_task_detail_expanded, render_task_list, AuthState, DialogState, DialogType, DocumentState,
     GroupedTaskList, HelpContext, HelpState, ListRow, SidebarState, TaskDetailState,
 };
 
@@ -62,6 +63,36 @@ pub enum TaskCreationField {
     Description,
 }
 
+/// Which text buffer insert mode is editing (vim-style modal input).
+/// While `insert_mode_target` is `Some`, all printable keys go into the
+/// buffer and normal-mode commands are not interpreted.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InsertTarget {
+    /// Task description editor (view/edit task description)
+    Description,
+    /// New comment, reply, or edit of an existing comment
+    /// (the exact mode is tracked by `comment_editing_index`)
+    Comment,
+    /// Mention picker opened from an insert-mode buffer (issue 6)
+    Mention,
+}
+
+/// Command menu (SPACEmenu) state: which command group is shown.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CommandMenuLevel {
+    /// Root menu: pick a command group
+    Root,
+    /// Group selected, waiting for the action sub-key
+    Group(char),
+}
+
+/// Which task-detail panel is expanded full-screen (issue 5)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExpandedPanel {
+    Description,
+    Comments,
+}
+
 #[derive(Debug, Clone)]
 pub struct CommentCreatedMessageMeta {
     is_reply: bool,
@@ -81,8 +112,12 @@ pub enum AppMessage {
     CommentUpdated(Result<Comment, String>),
     CurrentUserLoaded(Result<User, String>),
     MembersLoaded(Result<Vec<User>, String>),
+    /// Full status configuration for a list (fetched on demand)
+    ListStatusesLoaded(String, Result<Vec<crate::models::TaskStatus>, String>),
     AssigneesUpdated(Result<Task, String>),
     TaskStatusUpdated(Result<Task, String>),
+    TaskDescriptionUpdated(Result<Task, String>),
+    MentionMembersLoaded(Result<Vec<User>, String>),
     // URL navigation async messages
     TaskFetchedForNavigation(Result<Task, String>, Screen),
     CommentFetchedForNavigation(Result<Task, String>, String, Screen), // task result, comment_id, prev_screen
@@ -159,6 +194,28 @@ pub struct TuiApp {
     comment_new_text: String,
     comment_focus: bool, // true = focus on comments, false = focus on task form
 
+    /// Vim-style modal input state (issue 7):
+    /// While Some(target), all printable keys are inserted into the target
+    /// buffer instead of being interpreted as commands.
+    insert_mode_target: Option<InsertTarget>,
+    /// Command menu (SPACEmenu) state: None = closed
+    command_menu: Option<CommandMenuLevel>,
+
+    /// Full-screen expansion state (issue 5): which panel is expanded
+    expanded_panel: Option<ExpandedPanel>,
+    /// Edit buffer for the task description (insert mode, issue 7)
+    description_edit_buffer: String,
+    /// Manual scroll offset for the expanded description panel (issue 5)
+    description_scroll_offset: usize,
+    /// Members for the @mention picker (issue 6), fetched on demand
+    mention_members: Vec<User>,
+    mention_cursor: usize,
+    mention_picker_open: bool,
+    /// Insert target to return to when the mention picker closes
+    mention_prev_target: Option<InsertTarget>,
+    /// Current mention filter query (text typed after @)
+    mention_query: String,
+
     /// Comment thread navigation state
     comment_view_mode: CommentViewMode,
     comment_previous_selection: Option<usize>, // Store selection when entering thread
@@ -177,6 +234,8 @@ pub struct TuiApp {
 
     /// In-memory cache for list members (keyed by list ID)
     cached_list_members: std::collections::HashMap<String, Vec<User>>,
+    /// Full status configuration per list ID (fetched from the ClickUp API)
+    cached_list_statuses: std::collections::HashMap<String, Vec<crate::models::TaskStatus>>,
 
     /// Assignee picker UI state
     assignee_picker_open: bool,
@@ -270,6 +329,9 @@ impl TuiApp {
             || self.task_creating
             || self.comment_editing_index.is_some()
             || !self.comment_new_text.is_empty()
+            || self.insert_mode_target.is_some()
+            || self.mention_picker_open
+            || self.command_menu.is_some()
     }
 
     /// Handle text input when any text input field is active
@@ -277,6 +339,12 @@ impl TuiApp {
     pub fn handle_text_input(&mut self, key: crossterm::event::KeyEvent) {
         if self.url_input_open {
             self.handle_url_input(key);
+        } else if self.mention_picker_open {
+            self.handle_mention_picker_input(key);
+        } else if self.command_menu.is_some() {
+            self.handle_command_menu_input(key);
+        } else if self.insert_mode_target.is_some() {
+            self.handle_insert_mode(key);
         } else if self.status_picker_open {
             self.handle_status_picker_input(key);
         } else if self.assignee_picker_open {
@@ -286,6 +354,404 @@ impl TuiApp {
         } else if self.comment_editing_index.is_some() || !self.comment_new_text.is_empty() {
             self.handle_comment_input(key);
         }
+    }
+
+    // ==================== Vim-style modal input engine (issue 7) ====================
+
+    /// Open the SPACEmenu command overlay (normal mode only)
+    fn open_command_menu(&mut self) {
+        self.command_menu = Some(CommandMenuLevel::Root);
+    }
+
+    /// Current insert-mode buffer contents for the active target
+    fn insert_buffer(&self) -> String {
+        match self.insert_mode_target.as_ref() {
+            Some(InsertTarget::Description) => self.description_edit_buffer.clone(),
+            Some(InsertTarget::Comment) => self.comment_new_text.clone(),
+            Some(InsertTarget::Mention) => String::new(),
+            None => String::new(),
+        }
+    }
+
+    fn insert_set_buffer(&mut self, value: String) {
+        match self.insert_mode_target.as_ref() {
+            Some(InsertTarget::Description) => self.description_edit_buffer = value,
+            Some(InsertTarget::Comment) => self.comment_new_text = value,
+            Some(InsertTarget::Mention) => {}
+            None => {}
+        }
+    }
+
+    /// Handle keys while insert mode is active.
+    /// Ctrl+S saves and exits; Esc exits to normal mode without saving;
+    /// @ opens the mention picker (issue 6); everything else is text.
+    fn handle_insert_mode(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::KeyModifiers;
+        match key.code {
+            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.commit_insert_mode();
+            }
+            KeyCode::Esc => {
+                // Leave insert mode without saving (vim-style)
+                let target = self.insert_mode_target.take();
+                match target {
+                    Some(InsertTarget::Description) => {
+                        self.description_edit_buffer.clear();
+                        self.status = "Description edit cancelled".to_string();
+                    }
+                    Some(InsertTarget::Comment) => {
+                        self.cancel_comment_editing();
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Enter => {
+                let mut buf = self.insert_buffer();
+                buf.push('\n');
+                self.insert_set_buffer(buf);
+            }
+            KeyCode::Backspace => {
+                let buf = self.insert_buffer();
+                let mut trimmed = buf.clone();
+                trimmed.pop();
+                self.insert_set_buffer(trimmed);
+            }
+            KeyCode::Tab => {
+                // Only meaningful in task creation: switch field
+                if self.task_creating {
+                    self.handle_task_creation_input(key);
+                }
+            }
+            KeyCode::Char(c) => {
+                let mut buf = self.insert_buffer();
+                buf.push(c);
+                self.insert_set_buffer(buf);
+                // '@' opens the mention picker (issue 6)
+                if c == '@' {
+                    self.open_mention_picker();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Cancel comment editing (normal-mode Esc path)
+    fn cancel_comment_editing(&mut self) {
+        self.comment_new_text.clear();
+        self.comment_editing_index = None;
+        self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+            "Reply cancelled".to_string()
+        } else {
+            "Comment editing cancelled".to_string()
+        };
+    }
+
+    /// Commit the active insert-mode buffer (Ctrl+S semantics)
+    fn commit_insert_mode(&mut self) {
+        match self.insert_mode_target.take() {
+            Some(InsertTarget::Description) => {
+                self.save_description_edit();
+            }
+            Some(InsertTarget::Comment) => {
+                // Reuse the existing comment save path
+                self.save_comment_from_buffer();
+            }
+            Some(InsertTarget::Mention) => {}
+            None => {}
+        }
+    }
+
+    /// Save the description edit buffer to the task
+    fn save_description_edit(&mut self) {
+        let task = match &self.task_detail.task {
+            Some(t) => t.clone(),
+            None => {
+                self.description_edit_buffer.clear();
+                self.status = "No task selected".to_string();
+                return;
+            }
+        };
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.description_edit_buffer.clear();
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        let new_text = self.description_edit_buffer.clone();
+        if new_text.trim().is_empty() {
+            self.description_edit_buffer.clear();
+            self.status = "Description cannot be empty".to_string();
+            return;
+        }
+
+        let task_id = task.id.clone();
+        let tx = self.message_tx.clone().unwrap();
+        use crate::models::UpdateTaskRequest;
+        let update = UpdateTaskRequest {
+            name: None,
+            description: Some(new_text),
+            status: None,
+            priority: None,
+            assignees: None,
+            due_date: None,
+        };
+
+        self.loading = true;
+        self.status = "Saving description...".to_string();
+        tokio::spawn(async move {
+            let result = client.update_task(&task_id, &update).await;
+            let msg = match result {
+                Ok(task) => AppMessage::TaskDescriptionUpdated(Ok(task)),
+                Err(e) => AppMessage::TaskDescriptionUpdated(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Save the comment buffer (create, reply, or edit) — extracted from the
+    /// pre-existing Ctrl+S handler so insert mode can reuse it.
+    fn save_comment_from_buffer(&mut self) {
+        let text = self.comment_new_text.clone();
+        if text.trim().is_empty() {
+            self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+                "Reply cannot be empty".to_string()
+            } else {
+                "Comment cannot be empty".to_string()
+            };
+            return;
+        }
+        if let Some(_task) = &self.task_detail.task {
+            let task_id = _task.id.clone();
+            let parent_id = match &self.comment_view_mode {
+                CommentViewMode::InThread {
+                    parent_comment_id, ..
+                } => Some(parent_comment_id.clone()),
+                CommentViewMode::TopLevel => None,
+            };
+            if let Some(edit_idx) = self.comment_editing_index {
+                if edit_idx == usize::MAX {
+                    self.create_comment(task_id, text, parent_id);
+                } else if let Some(comment_id) =
+                    self.comments.get(edit_idx).map(|c| c.id.clone())
+                {
+                    self.update_comment(comment_id, text);
+                } else {
+                    self.comment_new_text.clear();
+                    self.comment_editing_index = None;
+                    self.status = "Comment no longer exists".to_string();
+                }
+            } else {
+                self.create_comment(task_id, text, parent_id);
+            }
+        }
+    }
+
+    // ==================== SPACEmenu command overlay (issue 7) ====================
+
+    fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::KeyModifiers;
+        let level = match &self.command_menu {
+            Some(l) => l.clone(),
+            None => return,
+        };
+        match level {
+            CommandMenuLevel::Root => match key.code {
+                KeyCode::Esc => {
+                    self.command_menu = None;
+                    self.status = "Command menu closed".to_string();
+                }
+                KeyCode::Char(c) => {
+                    match c {
+                        'g' => self.command_menu = Some(CommandMenuLevel::Group('g')),
+                        't' => self.command_menu = Some(CommandMenuLevel::Group('t')),
+                        'w' => self.command_menu = Some(CommandMenuLevel::Group('w')),
+                        _ => {
+                            self.command_menu = None;
+                            self.status = format!("No command group '{}'", c);
+                        }
+                    }
+                }
+                _ => {}
+            },
+            CommandMenuLevel::Group(group) => {
+                let g = group;
+                // Consume the key and close the menu regardless
+                self.command_menu = None;
+                match (g, key.code) {
+                    ('g', KeyCode::Char('u')) => self.open_url_input_dialog(),
+                    ('t', KeyCode::Char('n')) => {
+                        // New task from tasks screen
+                        self.task_name_input.clear();
+                        self.task_description_input.clear();
+                        self.task_creating = true;
+                        self.task_creation_focus = TaskCreationField::Name;
+                        self.task_detail.task = None;
+                        self.task_detail.creating = true;
+                        self.task_detail.editing = false;
+                        self.screen = Screen::TaskDetail;
+                        self.screen_title = generate_screen_title("New Task");
+                        self.status = "Enter task name (Ctrl+S to create, Esc to cancel)".to_string();
+                    }
+                    ('t', KeyCode::Char('d')) => {
+                        // Delete current task
+                        if self.screen == Screen::Tasks {
+                            let task_id = self.task_list.selected_task().map(|t| t.id.clone());
+                            self.open_delete_confirmation(task_id);
+                        } else if self.screen == Screen::TaskDetail {
+                            let task_id =
+                                self.task_detail.task.as_ref().map(|t| t.id.clone());
+                            self.open_delete_confirmation(task_id);
+                        }
+                    }
+                    ('t', KeyCode::Char('s')) => {
+                        // Status picker for current task
+                        if self.screen == Screen::Tasks {
+                            if let Some(task) = self.task_list.selected_task().cloned() {
+                                self.open_status_picker(task);
+                            }
+                        } else if self.screen == Screen::TaskDetail {
+                            if let Some(task) = &self.task_detail.task {
+                                self.open_status_picker(task.clone());
+                            }
+                        }
+                    }
+                    ('w', KeyCode::Char('q')) => {
+                        self.dialog.show(DialogType::ConfirmQuit);
+                    }
+                    _ => {
+                        self.status = format!("No command '{}{}'", g,
+                            match key.code {
+                                KeyCode::Char(c) => c.to_string(),
+                                _ => format!("{:?}", key.code),
+                            });
+                    }
+                }
+            }
+        }
+    }
+
+    // ==================== @mention picker (issue 6) ====================
+
+    /// Open the mention picker; fetch members if not cached
+    fn open_mention_picker(&mut self) {
+        // Remember where to return
+        self.mention_prev_target = self.insert_mode_target.take();
+        self.mention_cursor = 0;
+        self.mention_query.clear();
+        self.mention_picker_open = true;
+
+        if self.mention_members.is_empty() {
+            // Fetch members for the current list context
+            let list_id = match &self.current_list_id {
+                Some(id) => id.clone(),
+                None => return, // No context; picker shows empty
+            };
+            let client = match &self.client {
+                Some(c) => c.clone(),
+                None => return,
+            };
+            let tx = self.message_tx.clone().unwrap();
+            tokio::spawn(async move {
+                let result = client.get_list_members(&list_id).await;
+                let msg = match result {
+                    Ok(members) => AppMessage::MentionMembersLoaded(Ok(members)),
+                    Err(e) => AppMessage::MentionMembersLoaded(Err(e.to_string())),
+                };
+                let _ = tx.send(msg).await;
+            });
+        }
+    }
+
+    /// Handle keys while the mention picker overlay is open
+    fn handle_mention_picker_input(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::KeyModifiers;
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.mention_cursor + 1 < self.mention_members.len() {
+                    self.mention_cursor += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.mention_cursor = self.mention_cursor.saturating_sub(1);
+            }
+            KeyCode::Esc => {
+                // Close without inserting; return to insert mode
+                self.mention_picker_open = false;
+                self.insert_mode_target = self.mention_prev_target.take();
+                self.status = "Mention cancelled".to_string();
+            }
+            KeyCode::Enter => {
+                self.insert_selected_mention();
+            }
+            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Ctrl+S saves the buffer and closes everything
+                self.mention_picker_open = false;
+                self.insert_mode_target = self.mention_prev_target.take();
+                self.commit_insert_mode();
+            }
+            KeyCode::Char(c) => {
+                // Type-to-filter within the picker
+                self.mention_query.push(c);
+                self.mention_cursor = 0;
+            }
+            KeyCode::Backspace => {
+                self.mention_query.pop();
+            }
+            _ => {}
+        }
+    }
+
+    /// Insert the selected mention into the underlying buffer
+    fn insert_selected_mention(&mut self) {
+        // Filtered member list, matching the rendered order
+        let query = self.mention_query.to_lowercase();
+        let candidates: Vec<&User> = self
+            .mention_members
+            .iter()
+            .filter(|m| m.username.to_lowercase().contains(&query))
+            .collect();
+
+        if let Some(member) = candidates.get(self.mention_cursor) {
+            let username = member.username.clone();
+            // Replace the trailing "@<query>" typed so far with "@username "
+            // NOTE: read/write via mention_prev_target — insert_mode_target was
+            // moved there when the picker opened.
+            let buf = match self.mention_prev_target.as_ref() {
+                Some(InsertTarget::Description) => self.description_edit_buffer.clone(),
+                Some(InsertTarget::Comment) => self.comment_new_text.clone(),
+                _ => String::new(),
+            };
+            let query_suffix = self.mention_query.clone();
+            let at_pos = buf.rfind('@');
+            let mut new_buf = buf.clone();
+            if let Some(pos) = at_pos {
+                // Only strip the query if it directly follows the '@'
+                let after_at = &buf[pos + 1..];
+                if after_at.starts_with(&query_suffix) {
+                    new_buf = format!("{}@{} {}", &buf[..pos], username, &buf[pos + 1 + query_suffix.len()..]);
+                } else {
+                    new_buf = format!("{} @{} ", buf, username);
+                }
+            } else {
+                new_buf = format!("{} @{} ", buf, username);
+            }
+
+            match self.mention_prev_target.as_ref() {
+                Some(InsertTarget::Description) => self.description_edit_buffer = new_buf,
+                Some(InsertTarget::Comment) => self.comment_new_text = new_buf,
+                _ => {}
+            }
+            self.status = format!("Mentioned @{}", username);
+        } else {
+            self.status = "No matching member".to_string();
+        }
+
+        // Return to insert mode
+        self.mention_picker_open = false;
+        self.insert_mode_target = self.mention_prev_target.take();
     }
 
     /// Handle keyboard input within the assignee picker
@@ -483,6 +949,10 @@ impl TuiApp {
                     "Comment editing cancelled".to_string()
                 };
             }
+            KeyCode::Enter => {
+                // Newline inside the comment text
+                self.comment_new_text.push('\n');
+            }
             KeyCode::Char(c) => {
                 self.comment_new_text.push(c);
             }
@@ -539,6 +1009,59 @@ impl TuiApp {
     #[allow(dead_code)]
     pub fn is_assignee_picker_open(&self) -> bool {
         self.assignee_picker_open
+    }
+
+    /// Check whether the loading flag is set (for testing)
+    #[allow(dead_code)]
+    pub fn loading_true_for_test(&self) -> bool {
+        self.loading
+    }
+
+    /// Insert mode active? (for testing)
+    #[allow(dead_code)]
+    pub fn insert_mode_active_for_test(&self) -> bool {
+        self.insert_mode_target.is_some()
+    }
+
+    /// Description insert buffer (for testing)
+    #[allow(dead_code)]
+    pub fn description_buffer_for_test(&self) -> String {
+        self.description_edit_buffer.clone()
+    }
+
+    /// Command menu open? (for testing)
+    #[allow(dead_code)]
+    pub fn command_menu_open_for_test(&self) -> bool {
+        self.command_menu.is_some()
+    }
+
+    /// URL input dialog open? (for testing)
+    #[allow(dead_code)]
+    pub fn url_input_open_for_test(&self) -> bool {
+        self.url_input_open
+    }
+
+    /// Expanded panel (for testing)
+    #[allow(dead_code)]
+    pub fn expanded_panel_for_test(&self) -> Option<ExpandedPanel> {
+        self.expanded_panel
+    }
+
+    pub fn mention_picker_open_for_test(&self) -> bool {
+        self.mention_picker_open
+    }
+
+    pub fn set_mention_members_for_test(&mut self, members: Vec<User>) {
+        self.mention_members = members;
+    }
+
+    pub fn status_picker_statuses_for_test(&self) -> &[crate::models::TaskStatus] {
+        &self.status_picker_statuses
+    }
+
+    pub fn set_cached_list_statuses_for_test(&mut self, list_id: &str, statuses: Vec<crate::models::TaskStatus>) {
+        self.cached_list_statuses
+            .insert(list_id.to_string(), statuses);
     }
 
     /// Set the cached list members (for testing)
@@ -753,10 +1276,21 @@ impl TuiApp {
             task_name_input: String::new(),
             task_description_input: String::new(),
             task_creating: false,
+            insert_mode_target: None,
+            command_menu: None,
+            expanded_panel: None,
+            description_edit_buffer: String::new(),
+            description_scroll_offset: 0,
+            mention_members: Vec::new(),
+            mention_cursor: 0,
+            mention_picker_open: false,
+            mention_prev_target: None,
+            mention_query: String::new(),
             task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
+            cached_list_statuses: std::collections::HashMap::new(),
             assignee_picker_open: false,
             assignee_picker_members: Vec::new(),
             assignee_picker_selected: std::collections::HashSet::new(),
@@ -871,10 +1405,21 @@ impl TuiApp {
             task_name_input: String::new(),
             task_description_input: String::new(),
             task_creating: false,
+            insert_mode_target: None,
+            command_menu: None,
+            expanded_panel: None,
+            description_edit_buffer: String::new(),
+            description_scroll_offset: 0,
+            mention_members: Vec::new(),
+            mention_cursor: 0,
+            mention_picker_open: false,
+            mention_prev_target: None,
+            mention_query: String::new(),
             task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
+            cached_list_statuses: std::collections::HashMap::new(),
             assignee_picker_open: false,
             assignee_picker_members: Vec::new(),
             assignee_picker_selected: std::collections::HashSet::new(),
@@ -964,10 +1509,21 @@ impl TuiApp {
             task_name_input: String::new(),
             task_description_input: String::new(),
             task_creating: false,
+            insert_mode_target: None,
+            command_menu: None,
+            expanded_panel: None,
+            description_edit_buffer: String::new(),
+            description_scroll_offset: 0,
+            mention_members: Vec::new(),
+            mention_cursor: 0,
+            mention_picker_open: false,
+            mention_prev_target: None,
+            mention_query: String::new(),
             task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
+            cached_list_statuses: std::collections::HashMap::new(),
             assignee_picker_open: false,
             assignee_picker_members: Vec::new(),
             assignee_picker_selected: std::collections::HashSet::new(),
@@ -1294,6 +1850,13 @@ impl TuiApp {
                         match result {
                             Ok(lists) => {
                                 self.lists = lists.clone();
+                                // Cache any status configuration that came with the lists
+                                for l in &self.lists {
+                                    if !l.statuses.is_empty() {
+                                        self.cached_list_statuses
+                                            .insert(l.id.clone(), l.statuses.clone());
+                                    }
+                                }
                                 // Populate sidebar with lists
                                 let mut items = Vec::new();
                                 items.extend(self.lists.iter().map(|l| SidebarItem::List {
@@ -1558,7 +2121,40 @@ impl TuiApp {
                             }
                         }
                     }
+                    AppMessage::ListStatusesLoaded(list_id, result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(statuses) => {
+                                if !statuses.is_empty() {
+                                    self.cached_list_statuses
+                                        .insert(list_id.clone(), statuses.clone());
+                                }
+                                // If the picker is open waiting for statuses, refresh it
+                                if self.status_picker_open {
+                                    if !statuses.is_empty() {
+                                        self.status_picker_statuses = statuses;
+                                        if self.status_picker_cursor
+                                            >= self.status_picker_statuses.len()
+                                        {
+                                            self.status_picker_cursor = 0;
+                                        }
+                                    }
+                                    self.status = "Statuses loaded".to_string();
+                                }
+                            }
+                            Err(e) => {
+                                // Keep whatever options the picker already has
+                                if self.status_picker_open {
+                                    self.status = format!(
+                                        "Could not load full status list ({}); showing known statuses",
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
                     AppMessage::MembersLoaded(result) => {
+                        self.loading = false;
                         match result {
                             Ok(members) => {
                                 // Cache the members
@@ -1575,6 +2171,7 @@ impl TuiApp {
                         }
                     }
                     AppMessage::AssigneesUpdated(result) => {
+                        self.loading = false;
                         match result {
                             Ok(updated_task) => {
                                 // Update the task in the tasks list (app cache)
@@ -1597,6 +2194,7 @@ impl TuiApp {
                         }
                     }
                     AppMessage::TaskStatusUpdated(result) => {
+                        self.loading = false;
                         match result {
                             Ok(updated_task) => {
                                 // Update the task in the tasks list (app cache)
@@ -1637,6 +2235,40 @@ impl TuiApp {
                                 self.status_picker_open = false;
                                 self.status = format!("Failed to update status: {}", e);
                             }
+                        }
+                    }
+                    AppMessage::TaskDescriptionUpdated(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(updated_task) => {
+                                for task in &mut self.tasks {
+                                    if task.id == updated_task.id {
+                                        *task = updated_task.clone();
+                                        break;
+                                    }
+                                }
+                                self.rebuild_task_list();
+                                self.task_detail.task = Some(updated_task.clone());
+                                self.description_edit_buffer.clear();
+                                self.status = "Description saved".to_string();
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to save description: {}", e));
+                                self.status = "Failed to save description".to_string();
+                            }
+                        }
+                    }
+                    AppMessage::MentionMembersLoaded(result) => match result {
+                        Ok(members) => {
+                            self.mention_members = members;
+                            if self.mention_members.is_empty() {
+                                self.status = "No members found for @mentions".to_string();
+                            }
+                        }
+                        Err(e) => {
+                            self.mention_picker_open = false;
+                            self.insert_mode_target = self.mention_prev_target.take();
+                            self.status = format!("Could not load members for @: {}", e);
                         }
                     }
                     AppMessage::TaskFetchedForNavigation(result, prev_screen) => {
@@ -1874,6 +2506,31 @@ impl TuiApp {
 
     /// Process input event and update state (public for testing)
     pub fn update(&mut self, event: InputEvent) {
+        // Mention picker is a modal overlay (issue 6): highest priority
+        if self.mention_picker_open {
+            if let InputEvent::Key(key) = event {
+                self.handle_mention_picker_input(key);
+            }
+            return;
+        }
+
+        // Vim-style insert mode (issue 7): while active, all printable keys go
+        // into the buffer; normal-mode commands are not interpreted.
+        if self.insert_mode_target.is_some() {
+            if let InputEvent::Key(key) = event {
+                self.handle_insert_mode(key);
+            }
+            return;
+        }
+
+        // SPACEmenu command overlay (issue 7)
+        if self.command_menu.is_some() {
+            if let InputEvent::Key(key) = event {
+                self.handle_command_menu_input(key);
+            }
+            return;
+        }
+
         // When help is visible, handle pagination and close
         if self.help.visible {
             if let InputEvent::Key(key) = event {
@@ -1992,6 +2649,12 @@ impl TuiApp {
             if key.code == KeyCode::Char('u') {
                 tracing::debug!("URL copy shortcut detected (u key)");
                 self.copy_url();
+                return;
+            }
+
+            // SPACE opens the command menu (Spacemacs-style SPACEmenu)
+            if key.code == KeyCode::Char(' ') && self.screen != Screen::Auth {
+                self.open_command_menu();
                 return;
             }
         }
@@ -2363,6 +3026,11 @@ impl TuiApp {
                             };
                         return;
                     }
+                    KeyCode::Enter => {
+                        // Newline inside the comment text
+                        self.comment_new_text.push('\n');
+                        return;
+                    }
                     KeyCode::Char(c) => {
                         // Add character to comment text
                         self.comment_new_text.push(c);
@@ -2379,6 +3047,12 @@ impl TuiApp {
             // Handle normal task detail and comment navigation
             match key.code {
                 KeyCode::Esc => {
+                    // Collapse an expanded panel first (issue 5)
+                    if self.expanded_panel.is_some() {
+                        self.expanded_panel = None;
+                        self.status = "Panel restored".to_string();
+                        return;
+                    }
                     // Exit thread view if in thread, otherwise go back to tasks
                     if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
                         // Exit thread view and return to top-level
@@ -2401,7 +3075,44 @@ impl TuiApp {
                     }
                 }
                 KeyCode::Char('e') if !self.comment_focus => {
-                    self.task_detail.editing = true;
+                    // Enter insert mode on the task description (issue 7):
+                    // keys are captured as text instead of being misread as commands
+                    self.description_edit_buffer = self
+                        .task_detail
+                        .task
+                        .as_ref()
+                        .and_then(|t| t.description.as_ref().map(|d| d.as_text()))
+                        .unwrap_or_default();
+                    self.insert_mode_target = Some(InsertTarget::Description);
+                    self.status =
+                        "INSERT mode: edit description, Ctrl+S save, Esc normal mode".to_string();
+                }
+                KeyCode::Char('v') if !self.comment_focus => {
+                    // Expand/collapse the description full-screen (issue 5)
+                    self.expanded_panel = match self.expanded_panel {
+                        Some(ExpandedPanel::Description) => {
+                            self.status = "Description restored".to_string();
+                            None
+                        }
+                        _ => {
+                            self.status =
+                                "Description expanded (v restore, j/k scroll)".to_string();
+                            Some(ExpandedPanel::Description)
+                        }
+                    };
+                }
+                KeyCode::Char('v') if self.comment_focus => {
+                    // Expand/collapse the comments full-screen (issue 5)
+                    self.expanded_panel = match self.expanded_panel {
+                        Some(ExpandedPanel::Comments) => {
+                            self.status = "Comments restored".to_string();
+                            None
+                        }
+                        _ => {
+                            self.status = "Comments expanded (v restore, j/k scroll)".to_string();
+                            Some(ExpandedPanel::Comments)
+                        }
+                    };
                 }
                 KeyCode::Char('d') => {
                     let task_id = self.task_detail.task.as_ref().map(|task| task.id.clone());
@@ -2434,6 +3145,12 @@ impl TuiApp {
                         "Focus: Task form".to_string()
                     };
                 }
+                KeyCode::Char('j') if self.expanded_panel == Some(ExpandedPanel::Description) => {
+                    self.description_scroll_down();
+                }
+                KeyCode::Char('k') if self.expanded_panel == Some(ExpandedPanel::Description) => {
+                    self.description_scroll_up();
+                }
                 KeyCode::Char('j') if self.comment_focus => {
                     self.move_comment_selection(1);
                 }
@@ -2441,12 +3158,14 @@ impl TuiApp {
                     self.move_comment_selection(-1);
                 }
                 KeyCode::Char('n') if self.comment_focus => {
-                    // Start new comment
+                    // Start new comment (insert mode keeps keys as text, issue 7)
                     self.comment_new_text.clear();
                     // usize::MAX is a sentinel value indicating "new comment" mode
                     // (as opposed to Some(index) which means editing existing comment)
                     self.comment_editing_index = Some(usize::MAX);
-                    self.status = "Type comment (Ctrl+S save, Esc cancel)".to_string();
+                    self.insert_mode_target = Some(InsertTarget::Comment);
+                    self.status =
+                        "INSERT mode: type comment, Ctrl+S save, Esc to normal mode".to_string();
                 }
                 KeyCode::Char('e') if self.comment_focus => {
                     // Edit selected comment (only in top-level view)
@@ -2458,7 +3177,8 @@ impl TuiApp {
                         // For now, allow editing any comment (will add ownership check later)
                         self.comment_new_text = comment.text.clone();
                         self.comment_editing_index = Some(self.comment_selected_index);
-                        self.status = "Editing comment (Ctrl+S save, Esc cancel)".to_string();
+                        self.insert_mode_target = Some(InsertTarget::Comment);
+                        self.status = "INSERT mode: edit comment, Ctrl+S save, Esc normal mode".to_string();
                     }
                 }
                 KeyCode::Enter if self.comment_focus => {
@@ -2504,6 +3224,7 @@ impl TuiApp {
                         // usize::MAX is a sentinel value indicating "new reply" mode
                         // (as opposed to Some(index) which means editing existing comment)
                         self.comment_editing_index = Some(usize::MAX);
+                        self.insert_mode_target = Some(InsertTarget::Comment);
 
                         let author = match &self.comment_view_mode {
                             CommentViewMode::InThread { parent_author, .. } => {
@@ -2512,7 +3233,8 @@ impl TuiApp {
                             _ => "Unknown".to_string(),
                         };
 
-                        self.status = format!("Replying to {} (Ctrl+S save, Esc cancel)", author);
+                        self.status =
+                            format!("INSERT reply to {}: Ctrl+S save, Esc normal mode", author);
                     } else {
                         self.status = "Press Enter to view thread, then 'r' to reply".to_string();
                     }
@@ -2591,6 +3313,16 @@ impl TuiApp {
                 _ => {}
             }
         }
+    }
+
+    /// Scroll the expanded description panel down
+    fn description_scroll_down(&mut self) {
+        self.description_scroll_offset = self.description_scroll_offset.saturating_add(3);
+    }
+
+    /// Scroll the expanded description panel up
+    fn description_scroll_up(&mut self) {
+        self.description_scroll_offset = self.description_scroll_offset.saturating_sub(3);
     }
 
     /// Navigate into the selected item (public for testing)
@@ -3112,6 +3844,10 @@ impl TuiApp {
             due_date: None,
         };
 
+        // Immediate UI feedback while the request is in flight
+        self.loading = true;
+        self.status = "Saving assignees...".to_string();
+
         tokio::spawn(async move {
             let result = client.update_task(&task_id, &update).await;
             let msg = match result {
@@ -3146,9 +3882,21 @@ impl TuiApp {
             }
         };
 
-        for loaded_task in &self.tasks {
-            if let Some(status) = &loaded_task.status {
-                add_status(status, &mut statuses);
+        // Prefer the list's full status configuration (all available statuses,
+        // not just the subset currently in use by loaded tasks).
+        if let Some(list_id) = &self.current_list_id {
+            if let Some(cached) = self.cached_list_statuses.get(list_id) {
+                for status in cached {
+                    add_status(status, &mut statuses);
+                }
+            }
+        }
+        // Fall back to statuses observed on loaded tasks
+        if statuses.is_empty() {
+            for loaded_task in &self.tasks {
+                if let Some(status) = &loaded_task.status {
+                    add_status(status, &mut statuses);
+                }
             }
         }
         if let Some(status) = &task.status {
@@ -3203,6 +3951,30 @@ impl TuiApp {
             .unwrap_or(0);
         self.status_picker_statuses = statuses;
         self.status_picker_open = true;
+
+        // If we only know a subset of the list's statuses, fetch the full
+        // configuration in the background and refresh the picker when it lands.
+        if let Some(list_id) = &self.current_list_id {
+            if !self.cached_list_statuses.contains_key(list_id) {
+                let client = match &self.client {
+                    Some(c) => c.clone(),
+                    None => return,
+                };
+                let list_id = list_id.clone();
+                let tx = self.message_tx.clone().unwrap();
+                self.loading = true;
+                self.status = "Loading statuses...".to_string();
+                tokio::spawn(async move {
+                    let result = client.get_list(&list_id).await;
+                    let statuses = result.map(|l| l.statuses);
+                    let msg = AppMessage::ListStatusesLoaded(
+                        list_id,
+                        statuses.map_err(|e| e.to_string()),
+                    );
+                    let _ = tx.send(msg).await;
+                });
+            }
+        }
         self.status = "Select new status (j/k navigate, Enter select, Esc cancel)".to_string();
     }
 
@@ -3680,6 +4452,23 @@ impl TuiApp {
                 self.render_url_input_dialog(frame, area);
             }
 
+            // Render SPACEmenu command overlay if open (issue 7)
+            if self.command_menu.is_some() {
+                let level = self.command_menu.clone().unwrap();
+                render_command_menu(frame, area, &level);
+            }
+
+            // Render @mention picker overlay if open (issue 6)
+            if self.mention_picker_open {
+                render_mention_picker(
+                    frame,
+                    area,
+                    &self.mention_members,
+                    self.mention_cursor,
+                    &self.mention_query,
+                );
+            }
+
             // Render help overlay if visible
             let help_context = self.get_help_context();
             render_help(frame, &self.help, &help_context, area);
@@ -3720,30 +4509,40 @@ impl TuiApp {
             Screen::Auth => render_auth(frame, &self.auth_state, area),
             Screen::Tasks => render_task_list(frame, &self.task_list, area, false),
             Screen::TaskDetail => {
-                // Split area between task detail and comments with 3:7 ratio
-                let (task_detail_area, comments_area) = split_task_detail(area);
+                // Expanded panel takes the full screen (issue 5)
+                let (task_detail_area, comments_area) = match self.expanded_panel {
+                    Some(ExpandedPanel::Description) => (area, Rect::default()),
+                    Some(ExpandedPanel::Comments) => (Rect::default(), area),
+                    None => split_task_detail(area),
+                };
 
-                // Render task detail in top portion (30%)
-                render_task_detail(
-                    frame,
-                    &self.task_detail,
-                    task_detail_area,
-                    &self.task_name_input,
-                    &self.task_description_input,
-                    &self.task_creation_focus,
-                );
+                if task_detail_area.height > 0 {
+                    // Render task detail (30% normally, full screen when expanded)
+                    render_task_detail_expanded(
+                        frame,
+                        &self.task_detail,
+                        task_detail_area,
+                        &self.task_name_input,
+                        &self.task_description_input,
+                        &self.task_creation_focus,
+                        self.expanded_panel == Some(ExpandedPanel::Description),
+                        self.description_scroll_offset,
+                    );
+                }
 
-                // Render comments in bottom portion (70%)
-                render_comments(
-                    frame,
-                    &self.comments,
-                    self.comment_selected_index,
-                    self.comment_editing_index,
-                    &self.comment_new_text,
-                    self.comment_focus,
-                    comments_area,
-                    &self.comment_view_mode,
-                );
+                if comments_area.height > 0 {
+                    // Render comments (70% normally, full screen when expanded)
+                    render_comments(
+                        frame,
+                        &self.comments,
+                        self.comment_selected_index,
+                        self.comment_editing_index,
+                        &self.comment_new_text,
+                        self.comment_focus,
+                        comments_area,
+                        &self.comment_view_mode,
+                    );
+                }
             }
             Screen::Document => render_document(frame, &self.document, area),
             _ => {
@@ -3890,6 +4689,12 @@ impl TuiApp {
     fn get_hints(&self) -> String {
         if self.dialog.is_visible() {
             get_dialog_hints().to_string()
+        } else if self.mention_picker_open {
+            "j/k: Navigate | Enter: Mention | Type to filter | Esc: Cancel".to_string()
+        } else if self.command_menu.is_some() {
+            "g: Go to | t: Task | w: Window | Esc: Close".to_string()
+        } else if self.insert_mode_target.is_some() {
+            "INSERT: type text | @: mention | Ctrl+S: Save | Esc: Normal mode".to_string()
         } else if self.status_picker_open {
             "j/k: Navigate | Enter: Select | Esc: Cancel".to_string()
         } else if self.help.visible {

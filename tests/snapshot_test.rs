@@ -866,6 +866,7 @@ fn test_navigation_hierarchy() {
                 folder: None,
                 status: None,
                 priority: None,
+            statuses: Vec::new(),
             },
             List {
                 id: "lst-2".to_string(),
@@ -879,6 +880,7 @@ fn test_navigation_hierarchy() {
                 folder: None,
                 status: None,
                 priority: None,
+            statuses: Vec::new(),
             },
             List {
                 id: "lst-3".to_string(),
@@ -892,6 +894,7 @@ fn test_navigation_hierarchy() {
                 folder: None,
                 status: None,
                 priority: None,
+            statuses: Vec::new(),
             },
         ];
 
