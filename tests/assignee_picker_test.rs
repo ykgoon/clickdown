@@ -231,3 +231,122 @@ fn test_mock_update_task_preserves_assignees_when_not_updated() {
     assert_eq!(updated.assignees[0].username, "Existing User");
     assert_eq!(updated.name, "Updated Name");
 }
+
+/// Regression (issue 1): pressing Ctrl+S in the assignee picker must save the
+/// selection and show feedback. The task *was* being assigned correctly, but
+/// the UI gave no visible response.
+#[test]
+fn test_ctrl_s_in_assignee_picker_saves_and_closes() {
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use fixtures::test_task;
+    use std::sync::Arc;
+
+    let mut base_task = test_task();
+    base_task.assignees = vec![];
+    let mut updated_task = base_task.clone();
+    updated_task.assignees = vec![test_user(1, "Alice")];
+
+    let rt = Runtime::new().unwrap();
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(
+            MockClickUpClient::new()
+                .with_tasks(vec![base_task.clone()])
+                .with_update_task_response(updated_task.clone()),
+        ))
+        .unwrap()
+    });
+
+    app.set_current_list_id(Some("test-list-1".to_string()));
+    app.set_screen(clickdown::tui::app::Screen::TaskDetail);
+    app.task_detail().task = Some(base_task.clone());
+
+    // Pre-cache members so the picker opens without an async round-trip
+    app.set_cached_list_members("test-list-1", vec![test_user(1, "Alice"), test_user(2, "Bob")]);
+
+    // save_assignees spawns a tokio task, so the key handling needs a
+    // runtime context (in the real app this is provided by #[tokio::main])
+    let _guard = rt.enter();
+
+    // Open the picker ('A' in task detail)
+    app.update(InputEvent::Key(KeyEvent::new(
+        KeyCode::Char('A'),
+        KeyModifiers::NONE,
+    )));
+    assert!(app.is_assignee_picker_open(), "picker should open");
+
+    // Select Alice with space, then save with Ctrl+S
+    app.update(InputEvent::Key(KeyEvent::new(
+        KeyCode::Char(' '),
+        KeyModifiers::NONE,
+    )));
+    app.update(InputEvent::Key(KeyEvent::new(
+        KeyCode::Char('s'),
+        KeyModifiers::CONTROL,
+    )));
+
+    // Process the async AssigneesUpdated response
+    rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(100)).await });
+    app.process_async_messages();
+
+    // UI must respond: picker closed, status feedback shown, assignees visible
+    assert!(
+        !app.is_assignee_picker_open(),
+        "picker should close after save"
+    );
+    let status = app.status().to_string();
+    assert!(
+        status.contains("Assignees updated"),
+        "status should confirm save, got: {}",
+        status
+    );
+    let detail = app.task_detail().task.clone().expect("task still open");
+    assert_eq!(detail.assignees.len(), 1, "assignee should be reflected");
+    // Mock client stubs assignees as "user_{id}"
+    assert_eq!(detail.assignees[0].id, 1);
+}
+
+/// Regression (issue 1): loading the member list for the assignee picker must
+/// clear the loading flag. Previously `MembersLoaded` left `loading = true`,
+/// which permanently wedged the status bar on "Loading..." — so after Ctrl+S
+/// saved assignees, the UI never showed "Assignees updated".
+#[test]
+fn test_members_loaded_clears_loading_flag() {
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use fixtures::test_task;
+    use std::sync::Arc;
+
+    let task = test_task();
+    let rt = Runtime::new().unwrap();
+    let mut app = rt.block_on(async {
+        TuiApp::with_client(Arc::new(
+            MockClickUpClient::new()
+                .with_tasks(vec![task])
+                .with_list_members(vec![test_user(1, "Alice")]),
+        ))
+        .unwrap()
+    });
+
+    app.set_current_list_id(Some("test-list-1".to_string()));
+    app.set_screen(clickdown::tui::app::Screen::TaskDetail);
+    app.task_detail().task = Some(test_task());
+
+    // No cached members: this sets loading = true and fetches from the API
+    let _guard = rt.enter();
+    app.update(InputEvent::Key(KeyEvent::new(
+        KeyCode::Char('A'),
+        KeyModifiers::NONE,
+    )));
+    assert!(app.is_assignee_picker_open() || app.loading_true_for_test());
+
+    // Deliver the MembersLoaded response
+    rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(100)).await });
+    app.process_async_messages();
+
+    assert!(
+        !app.loading_true_for_test(),
+        "MembersLoaded must clear the loading flag (status bar was wedged on 'Loading...')"
+    );
+    assert!(app.is_assignee_picker_open(), "picker should be open");
+}
