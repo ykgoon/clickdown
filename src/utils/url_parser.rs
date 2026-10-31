@@ -127,11 +127,12 @@ impl UrlParser {
         Self::try_long_form(path)
     }
 
-    /// Try to match short-form URL patterns: /t/{id}, /d/{id}
+    /// Try to match short-form URL patterns: /t/{id}, /t/{team}/{id}, /d/{id}
     fn try_short_form(path: &str, query: Option<&str>) -> ParseResult<Option<ParsedUrl>> {
-        // Task or comment: /t/{task_id} or /t/{task_id}?comment={comment_id}
+        // Task or comment: /t/{task_id}, /t/{team_id}/{task_id},
+        // or /t/{task_id}?comment={comment_id}
         if let Some(rest) = path.strip_prefix("t/") {
-            let task_id = Self::extract_id(rest)?;
+            let task_id = Self::extract_task_id_from_tail(rest)?;
 
             // Check for comment query parameter
             if let Some(q) = query {
@@ -220,6 +221,28 @@ impl UrlParser {
             ))
         } else {
             Ok(segment)
+        }
+    }
+
+    /// Extract the task ID from the tail of a `/t/...` path.
+    ///
+    /// ClickUp shares tasks as `https://app.clickup.com/t/{team_id}/{task_id}`
+    /// while the app itself also generates `/t/{task_id}`. Both forms must
+    /// resolve to the bare task ID, since the API only accepts
+    /// `GET /task/{task_id}`.
+    fn extract_task_id_from_tail(tail: &str) -> ParseResult<&str> {
+        let mut segments = tail.split('/');
+        let first = segments.next().unwrap_or("");
+        match segments.next() {
+            // Two or more segments: `/t/{team_id}/{task_id}` — the task ID is
+            // the last segment; anything before it (team id, extra path bits)
+            // is ignored.
+            Some(_) => {
+                let task_id = tail.rsplit('/').next().unwrap_or("");
+                Self::extract_id(task_id)
+            }
+            // Single segment: `/t/{task_id}`
+            None => Self::extract_id(first),
         }
     }
 
@@ -527,6 +550,72 @@ mod tests {
                 assert_eq!(doc_id, "doc901");
             }
             _ => panic!("Expected Document, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_parse_task_url_with_team_id() {
+        // Shared task URLs look like /t/{team_id}/{task_id}
+        let parsed =
+            UrlParser::parse("https://app.clickup.com/t/26408409/14zrc6q9vr2").unwrap();
+        match parsed {
+            ParsedUrl::Task { task_id } => {
+                assert_eq!(task_id, "14zrc6q9vr2");
+            }
+            _ => panic!("Expected Task, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_parse_task_url_with_team_id_trailing_slash() {
+        let parsed =
+            UrlParser::parse("https://app.clickup.com/t/26408409/14zrc6q9vr2/").unwrap();
+        match parsed {
+            ParsedUrl::Task { task_id } => {
+                assert_eq!(task_id, "14zrc6q9vr2");
+            }
+            _ => panic!("Expected Task, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_parse_short_task_url_still_works() {
+        let parsed = UrlParser::parse("https://app.clickup.com/t/14zrc6q9vr2").unwrap();
+        match parsed {
+            ParsedUrl::Task { task_id } => {
+                assert_eq!(task_id, "14zrc6q9vr2");
+            }
+            _ => panic!("Expected Task, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_parse_task_url_with_team_id_and_custom_task_id() {
+        // Custom task IDs like ABC-123 must also be preserved
+        let parsed = UrlParser::parse("https://app.clickup.com/t/26408409/ABC-123").unwrap();
+        match parsed {
+            ParsedUrl::Task { task_id } => {
+                assert_eq!(task_id, "ABC-123");
+            }
+            _ => panic!("Expected Task, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_parse_comment_url_with_team_id() {
+        let parsed = UrlParser::parse(
+            "https://app.clickup.com/t/26408409/14zrc6q9vr2?comment=1301560000056647",
+        )
+        .unwrap();
+        match parsed {
+            ParsedUrl::Comment {
+                task_id,
+                comment_id,
+            } => {
+                assert_eq!(task_id, "14zrc6q9vr2");
+                assert_eq!(comment_id, "1301560000056647");
+            }
+            _ => panic!("Expected Comment, got {:?}", parsed),
         }
     }
 }
