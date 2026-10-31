@@ -48,6 +48,32 @@ pub fn render_task_detail(
     task_description_input: &str,
     task_creation_focus: &TaskCreationField,
 ) {
+    render_task_detail_expanded(
+        frame,
+        state,
+        area,
+        task_name_input,
+        task_description_input,
+        task_creation_focus,
+        false,
+        0,
+    )
+}
+
+/// Extended variant: renders the detail view with an optional full-screen
+/// expanded description panel (issue 5) and a manual scroll offset.
+#[allow(clippy::too_many_arguments)]
+pub fn render_task_detail_expanded(
+    frame: &mut Frame,
+    state: &TaskDetailState,
+    area: Rect,
+    // Task creation form data (only used when state.creating is true)
+    task_name_input: &str,
+    task_description_input: &str,
+    task_creation_focus: &TaskCreationField,
+    expanded: bool,
+    manual_scroll: usize,
+) {
     if state.creating {
         render_task_creation_form(
             frame,
@@ -68,50 +94,79 @@ pub fn render_task_detail(
 
     let inner_area = block.inner(area);
 
-    // Split into task info and description with better ratio
-    let inner = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(1)
-        .constraints([
-            Constraint::Length(1), // Name
-            Constraint::Length(1), // Status
-            Constraint::Length(1), // Priority
-            Constraint::Length(1), // Assignees
-            Constraint::Min(2),    // Description (flexible space)
-        ])
-        .split(inner_area);
+    // Split into task info and description with better ratio.
+    // When the description is expanded (issue 5), the header rows collapse to
+    // a single status line so the description is readable full-screen.
+    let inner = if expanded {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints([
+                Constraint::Length(1), // Status summary line
+                Constraint::Min(2),    // Description (full screen)
+            ])
+            .split(inner_area)
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints([
+                Constraint::Length(1), // Name
+                Constraint::Length(1), // Status
+                Constraint::Length(1), // Priority
+                Constraint::Length(1), // Assignees
+                Constraint::Min(2),    // Description (flexible space)
+            ])
+            .split(inner_area)
+    };
 
     if let Some(task) = &state.task {
-        frame.render_widget(Paragraph::new(format!("Name: {}", task.name)), inner[0]);
-
-        let status = task
-            .status
-            .as_ref()
-            .map(|s| s.status.as_str())
-            .unwrap_or("None");
-        frame.render_widget(Paragraph::new(format!("Status: {}", status)), inner[1]);
-
-        let priority = task
-            .priority
-            .as_ref()
-            .map(|p| p.priority.as_str())
-            .unwrap_or("None");
-        frame.render_widget(Paragraph::new(format!("Priority: {}", priority)), inner[2]);
-
-        // Render assignees
-        let assignees_str = if task.assignees.is_empty() {
-            "None".to_string()
+        if expanded {
+            // Compact header: name + status on one line
+            let status = task
+                .status
+                .as_ref()
+                .map(|s| s.status.as_str())
+                .unwrap_or("None");
+            frame.render_widget(
+                Paragraph::new(format!(
+                    "{} [{}]  v: restore | j/k: scroll",
+                    task.name, status
+                )),
+                inner[0],
+            );
         } else {
-            task.assignees
-                .iter()
-                .map(|u| u.username.clone())
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        frame.render_widget(
-            Paragraph::new(format!("Assignees: {}", assignees_str)),
-            inner[3],
-        );
+            frame.render_widget(Paragraph::new(format!("Name: {}", task.name)), inner[0]);
+
+            let status = task
+                .status
+                .as_ref()
+                .map(|s| s.status.as_str())
+                .unwrap_or("None");
+            frame.render_widget(Paragraph::new(format!("Status: {}", status)), inner[1]);
+
+            let priority = task
+                .priority
+                .as_ref()
+                .map(|p| p.priority.as_str())
+                .unwrap_or("None");
+            frame.render_widget(Paragraph::new(format!("Priority: {}", priority)), inner[2]);
+
+            // Render assignees
+            let assignees_str = if task.assignees.is_empty() {
+                "None".to_string()
+            } else {
+                task.assignees
+                    .iter()
+                    .map(|u| u.username.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            frame.render_widget(
+                Paragraph::new(format!("Assignees: {}", assignees_str)),
+                inner[3],
+            );
+        }
 
         let desc = task
             .description
@@ -119,9 +174,11 @@ pub fn render_task_detail(
             .map(|d| d.as_text())
             .unwrap_or_else(|| "No description".to_string());
 
+        let desc_area = if expanded { inner[1] } else { inner[4] };
+
         // Calculate description content height for scroll state
-        let available_height = inner[4].height as usize;
-        let available_width = inner[4].width.saturating_sub(4) as usize; // Account for borders
+        let available_height = desc_area.height as usize;
+        let available_width = desc_area.width.saturating_sub(2) as usize; // Account for borders
 
         // Estimate content height by counting wrapped lines
         let content_height = estimate_wrapped_lines(&desc, available_width);
@@ -130,26 +187,39 @@ pub fn render_task_detail(
         let mut scroll_state = state.description_scroll.clone();
         scroll_state.update(content_height, available_height);
 
+        // When expanded, the user scrolls manually (j/k); otherwise auto
+        let effective_offset = if expanded {
+            manual_scroll.min(scroll_state.max_offset)
+        } else {
+            scroll_state.offset
+        };
+
+        let title = if expanded {
+            " Description (expanded) "
+        } else {
+            " Description "
+        };
+
         // Render description with text wrapping and scrolling
         let desc_paragraph = Paragraph::new(desc)
             .block(
                 Block::default()
-                    .title(" Description ")
+                    .title(title)
                     .borders(Borders::ALL)
                     .style(Style::default().fg(Theme::PRIMARY)),
             )
-            .wrap(Wrap { trim: true });
+            .wrap(Wrap { trim: true })
+            .scroll((effective_offset as u16, 0));
 
-        // Render with scroll offset
-        frame.render_widget(desc_paragraph, inner[4]);
+        frame.render_widget(desc_paragraph, desc_area);
 
         // Render scroll indicator if needed
         if scroll_state.scrollable {
             crate::tui::layout::render_scroll_indicator(
                 frame,
-                inner[4],
+                desc_area,
                 content_height,
-                scroll_state.offset,
+                effective_offset,
             );
         }
     } else {
