@@ -15,7 +15,9 @@
 //!
 //! ## Short-form URLs:
 //! - Task: `https://app.clickup.com/t/{task_id}`
+//!   or shared form `https://app.clickup.com/t/{team_id}/{task_id}`
 //! - Comment: `https://app.clickup.com/t/{task_id}?comment={comment_id}`
+//!   (the `{team_id}/{task_id}` form is supported here too)
 //! - Document: `https://app.clickup.com/d/{doc_id}`
 
 /// Base URL for ClickUp web app
@@ -71,10 +73,20 @@ pub enum ParsedUrl {
         workspace_id: String,
         list_id: String,
     },
-    /// Task URL (short-form): `https://app.clickup.com/t/{task_id}`
-    Task { task_id: String },
+    /// Task URL (short-form): `https://app.clickup.com/t/{task_id}` or
+    /// shared form `https://app.clickup.com/t/{team_id}/{task_id}`.
+    /// `team_id` is kept when present so custom task IDs can be resolved
+    /// with team context on lookup failure.
+    Task {
+        team_id: Option<String>,
+        task_id: String,
+    },
     /// Comment URL (short-form): `https://app.clickup.com/t/{task_id}?comment={comment_id}`
-    Comment { task_id: String, comment_id: String },
+    Comment {
+        team_id: Option<String>,
+        task_id: String,
+        comment_id: String,
+    },
     /// Document URL (short-form): `https://app.clickup.com/d/{doc_id}`
     Document { doc_id: String },
 }
@@ -91,7 +103,29 @@ impl UrlParser {
     /// # Returns
     /// A `ParsedUrl` enum variant with the extracted resource IDs, or a `ParseError`
     pub fn parse(url: &str) -> ParseResult<ParsedUrl> {
+        // URLs pasted from chat apps, terminals, or markdown often carry
+        // surrounding whitespace, newlines, quotes, or autolink wrappers.
+        // Strip the obvious wrappers before matching so dirty-but-valid
+        // input parses instead of corrupting the trailing resource ID.
+        let url = url.trim();
+        let url = url.trim_matches(|c| c == '\'' || c == '"');
+        // Chat/markdown autolink wrapper: <https://app.clickup.com/...>
+        let url = url.strip_prefix('<').unwrap_or(url);
+        let url = url.strip_suffix('>').unwrap_or(url);
         let url = url.trim_end_matches('/');
+
+        // Scheme normalization: browsers and chat apps sometimes produce
+        // `http://` links or drop the scheme entirely (`app.clickup.com/...`).
+        // Only app.clickup.com is accepted anyway, so this cannot redirect
+        // parsing to a foreign host — anything else still fails the base-URL
+        // check below.
+        let url = if let Some(rest) = url.strip_prefix("http://app.clickup.com") {
+            format!("https://app.clickup.com{}", rest)
+        } else if let Some(rest) = url.strip_prefix("app.clickup.com") {
+            format!("https://app.clickup.com{}", rest)
+        } else {
+            url.to_string()
+        };
 
         if !url.starts_with(CLICKUP_BASE_URL) {
             return Err(ParseError::NotClickUpUrl(format!(
@@ -100,7 +134,19 @@ impl UrlParser {
             )));
         }
 
-        let path = &url[CLICKUP_BASE_URL.len()..];
+        // The base check above is a prefix match; require the next character
+        // to be a path/query boundary so lookalike hosts
+        // (`app.clickup.comt`, `app.clickup.com.evil.example`) are rejected
+        // instead of leaking their tail into resource-ID parsing.
+        let rest = &url[CLICKUP_BASE_URL.len()..];
+        if !rest.is_empty() && !rest.starts_with('/') && !rest.starts_with('?') {
+            return Err(ParseError::NotClickUpUrl(format!(
+                "host is not exactly {}",
+                "app.clickup.com"
+            )));
+        }
+
+        let path = rest;
 
         // Separate path from query string
         let (path, query) = if let Some(pos) = path.find('?') {
@@ -132,12 +178,13 @@ impl UrlParser {
         // Task or comment: /t/{task_id}, /t/{team_id}/{task_id},
         // or /t/{task_id}?comment={comment_id}
         if let Some(rest) = path.strip_prefix("t/") {
-            let task_id = Self::extract_task_id_from_tail(rest)?;
+            let (team_id, task_id) = Self::split_task_tail(rest)?;
 
             // Check for comment query parameter
             if let Some(q) = query {
                 if let Some(comment_id) = Self::extract_query_param(q, "comment") {
                     return Ok(Some(ParsedUrl::Comment {
+                        team_id,
                         task_id: task_id.to_string(),
                         comment_id,
                     }));
@@ -145,6 +192,7 @@ impl UrlParser {
             }
 
             return Ok(Some(ParsedUrl::Task {
+                team_id,
                 task_id: task_id.to_string(),
             }));
         }
@@ -168,9 +216,15 @@ impl UrlParser {
             return Err(ParseError::UnknownFormat("empty path".to_string()));
         }
 
-        // Workspace: just the workspace ID (single segment)
+        // Workspace: just the workspace ID (single segment).
+        // `/t` and `/d` are short-form resource roots, not workspace IDs —
+        // e.g. a trailing slash on `.../t/` would otherwise parse as
+        // workspace "t".
         if segments.len() == 1 {
             let workspace_id = Self::extract_id(segments[0])?;
+            if workspace_id == "t" || workspace_id == "d" {
+                return Err(ParseError::UnknownFormat(format!("path: {}", path)));
+            }
             return Ok(ParsedUrl::Workspace {
                 workspace_id: workspace_id.to_string(),
             });
@@ -224,25 +278,34 @@ impl UrlParser {
         }
     }
 
-    /// Extract the task ID from the tail of a `/t/...` path.
+    /// Split the tail of a `/t/...` path into `(team_id, task_id)`.
     ///
     /// ClickUp shares tasks as `https://app.clickup.com/t/{team_id}/{task_id}`
     /// while the app itself also generates `/t/{task_id}`. Both forms must
-    /// resolve to the bare task ID, since the API only accepts
-    /// `GET /task/{task_id}`.
-    fn extract_task_id_from_tail(tail: &str) -> ParseResult<&str> {
-        let mut segments = tail.split('/');
-        let first = segments.next().unwrap_or("");
-        match segments.next() {
-            // Two or more segments: `/t/{team_id}/{task_id}` — the task ID is
-            // the last segment; anything before it (team id, extra path bits)
-            // is ignored.
-            Some(_) => {
-                let task_id = tail.rsplit('/').next().unwrap_or("");
-                Self::extract_id(task_id)
-            }
+    /// resolve to the bare task ID for `GET /task/{task_id}`; the team ID is
+    /// preserved separately so custom task IDs (e.g. `ABC-123`) can be
+    /// resolved via `custom_task_ids=true&team_id=...` on lookup failure.
+    fn split_task_tail(tail: &str) -> ParseResult<(Option<String>, &str)> {
+        let segments: Vec<&str> = tail.split('/').collect();
+        match segments.len() {
             // Single segment: `/t/{task_id}`
-            None => Self::extract_id(first),
+            1 => Self::extract_id(segments[0]).map(|id| (None, id)),
+            // Two segments: `/t/{team_id}/{task_id}` — an empty team segment
+            // is tolerated and treated as absent.
+            2 => {
+                let team_id = if segments[0].is_empty() {
+                    None
+                } else {
+                    Some(segments[0].to_string())
+                };
+                Self::extract_id(segments[1]).map(|id| (team_id, id))
+            }
+            // Deeper nesting is not a documented ClickUp form; treat the last
+            // segment as the task ID and ignore the rest.
+            _ => {
+                let task_id = segments[segments.len() - 1];
+                Self::extract_id(task_id).map(|id| (None, id))
+            }
         }
     }
 
@@ -380,7 +443,8 @@ mod tests {
     fn test_parse_task_url() {
         let result = UrlParser::parse("https://app.clickup.com/t/task345").unwrap();
         match result {
-            ParsedUrl::Task { task_id } => {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id, None);
                 assert_eq!(task_id, "task345");
             }
             _ => panic!("Expected Task variant"),
@@ -391,7 +455,8 @@ mod tests {
     fn test_parse_task_url_with_trailing_slash() {
         let result = UrlParser::parse("https://app.clickup.com/t/task345/").unwrap();
         match result {
-            ParsedUrl::Task { task_id } => {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id, None);
                 assert_eq!(task_id, "task345");
             }
             _ => panic!("Expected Task variant"),
@@ -406,9 +471,11 @@ mod tests {
             UrlParser::parse("https://app.clickup.com/t/task345?comment=comment678").unwrap();
         match result {
             ParsedUrl::Comment {
+                team_id,
                 task_id,
                 comment_id,
             } => {
+                assert_eq!(team_id, None);
                 assert_eq!(task_id, "task345");
                 assert_eq!(comment_id, "comment678");
             }
@@ -446,6 +513,13 @@ mod tests {
     #[test]
     fn test_reject_unknown_clickup_format() {
         let result = UrlParser::parse("https://app.clickup.com/unknown/path/here");
+        assert!(matches!(result, Err(ParseError::UnknownFormat(_))));
+    }
+
+    #[test]
+    fn test_reject_bare_short_form_root() {
+        // `.../t/` and `.../d/` are resource roots, not workspace IDs
+        let result = UrlParser::parse("https://app.clickup.com/t/");
         assert!(matches!(result, Err(ParseError::UnknownFormat(_))));
     }
 
@@ -518,7 +592,8 @@ mod tests {
         let generated = ClickUpUrlGenerator::task_url("", "", "task345").unwrap();
         let parsed = UrlParser::parse(&generated).unwrap();
         match parsed {
-            ParsedUrl::Task { task_id } => {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id, None);
                 assert_eq!(task_id, "task345");
             }
             _ => panic!("Expected Task, got {:?}", parsed),
@@ -531,9 +606,11 @@ mod tests {
         let parsed = UrlParser::parse(&generated).unwrap();
         match parsed {
             ParsedUrl::Comment {
+                team_id,
                 task_id,
                 comment_id,
             } => {
+                assert_eq!(team_id, None);
                 assert_eq!(task_id, "task345");
                 assert_eq!(comment_id, "comment678");
             }
@@ -559,7 +636,8 @@ mod tests {
         let parsed =
             UrlParser::parse("https://app.clickup.com/t/26408409/14zrc6q9vr2").unwrap();
         match parsed {
-            ParsedUrl::Task { task_id } => {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id.as_deref(), Some("26408409"));
                 assert_eq!(task_id, "14zrc6q9vr2");
             }
             _ => panic!("Expected Task, got {:?}", parsed),
@@ -571,7 +649,8 @@ mod tests {
         let parsed =
             UrlParser::parse("https://app.clickup.com/t/26408409/14zrc6q9vr2/").unwrap();
         match parsed {
-            ParsedUrl::Task { task_id } => {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id.as_deref(), Some("26408409"));
                 assert_eq!(task_id, "14zrc6q9vr2");
             }
             _ => panic!("Expected Task, got {:?}", parsed),
@@ -582,7 +661,8 @@ mod tests {
     fn test_parse_short_task_url_still_works() {
         let parsed = UrlParser::parse("https://app.clickup.com/t/14zrc6q9vr2").unwrap();
         match parsed {
-            ParsedUrl::Task { task_id } => {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id, None);
                 assert_eq!(task_id, "14zrc6q9vr2");
             }
             _ => panic!("Expected Task, got {:?}", parsed),
@@ -594,7 +674,8 @@ mod tests {
         // Custom task IDs like ABC-123 must also be preserved
         let parsed = UrlParser::parse("https://app.clickup.com/t/26408409/ABC-123").unwrap();
         match parsed {
-            ParsedUrl::Task { task_id } => {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id.as_deref(), Some("26408409"));
                 assert_eq!(task_id, "ABC-123");
             }
             _ => panic!("Expected Task, got {:?}", parsed),
@@ -609,13 +690,99 @@ mod tests {
         .unwrap();
         match parsed {
             ParsedUrl::Comment {
+                team_id,
                 task_id,
                 comment_id,
             } => {
+                assert_eq!(team_id.as_deref(), Some("26408409"));
                 assert_eq!(task_id, "14zrc6q9vr2");
                 assert_eq!(comment_id, "1301560000056647");
             }
             _ => panic!("Expected Comment, got {:?}", parsed),
         }
+    }
+
+    #[test]
+    fn test_parse_task_url_with_surrounding_whitespace() {
+        // Pasted URLs often carry trailing newlines/spaces
+        let parsed =
+            UrlParser::parse("  https://app.clickup.com/t/26408409/14zrc6q9vr2\n").unwrap();
+        match parsed {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id.as_deref(), Some("26408409"));
+                assert_eq!(task_id, "14zrc6q9vr2");
+            }
+            _ => panic!("Expected Task, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_parse_task_url_wrapped_in_angle_brackets() {
+        // Chat apps/markdown autolink wrapper
+        let parsed = UrlParser::parse("<https://app.clickup.com/t/14zrc6q9vr2>").unwrap();
+        match parsed {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id, None);
+                assert_eq!(task_id, "14zrc6q9vr2");
+            }
+            _ => panic!("Expected Task, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_parse_task_url_with_quotes() {
+        let parsed = UrlParser::parse("\"https://app.clickup.com/t/14zrc6q9vr2\"").unwrap();
+        match parsed {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id, None);
+                assert_eq!(task_id, "14zrc6q9vr2");
+            }
+            _ => panic!("Expected Task, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_parse_task_url_with_empty_team_segment() {
+        // Degenerate double slash: team unknown, task still resolves
+        let parsed = UrlParser::parse("https://app.clickup.com/t//14zrc6q9vr2").unwrap();
+        match parsed {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id, None);
+                assert_eq!(task_id, "14zrc6q9vr2");
+            }
+            _ => panic!("Expected Task, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_parse_task_url_without_scheme() {
+        // Browser address bar often omits the scheme
+        let parsed = UrlParser::parse("app.clickup.com/t/26408409/14zrc6q9vr2").unwrap();
+        match parsed {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id.as_deref(), Some("26408409"));
+                assert_eq!(task_id, "14zrc6q9vr2");
+            }
+            _ => panic!("Expected Task, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_parse_task_url_with_http_scheme() {
+        let parsed = UrlParser::parse("http://app.clickup.com/t/14zrc6q9vr2").unwrap();
+        match parsed {
+            ParsedUrl::Task { team_id, task_id } => {
+                assert_eq!(team_id, None);
+                assert_eq!(task_id, "14zrc6q9vr2");
+            }
+            _ => panic!("Expected Task, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn test_reject_lookalike_host() {
+        // A host merely starting with the base name must not parse
+        let result = UrlParser::parse("https://app.clickup.com.evil.example/t/14zrc6q9vr2");
+        assert!(result.is_err());
     }
 }

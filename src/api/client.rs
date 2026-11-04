@@ -234,6 +234,33 @@ impl ClickUpClient {
             .await
     }
 
+    /// Get a single task, tolerating custom task IDs when the source URL
+    /// carried a team/workspace ID.
+    ///
+    /// Plain lookup first (works for standard ClickUp task IDs). If that
+    /// fails and a team ID is available, retry with
+    /// `custom_task_ids=true&team_id=...`, which is how the ClickUp API
+    /// resolves custom task IDs (e.g. `ABC-123`). On retry failure the
+    /// original error is preserved.
+    pub async fn get_task_with_context(
+        &self,
+        task_id: &str,
+        team_id: Option<&str>,
+    ) -> Result<Task> {
+        match self.get_task(task_id).await {
+            Ok(task) => Ok(task),
+            Err(original) => match team_id {
+                Some(team_id) => {
+                    let url = ApiEndpoints::task_with_custom_ids(task_id, team_id);
+                    self.execute::<Task>(self.request(reqwest::Method::GET, url))
+                        .await
+                        .or_else(|_retry| Err(original))
+                }
+                None => Err(original),
+            },
+        }
+    }
+
     /// Create a new task
     #[allow(dead_code)]
     pub async fn create_task(&self, list_id: &str, task: &CreateTaskRequest) -> Result<Task> {
@@ -471,6 +498,14 @@ macro_rules! impl_clickup_api {
 
             async fn get_task(&self, task_id: &str) -> Result<Task> {
                 self.get_task(task_id).await
+            }
+
+            async fn get_task_with_context(
+                &self,
+                task_id: &str,
+                team_id: Option<&str>,
+            ) -> Result<Task> {
+                self.get_task_with_context(task_id, team_id).await
             }
 
             async fn create_task(&self, list_id: &str, task: &CreateTaskRequest) -> Result<Task> {

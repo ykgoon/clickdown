@@ -1424,7 +1424,7 @@ fn test_url_parser_roundtrip() {
     // Test task URL roundtrip
     let generated = ClickUpUrlGenerator::task_url("", "", "task123").unwrap();
     let parsed = UrlParser::parse(&generated).unwrap();
-    assert!(matches!(parsed, ParsedUrl::Task { ref task_id } if task_id == "task123"));
+    assert!(matches!(parsed, ParsedUrl::Task { ref task_id, .. } if task_id == "task123"));
 
     // Test document URL roundtrip
     let generated = ClickUpUrlGenerator::document_url("", "doc1").unwrap();
@@ -1435,7 +1435,7 @@ fn test_url_parser_roundtrip() {
     let generated = ClickUpUrlGenerator::comment_url("", "", "task123", "cmt1").unwrap();
     let parsed = UrlParser::parse(&generated).unwrap();
     assert!(
-        matches!(parsed, ParsedUrl::Comment { ref task_id, ref comment_id } if task_id == "task123" && comment_id == "cmt1")
+        matches!(parsed, ParsedUrl::Comment { ref task_id, ref comment_id, .. } if task_id == "task123" && comment_id == "cmt1")
     );
 }
 

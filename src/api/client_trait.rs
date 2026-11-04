@@ -66,6 +66,13 @@ pub trait ClickUpApi: Send + Sync {
     /// Get a single task
     async fn get_task(&self, task_id: &str) -> Result<Task>;
 
+    /// Get a single task, optionally using team context to resolve custom
+    /// task IDs when the plain lookup fails. Default: plain lookup only.
+    async fn get_task_with_context(&self, task_id: &str, team_id: Option<&str>) -> Result<Task> {
+        let _ = team_id;
+        self.get_task(task_id).await
+    }
+
     /// Create a new task
     #[allow(dead_code)]
     async fn create_task(&self, list_id: &str, task: &CreateTaskRequest) -> Result<Task>;

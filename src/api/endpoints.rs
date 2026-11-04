@@ -66,6 +66,16 @@ impl ApiEndpoints {
         format!("{}/task/{}", BASE_URL, task_id)
     }
 
+    /// Task lookup with custom-task-ID context. The ClickUp API requires
+    /// `custom_task_ids=true` and `team_id` to resolve custom task IDs
+    /// (e.g. `ABC-123`); standard IDs also resolve with these params.
+    pub fn task_with_custom_ids(task_id: &str, team_id: &str) -> String {
+        format!(
+            "{}/task/{}?custom_task_ids=true&team_id={}",
+            BASE_URL, task_id, team_id
+        )
+    }
+
     pub fn tasks_in_team(team_id: &str, query: &str) -> String {
         format!("{}/team/{}/task{}", BASE_URL, team_id, query)
     }

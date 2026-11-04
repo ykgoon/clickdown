@@ -1150,6 +1150,18 @@ impl TuiApp {
         self.comments = comments;
     }
 
+    /// Get the loaded comments (for testing)
+    #[allow(dead_code)]
+    pub fn comments_for_test(&self) -> &[crate::models::Comment] {
+        &self.comments
+    }
+
+    /// Get the selected comment index (for testing)
+    #[allow(dead_code)]
+    pub fn comment_selected_index_for_test(&self) -> usize {
+        self.comment_selected_index
+    }
+
     /// Set comment focus (for testing)
     #[allow(dead_code)]
     pub fn set_comment_focus(&mut self, focus: bool) {
@@ -4853,14 +4865,15 @@ impl TuiApp {
             } => {
                 self.navigate_to_list(workspace_id, list_id);
             }
-            ParsedUrl::Task { task_id } => {
-                self.navigate_to_task(task_id);
+            ParsedUrl::Task { team_id, task_id } => {
+                self.navigate_to_task(team_id, task_id);
             }
             ParsedUrl::Comment {
+                team_id,
                 task_id,
                 comment_id,
             } => {
-                self.navigate_to_comment(task_id, comment_id);
+                self.navigate_to_comment(team_id, task_id, comment_id);
             }
             ParsedUrl::Document { doc_id } => {
                 self.navigate_to_document(doc_id);
@@ -5005,7 +5018,7 @@ impl TuiApp {
     }
 
     /// Navigate to a task by task ID (short-form URL)
-    fn navigate_to_task(&mut self, task_id: String) {
+    fn navigate_to_task(&mut self, team_id: Option<String>, task_id: String) {
         self.navigating = true;
         self.navigating_level = "task".to_string();
 
@@ -5021,10 +5034,13 @@ impl TuiApp {
 
         let tx = self.message_tx.clone().unwrap();
         let target_task_id = task_id.clone();
+        let target_team_id = team_id;
         let prev_screen = self.screen.clone();
         tokio::spawn(async move {
             // Fetch task from API to get its context
-            let result = client.get_task(&target_task_id).await;
+            let result = client
+                .get_task_with_context(&target_task_id, target_team_id.as_deref())
+                .await;
             let msg = match result {
                 Ok(task) => AppMessage::TaskFetchedForNavigation(Ok(task), prev_screen),
                 Err(e) => AppMessage::TaskFetchedForNavigation(Err(e.to_string()), prev_screen),
@@ -5034,7 +5050,7 @@ impl TuiApp {
     }
 
     /// Navigate to a comment by task ID + comment ID
-    fn navigate_to_comment(&mut self, task_id: String, comment_id: String) {
+    fn navigate_to_comment(&mut self, team_id: Option<String>, task_id: String, comment_id: String) {
         // First navigate to the task, then find the comment
         self.navigating = true;
         self.navigating_level = "comment".to_string();
@@ -5051,10 +5067,13 @@ impl TuiApp {
 
         let tx = self.message_tx.clone().unwrap();
         let target_task_id = task_id.clone();
+        let target_team_id = team_id;
         let target_comment_id = comment_id.clone();
         let prev_screen = self.screen.clone();
         tokio::spawn(async move {
-            let result = client.get_task(&target_task_id).await;
+            let result = client
+                .get_task_with_context(&target_task_id, target_team_id.as_deref())
+                .await;
             let msg = match result {
                 Ok(task) => AppMessage::CommentFetchedForNavigation(
                     Ok(task),
