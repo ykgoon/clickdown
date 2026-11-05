@@ -114,6 +114,9 @@ pub struct CommentCreatedMessageMeta {
 #[derive(Debug, Clone)]
 pub enum AppMessage {
     WorkspacesLoaded(Result<Vec<Workspace>, String>),
+    /// Token verification during authentication: workspaces fetch outcome
+    /// plus the candidate token, persisted only on success.
+    WorkspacesVerified(Result<Vec<Workspace>, String>, String),
     SpacesLoaded(Result<Vec<ClickUpSpace>, String>),
     FoldersLoaded(Result<Vec<Folder>, String>),
     ListsLoaded(Result<Vec<List>, String>),
@@ -174,6 +177,15 @@ pub struct TuiApp {
 
     /// Auth state
     auth_state: AuthState,
+
+    /// Set when an API call reports the stored token is invalid or expired,
+    /// so the UI can direct the user to re-authenticate.
+    auth_invalid: bool,
+
+    /// True only for the production constructor: allows writing/clearing the
+    /// on-disk token file. Test constructors disable this so tests never
+    /// touch the real credentials.
+    manage_stored_token: bool,
 
     /// Document state
     document: DocumentState,
@@ -1195,6 +1207,25 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
         self.url_input_open
     }
 
+    /// Test-only: set the auth token input as if typed on the auth screen.
+    #[doc(hidden)]
+    pub fn set_auth_token_for_test(&mut self, token: &str) {
+        self.auth_state.token_input = token.to_string();
+        self.auth_state.cursor_pos = token.chars().count();
+    }
+
+    /// Test-only: whether the last API failure flagged the token as invalid.
+    #[doc(hidden)]
+    pub fn auth_invalid_for_test(&self) -> bool {
+        self.auth_invalid
+    }
+
+    /// Test-only: current auth-screen error text, if any.
+    #[doc(hidden)]
+    pub fn auth_error_for_test(&self) -> Option<&str> {
+        self.auth_state.error.as_deref()
+    }
+
     /// Expanded panel (for testing)
     #[allow(dead_code)]
     pub fn expanded_panel_for_test(&self) -> Option<ExpandedPanel> {
@@ -1421,6 +1452,8 @@ impl TuiApp {
             task_list: GroupedTaskList::new(),
             task_detail: TaskDetailState::new(),
             auth_state: AuthState::new(),
+            auth_invalid: false,
+            manage_stored_token: true,
             document: DocumentState::new(),
             dialog: DialogState::new(),
             help: HelpState::new(),
@@ -1550,6 +1583,8 @@ impl TuiApp {
             task_list: GroupedTaskList::new(),
             task_detail: TaskDetailState::new(),
             auth_state: AuthState::new(),
+            auth_invalid: false,
+            manage_stored_token: false,
             document: DocumentState::new(),
             dialog: DialogState::new(),
             help: HelpState::new(),
@@ -1654,6 +1689,8 @@ impl TuiApp {
             task_list: GroupedTaskList::new(),
             task_detail: TaskDetailState::new(),
             auth_state: AuthState::new(),
+            auth_invalid: false,
+            manage_stored_token: false,
             document: DocumentState::new(),
             dialog: DialogState::new(),
             help: HelpState::new(),
@@ -1789,6 +1826,53 @@ impl TuiApp {
             // Now process messages without holding the borrow
             for msg in messages {
                 match msg {
+                    AppMessage::WorkspacesVerified(result, token) => {
+                        self.loading = false;
+                        self.auth_state.loading = false;
+                        match result {
+                            Ok(workspaces) => {
+                                // Token proven working - only now persist it.
+                                if self.manage_stored_token {
+                                    if let Err(e) = self.auth.save_token(&token) {
+                                        tracing::warn!("Failed to save verified token: {}", e);
+                                        self.status =
+                                            "Authenticated, but failed to save token".to_string();
+                                    }
+                                }
+                                self.auth_invalid = false;
+                                self.error = None;
+                                self.workspaces = workspaces.clone();
+                                let mut items = Vec::new();
+                                items.extend(self.workspaces.iter().map(|w| {
+                                    SidebarItem::Workspace {
+                                        name: w.name.clone(),
+                                        id: w.id.clone(),
+                                    }
+                                }));
+                                *self.sidebar.items_mut() = items;
+                                self.sidebar.select_first();
+                                self.auth_state.clear();
+                                self.state = AppState::Main;
+                                self.screen = Screen::Workspaces;
+                                self.screen_title = generate_screen_title("Workspaces");
+                                self.status = format!(
+                                    "Authenticated! Loaded {} workspace(s)",
+                                    workspaces.len()
+                                );
+                            }
+                            Err(e) => {
+                                self.auth_invalid = true;
+                                self.state = AppState::Unauthenticated;
+                                self.screen = Screen::Auth;
+                                self.auth_state.clear();
+                                self.auth_state.error = Some(format!(
+                                    "Token rejected by ClickUp ({}). Enter a valid personal API token (pk_...).",
+                                    e
+                                ));
+                                self.status = "Authentication failed: token rejected".to_string();
+                            }
+                        }
+                    }
                     AppMessage::WorkspacesLoaded(result) => {
                         self.loading = false;
                         match result {
@@ -1860,8 +1944,27 @@ impl TuiApp {
                             }
                             Err(e) => {
                                 self.loading = false;
-                                self.error = Some(format!("Failed to load workspaces: {}", e));
-                                self.status = "Failed to load workspaces".to_string();
+                                // A dead stored token must not strand the user on
+                                // an error banner: drop it and return to auth.
+                                if e.contains("Token invalid or expired") {
+                                    self.auth_invalid = true;
+                                    if self.manage_stored_token {
+                                        let _ = self.auth.clear_token();
+                                    }
+                                    self.client = None;
+                                    self.state = AppState::Unauthenticated;
+                                    self.screen = Screen::Auth;
+                                    self.auth_state.clear();
+                                    self.auth_state.error = Some(
+                                        "Stored token was rejected by ClickUp (invalid or expired). Enter a fresh personal API token (pk_...)."
+                                            .to_string(),
+                                    );
+                                    self.status = "Re-authentication required".to_string();
+                                } else {
+                                    self.error =
+                                        Some(format!("Failed to load workspaces: {}", e));
+                                    self.status = "Failed to load workspaces".to_string();
+                                }
                                 if self.restoring_session {
                                     self.restoring_session = false;
                                 }
@@ -2455,7 +2558,11 @@ impl TuiApp {
                             Err(e) => {
                                 self.navigating = false;
                                 self.navigating_level.clear();
-                                self.status = format!("Resource not found: {}", e);
+                                if e.contains("Token invalid or expired") {
+                                    self.status = "Token invalid - re-authenticate with a fresh ClickUp API token (pk_...)".to_string();
+                                } else {
+                                    self.status = format!("Resource not found: {}", e);
+                                }
                                 // Restore previous screen
                                 self.screen = prev_screen;
                             }
@@ -2504,7 +2611,11 @@ impl TuiApp {
                             Err(e) => {
                                 self.navigating = false;
                                 self.navigating_level.clear();
-                                self.status = format!("Resource not found: {}", e);
+                                if e.contains("Token invalid or expired") {
+                                    self.status = "Token invalid - re-authenticate with a fresh ClickUp API token (pk_...)".to_string();
+                                } else {
+                                    self.status = format!("Resource not found: {}", e);
+                                }
                                 self.screen = prev_screen;
                             }
                         }
@@ -3622,7 +3733,9 @@ impl TuiApp {
         }
     }
 
-    fn authenticate(&mut self) {
+    /// Authenticate with the token typed on the auth screen.
+    /// Public so tests can drive the auth flow end-to-end.
+    pub fn authenticate(&mut self) {
         let token = self.auth_state.token_input.clone();
         if token.is_empty() {
             self.auth_state.error = Some("Token cannot be empty".to_string());
@@ -3630,43 +3743,41 @@ impl TuiApp {
             return;
         }
 
-        self.loading = true;
-        self.auth_state.loading = true;
-        self.status = "Authenticating...".to_string();
-
-        // Create the API client with the token
-        let client = Arc::new(ClickUpClient::new(token.clone()));
-
-        // Save the token
-        if let Err(e) = self.auth.save_token(&token) {
-            self.auth_state.error = Some(format!("Failed to save token: {}", e));
-            self.auth_state.loading = false;
-            self.loading = false;
-            self.status = "Failed to save token".to_string();
+        // Reject obviously malformed input before anything else: ClickUp
+        // personal API tokens start with pk_. Pasting a task URL (or any
+        // other non-token text) previously got saved verbatim and silently
+        // broke every API call until the file was fixed manually.
+        if !token.starts_with("pk_") {
+            self.auth_state.error =
+                Some("Token must be a ClickUp API token (starts with pk_)".to_string());
+            self.status = "Authentication failed".to_string();
             return;
         }
 
-        // Store the client
+        self.loading = true;
+        self.auth_state.loading = true;
+        self.status = "Verifying token...".to_string();
+
+        // Reuse an injected client when present (tests); otherwise create a
+        // real HTTP client for the verification call.
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => Arc::new(ClickUpClient::new(token.clone())),
+        };
         self.client = Some(client.clone());
 
-        // Spawn async task to load workspaces
+        // Do NOT persist the token yet. Verify it against the API first so a
+        // bad token never overwrites a previously working one on disk. The
+        // token travels with the result and is only saved on success.
         let tx = self.message_tx.clone().unwrap();
         tokio::spawn(async move {
             let result = client.get_workspaces().await;
             let msg = match result {
-                Ok(workspaces) => AppMessage::WorkspacesLoaded(Ok(workspaces)),
-                Err(e) => AppMessage::WorkspacesLoaded(Err(e.to_string())),
+                Ok(workspaces) => AppMessage::WorkspacesVerified(Ok(workspaces), token),
+                Err(e) => AppMessage::WorkspacesVerified(Err(e.to_string()), token),
             };
             let _ = tx.send(msg).await;
         });
-
-        // Clear auth state and navigate to workspaces
-        self.auth_state.clear();
-        self.auth_state.loading = false;
-        self.state = AppState::Main;
-        self.screen = Screen::Workspaces;
-        self.screen_title = generate_screen_title("Workspaces");
-        self.status = "Authenticated! Loading workspaces...".to_string();
     }
 
     /// Load workspaces from API (public for testing)

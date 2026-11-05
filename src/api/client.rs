@@ -57,6 +57,16 @@ impl ClickUpClient {
 
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
+            // 401 with the Oauth-token-not-found body means the stored
+            // credential is dead or garbage, not that a resource is missing.
+            // Label it distinctly so the TUI can offer re-authentication
+            // instead of a misleading not-found message.
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                && (error_text.contains("Oauth token not found")
+                    || error_text.contains("OAUTH_019"))
+            {
+                anyhow::bail!("Token invalid or expired: re-authentication required");
+            }
             anyhow::bail!("API error ({}): {}", status, error_text);
         }
 

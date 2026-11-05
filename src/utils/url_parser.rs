@@ -785,4 +785,27 @@ mod tests {
         let result = UrlParser::parse("https://app.clickup.com.evil.example/t/14zrc6q9vr2");
         assert!(result.is_err());
     }
+
+    /// Regression (2026-11-05): real-world task URLs reported as failing to
+    /// open must parse as Task with team context preserved. The parse layer
+    /// was never at fault for these, but the behavior is now locked in so a
+    /// future parser change cannot silently break them again.
+    #[test]
+    fn test_parse_reported_failing_task_urls() {
+        for url in [
+            "https://app.clickup.com/t/26408409/14zrc6qa6qb",
+            "https://app.clickup.com/t/26408409/14zrc6qa6q5",
+            "https://app.clickup.com/t/26408409/14zrc6qa6q3",
+        ] {
+            let parsed = UrlParser::parse(url)
+                .unwrap_or_else(|e| panic!("failed to parse {}: {}", url, e));
+            match parsed {
+                ParsedUrl::Task { team_id, task_id } => {
+                    assert_eq!(team_id.as_deref(), Some("26408409"), "url {}", url);
+                    assert!(task_id.starts_with("14zrc6qa6q"), "url {} task_id {}", url, task_id);
+                }
+                other => panic!("expected Task for {}, got {:?}", url, other),
+            }
+        }
+    }
 }
