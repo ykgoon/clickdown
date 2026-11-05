@@ -79,8 +79,8 @@ fn test_layout_creation() {
     );
     assert!(layout.title_area.height == 1, "Title area should be 1 row");
     assert!(
-        layout.status_area.height == 3,
-        "Status area should be 3 rows"
+        layout.status_area.height == 1,
+        "Status area should be 1 row (hint bar removed)"
     );
 }
 
@@ -1225,7 +1225,12 @@ fn test_top_level_comment_no_parent_id() {
     assert_eq!(top_level.parent_id, None);
 }
 
-/// Test that pressing 's' in task list with a selected task opens status picker
+fn key_event(c: char) -> clickdown::tui::input::InputEvent {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    clickdown::tui::input::InputEvent::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
+}
+
+/// Test that SPC t s opens the status picker; bare 's' is a NORMAL-mode no-op.
 #[test]
 fn test_s_key_opens_status_picker() {
     use clickdown::api::mock_client::MockClickUpClient;
@@ -1301,7 +1306,7 @@ fn test_s_key_opens_status_picker() {
 
     // Manually navigate to Tasks screen (bypass async loading)
     app.set_screen(Screen::Tasks);
-    app.tasks_mut_for_test().push(task);
+    app.tasks_mut_for_test().push(task.clone());
     app.rebuild_task_list_for_test();
 
     // Select the task
@@ -1313,14 +1318,35 @@ fn test_s_key_opens_status_picker() {
         "Task should be selected before pressing 's'"
     );
 
-    // Press 's' key
-    let s_key = KeyEvent::new(KeyCode::Char('s'), crossterm::event::KeyModifiers::NONE);
-    app.update(InputEvent::Key(s_key));
+    // Press SPC t s chord (bare 's' is a no-op in NORMAL mode now)
+    app.update(key_event(' '));
+    app.update(key_event('t'));
+    app.update(key_event('s'));
 
     // Status picker should be open
     assert!(
         app.is_status_picker_open(),
-        "Pressing 's' with a selected task should open status picker"
+        "SPC t s with a selected task should open status picker"
+    );
+
+    // Bare 's' in NORMAL mode must be a no-op (fresh app, same setup)
+    let mock2 = MockClickUpClient::new()
+        .with_workspaces(vec![])
+        .with_tasks(vec![task.clone()]);
+    let mut app2 = rt
+        .block_on(async { TuiApp::with_client(Arc::new(mock2)) })
+        .unwrap();
+    app2.set_screen(Screen::Tasks);
+    app2.tasks_mut_for_test().push(task.clone());
+    app2.rebuild_task_list_for_test();
+    app2.task_list().select_first();
+    app2.update(InputEvent::Key(KeyEvent::new(
+        KeyCode::Char('s'),
+        crossterm::event::KeyModifiers::NONE,
+    )));
+    assert!(
+        !app2.is_status_picker_open(),
+        "Bare 's' in NORMAL mode must not open status picker"
     );
 }
 
@@ -1388,24 +1414,29 @@ fn test_s_key_in_task_detail_should_respond() {
     let task = fixtures::test_task();
     app.task_detail().task = Some(task);
 
-    // Capture the status BEFORE pressing 's'
+    // Bare 's' in NORMAL mode is a no-op now
     let status_before = app.status().to_string();
-
-    // Press plain 's' key (no modifiers)
-    let s_key = KeyEvent::new(KeyCode::Char('s'), crossterm::event::KeyModifiers::NONE);
-    app.update(InputEvent::Key(s_key));
-
-    // The status SHOULD have changed to indicate something happened
-    // (e.g., "Select new status" for status picker, or "Save task - coming soon")
-    // Currently this FAILS because 's' is silently ignored - status doesn't change
-    assert_ne!(
+    app.update(InputEvent::Key(KeyEvent::new(
+        KeyCode::Char('s'),
+        crossterm::event::KeyModifiers::NONE,
+    )));
+    assert_eq!(
         app.status(),
         status_before,
-        "Pressing 's' in Task Detail view should provide feedback \
-         (e.g., open status picker or show a message), but it was silently ignored. \
-         Status before: '{}', Status after: '{}'",
-        status_before,
-        app.status()
+        "Bare 's' in NORMAL mode should be a no-op"
+    );
+    assert!(
+        !app.is_status_picker_open(),
+        "Bare 's' must not open the status picker"
+    );
+
+    // SPC t s chord opens the status picker with feedback
+    app.update(key_event(' '));
+    app.update(key_event('t'));
+    app.update(key_event('s'));
+    assert!(
+        app.is_status_picker_open(),
+        "SPC t s in Task Detail view should open the status picker"
     );
 }
 

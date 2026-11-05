@@ -269,10 +269,13 @@ fn test_ctrl_s_in_assignee_picker_saves_and_closes() {
     let _guard = rt.enter();
 
     // Open the picker ('A' in task detail)
-    app.update(InputEvent::Key(KeyEvent::new(
-        KeyCode::Char('A'),
-        KeyModifiers::NONE,
-    )));
+    // SPC t a opens the assignee picker (bare 'A' is a no-op in NORMAL mode now)
+    for c in [' ', 't', 'a'] {
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+        )));
+    }
     assert!(app.is_assignee_picker_open(), "picker should open");
 
     // Select Alice with space, then save with Ctrl+S
@@ -334,10 +337,13 @@ fn test_members_loaded_clears_loading_flag() {
 
     // No cached members: this sets loading = true and fetches from the API
     let _guard = rt.enter();
-    app.update(InputEvent::Key(KeyEvent::new(
-        KeyCode::Char('A'),
-        KeyModifiers::NONE,
-    )));
+    // SPC t a opens the assignee picker (bare 'A' is a no-op in NORMAL mode now)
+    for c in [' ', 't', 'a'] {
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+        )));
+    }
     assert!(app.is_assignee_picker_open() || app.loading_true_for_test());
 
     // Deliver the MembersLoaded response

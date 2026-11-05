@@ -23,10 +23,10 @@ use super::input::{is_quit, InputEvent};
 use super::layout::{generate_screen_title, split_task_detail, TuiLayout};
 use super::terminal;
 use super::widgets::{
-    get_dialog_hints, get_help_hints, render_assignee_picker, render_auth, render_command_menu,
+    render_assignee_picker, render_auth, render_command_menu,
     render_comments, render_mention_picker,
     render_dialog, render_document, render_help, render_sidebar, render_status_picker,
-    render_task_detail, render_task_detail_expanded, render_task_list, AuthState, DialogState, DialogType, DocumentState,
+    render_task_detail_expanded, render_task_list, AuthState, DialogState, DialogType, DocumentState,
     GroupedTaskList, HelpContext, HelpState, ListRow, SidebarState, TaskDetailState,
 };
 
@@ -61,6 +61,17 @@ pub enum CommentViewMode {
 pub enum TaskCreationField {
     Name,
     Description,
+}
+
+/// Which comment-compose action a `SPC c` command requested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComposeKind {
+    /// Start a new top-level comment (or reply context as-is)
+    New,
+    /// Edit the currently selected comment
+    Edit,
+    /// Reply inside the currently open thread
+    Reply,
 }
 
 /// Which text buffer insert mode is editing (vim-style modal input).
@@ -551,8 +562,76 @@ impl TuiApp {
 
     // ==================== SPACEmenu command overlay (issue 7) ====================
 
-    fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
-        use crossterm::event::KeyModifiers;
+    /// Toggle an expanded panel (SPACEmenu `t v` / `c v`).
+/// If the same panel is already expanded it is restored; otherwise it replaces any current expansion.
+pub fn toggle_expanded_panel(&mut self, panel: ExpandedPanel) {
+    if self.expanded_panel == Some(panel) {
+        self.expanded_panel = None;
+        self.status = "Panel restored".to_string();
+    } else {
+        self.expanded_panel = Some(panel);
+        self.status = if panel == ExpandedPanel::Description {
+            "Description expanded (v restore, j/k scroll)".to_string()
+        } else {
+            "Comments expanded (v restore, j/k scroll)".to_string()
+        };
+    }
+}
+
+/// Start composing a comment/reply in INSERT mode (SPACEmenu `c n/e/r`).
+fn start_comment_compose(&mut self, kind: ComposeKind) {
+    if self.screen != Screen::TaskDetail {
+        self.status = "Comments live in task detail".to_string();
+        return;
+    }
+    match kind {
+        ComposeKind::New => {
+            if !self.comment_focus {
+                self.comment_focus = true;
+            }
+            self.comment_new_text.clear();
+            // usize::MAX is a sentinel value indicating "new comment" mode
+            self.comment_editing_index = Some(usize::MAX);
+            self.insert_mode_target = Some(InsertTarget::Comment);
+            self.status =
+                "INSERT mode: type comment, Ctrl+S save, Esc to normal mode".to_string();
+        }
+        ComposeKind::Edit => {
+            if !self.comment_focus {
+                self.status = "Tab to comments, then SPC c e".to_string();
+                return;
+            }
+            if self.comments.is_empty()
+                || self.comment_selected_index >= self.comments.len()
+            {
+                self.status = "No comment selected to edit".to_string();
+                return;
+            }
+            let comment = &self.comments[self.comment_selected_index];
+            self.comment_new_text = comment.text.clone();
+            self.comment_editing_index = Some(self.comment_selected_index);
+            self.insert_mode_target = Some(InsertTarget::Comment);
+            self.status =
+                "INSERT mode: edit comment, Ctrl+S save, Esc normal mode".to_string();
+        }
+        ComposeKind::Reply => {
+            if !matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
+                self.status = "Enter a thread first (Enter on a comment), then SPC c r".to_string();
+                return;
+            }
+            self.comment_new_text.clear();
+            self.comment_editing_index = Some(usize::MAX);
+            self.insert_mode_target = Some(InsertTarget::Comment);
+            let author = match &self.comment_view_mode {
+                CommentViewMode::InThread { parent_author, .. } => parent_author.clone(),
+                _ => "Unknown".to_string(),
+            };
+            self.status = format!("INSERT reply to {}: Ctrl+S save, Esc normal mode", author);
+        }
+    }
+}
+
+fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
         let level = match &self.command_menu {
             Some(l) => l.clone(),
             None => return,
@@ -567,6 +646,8 @@ impl TuiApp {
                     match c {
                         'g' => self.command_menu = Some(CommandMenuLevel::Group('g')),
                         't' => self.command_menu = Some(CommandMenuLevel::Group('t')),
+                        'c' => self.command_menu = Some(CommandMenuLevel::Group('c')),
+                        'y' => self.command_menu = Some(CommandMenuLevel::Group('y')),
                         'w' => self.command_menu = Some(CommandMenuLevel::Group('w')),
                         _ => {
                             self.command_menu = None;
@@ -617,6 +698,79 @@ impl TuiApp {
                                 self.open_status_picker(task.clone());
                             }
                         }
+                    }
+                    ('t', KeyCode::Char('e')) => {
+                        // Edit: tasks screen opens the task editor; task detail
+                        // enters INSERT mode on the description
+                        if self.screen == Screen::TaskDetail {
+                            self.description_edit_buffer = self
+                                .task_detail
+                                .task
+                                .as_ref()
+                                .and_then(|t| t.description.as_ref().map(|d| d.as_text()))
+                                .unwrap_or_default();
+                            self.insert_mode_target = Some(InsertTarget::Description);
+                            self.status = "INSERT mode: edit description, Ctrl+S save, Esc normal mode".to_string();
+                            return;
+                        }
+                        if self.screen == Screen::Tasks {
+                            if let Some(task) = self.task_list.selected_task().cloned() {
+                                self.task_detail.task = Some(task.clone());
+                                self.task_detail.editing = true;
+                                self.task_detail.creating = false;
+                                self.comments.clear();
+                                self.comment_selected_index = 0;
+                                self.comment_editing_index = None;
+                                self.comment_new_text.clear();
+                                self.comment_focus = false;
+                                self.comment_view_mode = CommentViewMode::TopLevel;
+                                self.screen = Screen::TaskDetail;
+                                self.update_screen_title();
+                                self.load_comments(task.id);
+                            }
+                        }
+                    }
+                    ('t', KeyCode::Char('a')) => {
+                        // Assign people to the current task
+                        if self.screen == Screen::TaskDetail {
+                            self.open_assignee_picker_flow();
+                        } else {
+                            self.status = "Assign works from task detail".to_string();
+                        }
+                    }
+                    ('t', KeyCode::Char('f')) => {
+                        // Toggle "Assigned to Me" filter (tasks screen)
+                        if self.screen == Screen::Tasks {
+                            self.assigned_filter_active = !self.assigned_filter_active;
+                            if let Some(list_id) = &self.current_list_id {
+                                if self.assigned_filter_active {
+                                    self.status = "Filtering: Assigned to Me".to_string();
+                                    self.load_tasks_with_assigned_filter(list_id.clone());
+                                } else {
+                                    self.status = "Showing all tasks".to_string();
+                                    self.load_tasks(list_id.clone());
+                                }
+                            }
+                        }
+                    }
+                    ('t', KeyCode::Char('v')) => {
+                        // Expand/collapse the description panel
+                        if self.screen == Screen::TaskDetail {
+                            self.toggle_expanded_panel(ExpandedPanel::Description);
+                        }
+                    }
+                    ('c', KeyCode::Char('n')) => self.start_comment_compose(ComposeKind::New),
+                    ('c', KeyCode::Char('e')) => self.start_comment_compose(ComposeKind::Edit),
+                    ('c', KeyCode::Char('r')) => self.start_comment_compose(ComposeKind::Reply),
+                    ('c', KeyCode::Char('v')) => {
+                        // Expand/collapse the comments panel
+                        if self.screen == Screen::TaskDetail {
+                            self.toggle_expanded_panel(ExpandedPanel::Comments);
+                        }
+                    }
+                    ('y', KeyCode::Char('u')) => {
+                        tracing::debug!("Copy URL via SPACEmenu (y u)");
+                        self.copy_url();
                     }
                     ('w', KeyCode::Char('q')) => {
                         self.dialog.show(DialogType::ConfirmQuit);
@@ -2656,14 +2810,6 @@ impl TuiApp {
                 return;
             }
 
-            // Handle URL copy with single key 'u' (for URL)
-            // This is simpler and more reliable than modifier combinations
-            if key.code == KeyCode::Char('u') {
-                tracing::debug!("URL copy shortcut detected (u key)");
-                self.copy_url();
-                return;
-            }
-
             // SPACE opens the command menu (Spacemacs-style SPACEmenu)
             if key.code == KeyCode::Char(' ') && self.screen != Screen::Auth {
                 self.open_command_menu();
@@ -2757,6 +2903,18 @@ impl TuiApp {
                 KeyCode::Char('k') | KeyCode::Up => {
                     self.task_list.select_previous();
                 }
+                KeyCode::PageDown => {
+                    self.task_list.select_next_page();
+                }
+                KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.task_list.select_next_page();
+                }
+                KeyCode::PageUp => {
+                    self.task_list.select_previous_page();
+                }
+                KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.task_list.select_previous_page();
+                }
                 KeyCode::Enter => {
                     if let Some(task) = self.task_list.selected_task().cloned() {
                         self.task_detail.task = Some(task.clone());
@@ -2764,58 +2922,6 @@ impl TuiApp {
                         self.update_screen_title();
                         // Load comments for this task
                         self.load_comments(task.id.clone());
-                    }
-                }
-                KeyCode::Char('n') => {
-                    // Create new task - open creation form
-                    self.task_name_input.clear();
-                    self.task_description_input.clear();
-                    self.task_creating = true;
-                    self.task_creation_focus = TaskCreationField::Name;
-                    self.task_detail.task = None;
-                    self.task_detail.creating = true;
-                    self.task_detail.editing = false;
-                    self.screen = Screen::TaskDetail;
-                    self.screen_title = generate_screen_title("New Task");
-                    self.status = "Enter task name (Ctrl+S to create, Esc to cancel)".to_string();
-                }
-                KeyCode::Char('e') => {
-                    if let Some(task) = self.task_list.selected_task().cloned() {
-                        self.task_detail.task = Some(task.clone());
-                        self.task_detail.editing = true;
-                        self.task_detail.creating = false;
-                        self.comments.clear();
-                        self.comment_selected_index = 0;
-                        self.comment_editing_index = None;
-                        self.comment_new_text.clear();
-                        self.comment_focus = false;
-                        self.comment_view_mode = CommentViewMode::TopLevel;
-                        self.screen = Screen::TaskDetail;
-                        self.update_screen_title();
-                        self.load_comments(task.id);
-                    }
-                }
-                KeyCode::Char('d') => {
-                    let task_id = self.task_list.selected_task().map(|task| task.id.clone());
-                    self.open_delete_confirmation(task_id);
-                }
-                KeyCode::Char('a') => {
-                    // Toggle "Assigned to Me" filter
-                    self.assigned_filter_active = !self.assigned_filter_active;
-                    if let Some(list_id) = &self.current_list_id {
-                        if self.assigned_filter_active {
-                            self.status = "Filtering: Assigned to Me".to_string();
-                            self.load_tasks_with_assigned_filter(list_id.clone());
-                        } else {
-                            self.status = "Showing all tasks".to_string();
-                            self.load_tasks(list_id.clone());
-                        }
-                    }
-                }
-                KeyCode::Char('s') => {
-                    // Open status picker if a task is selected
-                    if let Some(task) = self.task_list.selected_task().cloned() {
-                        self.open_status_picker(task);
                     }
                 }
                 KeyCode::Esc => {
@@ -3086,66 +3192,10 @@ impl TuiApp {
                         self.update_screen_title();
                     }
                 }
-                KeyCode::Char('e') if !self.comment_focus => {
-                    // Enter insert mode on the task description (issue 7):
-                    // keys are captured as text instead of being misread as commands
-                    self.description_edit_buffer = self
-                        .task_detail
-                        .task
-                        .as_ref()
-                        .and_then(|t| t.description.as_ref().map(|d| d.as_text()))
-                        .unwrap_or_default();
-                    self.insert_mode_target = Some(InsertTarget::Description);
-                    self.status =
-                        "INSERT mode: edit description, Ctrl+S save, Esc normal mode".to_string();
-                }
-                KeyCode::Char('v') if !self.comment_focus => {
-                    // Expand/collapse the description full-screen (issue 5)
-                    self.expanded_panel = match self.expanded_panel {
-                        Some(ExpandedPanel::Description) => {
-                            self.status = "Description restored".to_string();
-                            None
-                        }
-                        _ => {
-                            self.status =
-                                "Description expanded (v restore, j/k scroll)".to_string();
-                            Some(ExpandedPanel::Description)
-                        }
-                    };
-                }
-                KeyCode::Char('v') if self.comment_focus => {
-                    // Expand/collapse the comments full-screen (issue 5)
-                    self.expanded_panel = match self.expanded_panel {
-                        Some(ExpandedPanel::Comments) => {
-                            self.status = "Comments restored".to_string();
-                            None
-                        }
-                        _ => {
-                            self.status = "Comments expanded (v restore, j/k scroll)".to_string();
-                            Some(ExpandedPanel::Comments)
-                        }
-                    };
-                }
-                KeyCode::Char('d') => {
-                    let task_id = self.task_detail.task.as_ref().map(|task| task.id.clone());
-                    self.open_delete_confirmation(task_id);
-                }
                 KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     // Save task - not yet implemented
                     self.task_detail.editing = false;
                     self.status = "Save task - coming soon".to_string();
-                }
-                KeyCode::Char('s') => {
-                    // Open status picker for the current task
-                    if let Some(task) = &self.task_detail.task {
-                        self.open_status_picker(task.clone());
-                    } else {
-                        self.status = "No task selected".to_string();
-                    }
-                }
-                KeyCode::Char('A') if !self.comment_focus => {
-                    // Open assignee picker
-                    self.open_assignee_picker_flow();
                 }
                 // Comment navigation
                 KeyCode::Tab => {
@@ -3163,35 +3213,41 @@ impl TuiApp {
                 KeyCode::Char('k') if self.expanded_panel == Some(ExpandedPanel::Description) => {
                     self.description_scroll_up();
                 }
+                KeyCode::PageDown => {
+                    // Page down: expanded panel scrolls a page; comment focus pages selection
+                    if self.expanded_panel == Some(ExpandedPanel::Description) {
+                        self.description_scroll_offset = self.description_scroll_offset.saturating_add(20);
+                    } else if self.comment_focus {
+                        self.move_comment_selection(10);
+                    }
+                }
+                KeyCode::PageUp => {
+                    // Page up: expanded panel scrolls a page; comment focus pages selection
+                    if self.expanded_panel == Some(ExpandedPanel::Description) {
+                        self.description_scroll_offset = self.description_scroll_offset.saturating_sub(20);
+                    } else if self.comment_focus {
+                        self.move_comment_selection(-10);
+                    }
+                }
+                KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    if self.expanded_panel == Some(ExpandedPanel::Description) {
+                        self.description_scroll_offset = self.description_scroll_offset.saturating_add(20);
+                    } else if self.comment_focus {
+                        self.move_comment_selection(10);
+                    }
+                }
+                KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    if self.expanded_panel == Some(ExpandedPanel::Description) {
+                        self.description_scroll_offset = self.description_scroll_offset.saturating_sub(20);
+                    } else if self.comment_focus {
+                        self.move_comment_selection(-10);
+                    }
+                }
                 KeyCode::Char('j') if self.comment_focus => {
                     self.move_comment_selection(1);
                 }
                 KeyCode::Char('k') if self.comment_focus => {
                     self.move_comment_selection(-1);
-                }
-                KeyCode::Char('n') if self.comment_focus => {
-                    // Start new comment (insert mode keeps keys as text, issue 7)
-                    self.comment_new_text.clear();
-                    // usize::MAX is a sentinel value indicating "new comment" mode
-                    // (as opposed to Some(index) which means editing existing comment)
-                    self.comment_editing_index = Some(usize::MAX);
-                    self.insert_mode_target = Some(InsertTarget::Comment);
-                    self.status =
-                        "INSERT mode: type comment, Ctrl+S save, Esc to normal mode".to_string();
-                }
-                KeyCode::Char('e') if self.comment_focus => {
-                    // Edit selected comment (only in top-level view)
-                    if !self.comments.is_empty()
-                        && self.comment_selected_index < self.comments.len()
-                    {
-                        // Check if user owns the comment
-                        let comment = &self.comments[self.comment_selected_index];
-                        // For now, allow editing any comment (will add ownership check later)
-                        self.comment_new_text = comment.text.clone();
-                        self.comment_editing_index = Some(self.comment_selected_index);
-                        self.insert_mode_target = Some(InsertTarget::Comment);
-                        self.status = "INSERT mode: edit comment, Ctrl+S save, Esc normal mode".to_string();
-                    }
                 }
                 KeyCode::Enter if self.comment_focus => {
                     // Enter thread view when on a top-level comment
@@ -3229,26 +3285,23 @@ impl TuiApp {
                         }
                     }
                 }
-                KeyCode::Char('r') if self.comment_focus => {
-                    // Reply to thread (only in thread view)
-                    if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
-                        self.comment_new_text.clear();
-                        // usize::MAX is a sentinel value indicating "new reply" mode
-                        // (as opposed to Some(index) which means editing existing comment)
-                        self.comment_editing_index = Some(usize::MAX);
-                        self.insert_mode_target = Some(InsertTarget::Comment);
-
-                        let author = match &self.comment_view_mode {
-                            CommentViewMode::InThread { parent_author, .. } => {
-                                parent_author.clone()
-                            }
-                            _ => "Unknown".to_string(),
-                        };
-
+                // Modal entry keys: 'n' starts a new comment (INPUT mode) when
+                // comment focus is on; 'e' enters description INPUT mode otherwise.
+                KeyCode::Char('n') if self.comment_focus => {
+                    self.start_comment_compose(ComposeKind::New);
+                }
+                KeyCode::Char('e') if !self.comment_focus => {
+                    if let Some(task) = self.task_detail.task.clone() {
+                        self.description_edit_buffer = task
+                            .description
+                            .as_ref()
+                            .map(|d| d.as_text())
+                            .unwrap_or_default();
+                        self.insert_mode_target = Some(InsertTarget::Description);
                         self.status =
-                            format!("INSERT reply to {}: Ctrl+S save, Esc normal mode", author);
+                            "INSERT mode: edit description, Ctrl+S save, Esc normal mode".to_string();
                     } else {
-                        self.status = "Press Enter to view thread, then 'r' to reply".to_string();
+                        self.status = "No task selected".to_string();
                     }
                 }
                 _ => {}
@@ -3318,6 +3371,28 @@ impl TuiApp {
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
                     self.document.scroll_up();
+                }
+                KeyCode::PageDown => {
+                    // Page down: roughly a screenful of lines
+                    for _ in 0..10 {
+                        self.document.scroll_down();
+                    }
+                }
+                KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    for _ in 0..10 {
+                        self.document.scroll_down();
+                    }
+                }
+                KeyCode::PageUp => {
+                    // Page up: roughly a screenful of lines
+                    for _ in 0..10 {
+                        self.document.scroll_up();
+                    }
+                }
+                KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    for _ in 0..10 {
+                        self.document.scroll_up();
+                    }
                 }
                 KeyCode::Esc => {
                     self.navigate_back();
@@ -4485,8 +4560,7 @@ impl TuiApp {
             let help_context = self.get_help_context();
             render_help(frame, &self.help, &help_context, area);
 
-            // Render status bar
-            let hints = self.get_hints();
+            // Render status line
             // Priority: error > navigating > url_copy_status > loading > regular status
             let status = if let Some(ref error) = self.error {
                 error.clone()
@@ -4500,7 +4574,7 @@ impl TuiApp {
             } else {
                 self.status.clone()
             };
-            layout.render_status(frame, &status, &hints);
+            layout.render_status(frame, &status);
         })?;
 
         Ok(())
@@ -4519,7 +4593,10 @@ impl TuiApp {
     fn render_main_content(&mut self, frame: &mut Frame, area: Rect) {
         match self.screen {
             Screen::Auth => render_auth(frame, &self.auth_state, area),
-            Screen::Tasks => render_task_list(frame, &self.task_list, area, false),
+            Screen::Tasks => {
+                self.task_list.set_viewport_height(area.height.saturating_sub(2) as usize);
+                render_task_list(frame, &self.task_list, area, false)
+            }
             Screen::TaskDetail => {
                 // Expanded panel takes the full screen (issue 5)
                 let (task_detail_area, comments_area) = match self.expanded_panel {
@@ -4695,42 +4772,6 @@ impl TuiApp {
                 }
             }
             Screen::Document => HelpContext::Document,
-        }
-    }
-
-    fn get_hints(&self) -> String {
-        if self.dialog.is_visible() {
-            get_dialog_hints().to_string()
-        } else if self.mention_picker_open {
-            "j/k: Navigate | Enter: Mention | Type to filter | Esc: Cancel".to_string()
-        } else if self.command_menu.is_some() {
-            "g: Go to | t: Task | w: Window | Esc: Close".to_string()
-        } else if self.insert_mode_target.is_some() {
-            "INSERT: type text | @: mention | Ctrl+S: Save | Esc: Normal mode".to_string()
-        } else if self.status_picker_open {
-            "j/k: Navigate | Enter: Select | Esc: Cancel".to_string()
-        } else if self.help.visible {
-            get_help_hints(&self.help)
-        } else {
-            match self.screen {
-                Screen::Auth => "Enter: Connect | Esc: Cancel | ? - Help".to_string(),
-                Screen::Tasks => {
-                    "j/k: Navigate | Enter: View | n: New | e: Edit | d: Delete | a: Filter | s: Status | ? - Help".to_string()
-                }
-                Screen::TaskDetail => {
-                    // Show different hints based on comment view mode
-                    if self.comment_focus {
-                        match self.comment_view_mode {
-                            CommentViewMode::TopLevel => "j/k: Navigate | Enter: View thread | n: New comment | e: Edit | Tab: Task form | ? - Help".to_string(),
-                            CommentViewMode::InThread { .. } => "j/k: Navigate | r: Reply | Esc: Back | Tab: Task form | ? - Help".to_string(),
-                        }
-                    } else {
-                        "e: Edit task | Tab: Comments | Esc: Back | ? - Help".to_string()
-                    }
-                }
-                Screen::Document => "j/k: Scroll | Esc: Close | ? - Help".to_string(),
-                _ => "j/k: Navigate | Enter: Select | Tab: Toggle | Ctrl+Q: Quit | ? - Help".to_string(),
-            }
         }
     }
 
@@ -5763,9 +5804,25 @@ mod tests {
         app.set_screen(Screen::Tasks);
         app.current_list_id = Some("test-list-1".to_string());
 
-        // Press 'n' key
+        // Direct 'n' key must no longer trigger anything (SPACEmenu-only commands)
         let n_key = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
         app.update(InputEvent::Key(n_key));
+        assert_eq!(app.screen, Screen::Tasks, "direct n must not open creation");
+        assert!(!app.task_creating, "direct n must not set task_creating");
+
+        // SPACEmenu: SPACE, t, n
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(' '),
+            KeyModifiers::NONE,
+        )));
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('t'),
+            KeyModifiers::NONE,
+        )));
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('n'),
+            KeyModifiers::NONE,
+        )));
 
         // Should navigate to TaskDetail screen
         assert_eq!(
@@ -6007,6 +6064,22 @@ mod tests {
         app.screen = Screen::Tasks;
         app.current_list_id = Some("list-1".to_string());
 
+        // Direct 'e' key must no longer trigger anything (SPACEmenu-only commands)
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('e'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.screen, Screen::Tasks, "direct e must not open editor");
+
+        // SPACEmenu: SPACE, t, e
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(' '),
+            KeyModifiers::NONE,
+        )));
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('t'),
+            KeyModifiers::NONE,
+        )));
         app.update(InputEvent::Key(KeyEvent::new(
             KeyCode::Char('e'),
             KeyModifiers::NONE,
@@ -6017,6 +6090,144 @@ mod tests {
         assert_eq!(
             app.task_detail.task.as_ref().map(|task| task.id.as_str()),
             Some("task-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_page_down_moves_task_selection_by_page() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let tasks: Vec<_> = (0..30)
+            .map(|i| make_task(&format!("task-{}", i), &format!("Task {}", i)))
+            .collect();
+        let mock_client = MockClickUpClient::new().with_tasks(tasks.clone());
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.tasks = tasks;
+        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.task_list.select_first();
+        app.screen = Screen::Tasks;
+        // Simulate a 20-row viewport (render records height - 2 border rows)
+        app.task_list.set_viewport_height(18);
+
+        let start = app.task_list_for_test().selected_task().map(|t| t.id.clone());
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::PageDown,
+            KeyModifiers::NONE,
+        )));
+        let after_down = app.task_list_for_test().selected_task().map(|t| t.id.clone());
+        assert_ne!(
+            after_down, start,
+            "PageDown must move the selection forward"
+        );
+
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('u'),
+            KeyModifiers::CONTROL,
+        )));
+        let after_up = app.task_list_for_test().selected_task().map(|t| t.id.clone());
+        assert_ne!(
+            after_up, after_down,
+            "Ctrl+U must move the selection back"
+        );
+    }
+
+    #[test]
+    fn test_space_menu_direct_command_keys_are_noops_in_normal_mode() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let tasks = vec![make_task("task-1", "Selected")];
+        let mock_client = MockClickUpClient::new().with_tasks(tasks.clone());
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.tasks = tasks;
+        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.task_list.select_first();
+        app.screen = Screen::Tasks;
+        app.current_list_id = Some("list-1".to_string());
+
+        // Direct command keys must be no-ops in NORMAL mode
+        for key in ['d', 's', 'a', 'u'] {
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(key),
+                KeyModifiers::NONE,
+            )));
+        }
+        assert!(
+            !app.dialog.is_visible(),
+            "direct d must not open delete dialog"
+        );
+        assert!(
+            !app.status_picker_open,
+            "direct s must not open status picker"
+        );
+
+        // SPACE opens the transient menu
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(' '),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.command_menu.is_some(), "SPACE must open SPACEmenu");
+
+        // SPACE inside INPUT mode must not open the menu
+        app.command_menu = None;
+        app.comment_focus = true;
+        app.comment_new_text.clear();
+        app.comment_editing_index = Some(usize::MAX);
+        app.insert_mode_target = Some(InsertTarget::Comment);
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(' '),
+            KeyModifiers::NONE,
+        )));
+        assert!(
+            app.command_menu.is_none(),
+            "SPACE in INPUT mode must be text, not menu"
+        );
+    }
+
+    #[test]
+    fn test_space_chords_fire_comment_commands() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let tasks = vec![make_task("task-1", "Detail")];
+        let mock_client = MockClickUpClient::new().with_tasks(tasks.clone());
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.screen = Screen::TaskDetail;
+        app.task_detail.task = Some(tasks[0].clone());
+        app.comment_focus = true;
+
+        // SPACE c n starts a new comment in INSERT mode
+        for key in [' ', 'c', 'n'] {
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(key),
+                KeyModifiers::NONE,
+            )));
+        }
+        assert_eq!(
+            app.insert_mode_target,
+            Some(InsertTarget::Comment),
+            "SPC c n must enter comment INSERT mode"
+        );
+    }
+
+    #[test]
+    fn test_status_line_renders_without_hints() {
+        use ratatui::{backend::TestBackend, Terminal};
+        use crate::tui::layout::TuiLayout;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let layout = TuiLayout::new(frame.area());
+                layout.render_status(frame, "Ready");
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        // Bottom row must show the status message only
+        let bottom: String = (0..80)
+            .map(|x| buffer[(x, 23)].symbol().to_string())
+            .collect();
+        assert!(bottom.contains("Ready"), "status message rendered: {}", bottom);
+        assert!(
+            !bottom.contains("Navigate"),
+            "no key hints on status row: {}",
+            bottom
         );
     }
 

@@ -442,12 +442,49 @@ fn test_s_key_in_task_detail_no_response_snapshot() {
         );
 
         // Render status bar (showing status picker instructions)
-        let hints = "j/k: Navigate | Enter: Select | Esc: Cancel";
-        layout.render_status(frame, status_after_s, hints);
+        layout.render_status(frame, status_after_s);
 
         // Render status picker overlay (the fix!)
         render_status_picker(frame, area, &statuses, 0, Some("in progress"));
     });
+}
+
+/// The status picker must now be reached via the SPC t s chord, not bare 's'.
+#[test]
+fn test_s_key_opens_status_picker_via_chord() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut app =
+        rt.block_on(async { TuiApp::with_client(Arc::new(MockClickUpClient::new())).unwrap() });
+    app.set_screen(Screen::TaskDetail);
+    app.set_task_detail_task(fixtures::test_task());
+
+    // Bare 's' in NORMAL mode: no-op, picker stays closed
+    app.update(InputEvent::Key(KeyEvent::new(
+        KeyCode::Char('s'),
+        KeyModifiers::NONE,
+    )));
+    assert!(
+        !app.is_status_picker_open(),
+        "Bare 's' in NORMAL mode must not open the status picker"
+    );
+
+    // SPC t s chord opens the status picker
+    for c in [' ', 't', 's'] {
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+        )));
+    }
+    assert!(
+        app.is_status_picker_open(),
+        "SPC t s chord should open the status picker"
+    );
 }
 
 /// Snapshot showing what the Task Detail screen looks like BEFORE 's' is pressed.
@@ -478,8 +515,7 @@ fn test_task_detail_before_s_key_baseline() {
         );
 
         // Render status bar
-        let hints = "e: Edit task | Tab: Comments | Esc: Back | ? - Help";
-        layout.render_status(frame, "", hints);
+        layout.render_status(frame, "");
     });
 }
 

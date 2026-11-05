@@ -32,6 +32,8 @@ pub enum ListRow {
 pub struct GroupedTaskList {
     rows: Vec<ListRow>,
     list: ListState,
+    /// Visible row count from the most recent render (for page scrolling).
+    viewport_height: usize,
 }
 
 impl GroupedTaskList {
@@ -39,6 +41,7 @@ impl GroupedTaskList {
         Self {
             rows: Vec::new(),
             list: ListState::default(),
+            viewport_height: 0,
         }
     }
 
@@ -92,7 +95,66 @@ impl GroupedTaskList {
         let mut list = ListState::default();
         list.select(first_task_index);
 
-        Self { rows, list }
+        Self {
+            rows,
+            list,
+            viewport_height: 0,
+        }
+    }
+
+    /// Record the visible row count from the latest render (page size).
+    pub fn set_viewport_height(&mut self, height: usize) {
+        if height > 0 {
+            self.viewport_height = height;
+        }
+    }
+
+    /// Current page size (viewport height, at least 1).
+    pub fn page_size(&self) -> usize {
+        self.viewport_height.max(1)
+    }
+
+    /// Move selection down by roughly one page, skipping header rows.
+    /// Does not wrap: stops at the last task row.
+    pub fn select_next_page(&mut self) {
+        if self.rows.is_empty() {
+            return;
+        }
+        let current = self.list.selected().unwrap_or(0);
+        let mut target = current;
+        let mut moved = 0usize;
+        while moved < self.page_size() && target + 1 < self.rows.len() {
+            target += 1;
+            if matches!(self.rows[target], ListRow::Task(_)) {
+                moved += 1;
+            }
+        }
+        // Ensure final target is a task row (skip trailing headers)
+        while target + 1 < self.rows.len() && !matches!(self.rows[target], ListRow::Task(_)) {
+            target += 1;
+        }
+        self.list.select(Some(target));
+    }
+
+    /// Move selection up by roughly one page, skipping header rows.
+    /// Does not wrap: stops at the first task row.
+    pub fn select_previous_page(&mut self) {
+        if self.rows.is_empty() {
+            return;
+        }
+        let current = self.list.selected().unwrap_or(0);
+        let mut target = current;
+        let mut moved = 0usize;
+        while moved < self.page_size() && target > 0 {
+            target -= 1;
+            if matches!(self.rows[target], ListRow::Task(_)) {
+                moved += 1;
+            }
+        }
+        while target > 0 && !matches!(self.rows[target], ListRow::Task(_)) {
+            target -= 1;
+        }
+        self.list.select(Some(target));
     }
 
     /// Move selection to the next task row, skipping header rows.

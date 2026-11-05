@@ -65,7 +65,7 @@ fn test_status_picker_shows_full_list_statuses() {
 
     // Open status picker with 's'
     let _guard = rt.enter();
-    app.update(key('s'));
+    for c in [' ', 't', 's'] { app.update(key(c)); } // SPC t s
     assert!(app.is_status_picker_open(), "picker should open");
 
     let options = app.status_picker_statuses_for_test();
@@ -110,7 +110,7 @@ fn test_status_picker_fetches_full_statuses_when_not_cached() {
     app.task_list_mut_for_test().select_first();
 
     let _guard = rt.enter();
-    app.update(key('s'));
+    for c in [' ', 't', 's'] { app.update(key(c)); } // SPC t s
     assert!(app.is_status_picker_open());
 
     // Picker opens immediately with observed statuses; fetch is in-flight
@@ -136,7 +136,7 @@ fn test_v_expands_description_full_screen() {
     app.set_screen(Screen::TaskDetail);
     app.task_detail().task = Some(fixtures::test_task());
 
-    app.update(key('v'));
+    for c in [' ', 't', 'v'] { app.update(key(c)); } // SPC t v
     assert_eq!(
         app.expanded_panel_for_test(),
         Some(clickdown::tui::app::ExpandedPanel::Description),
@@ -161,7 +161,7 @@ fn test_v_expands_comments_in_comment_focus() {
     let mut app = rt
         .block_on(async { TuiApp::with_client(Arc::new(MockClickUpClient::new())).unwrap() });
     app.set_screen(Screen::TaskDetail);
-    app.task_detail().task = Some(fixtures::test_task());
+    for c in [' ', 'c', 'v'] { app.update(key(c)); } // SPC c v
     app.set_comment_focus(true);
 
     app.update(key('v'));

@@ -14,7 +14,7 @@ use ratatui::{
 ///
 /// `level` selects the root menu or a command group (`g`, `t`, `w`).
 pub fn render_command_menu(frame: &mut Frame, area: Rect, level: &crate::tui::app::CommandMenuLevel) {
-    let popup = centered(area, 50, 14);
+    let popup = centered(area, 50, 17);
     frame.render_widget(Clear, popup);
 
     let level_char = match level {
@@ -32,15 +32,49 @@ pub fn render_command_menu(frame: &mut Frame, area: Rect, level: &crate::tui::ap
                 Line::from(Span::styled("  Close menu", Style::default().fg(Theme::SECONDARY))),
             ],
         ),
+        'c' => (
+            " SPACEmenu: Comments (c) ",
+            vec![
+                Line::from(Span::styled("c n", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  New comment", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("c e", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Edit selected comment", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("c r", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Reply in thread", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("c v", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Expand/collapse comments", Style::default().fg(Theme::TEXT))),
+                Line::from(""),
+                Line::from(Span::styled("Esc", Style::default().fg(Theme::SECONDARY))),
+                Line::from(Span::styled("  Close menu", Style::default().fg(Theme::SECONDARY))),
+            ],
+        ),
+        'y' => (
+            " SPACEmenu: Yank (y) ",
+            vec![
+                Line::from(Span::styled("y u", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Copy task/element URL", Style::default().fg(Theme::TEXT))),
+                Line::from(""),
+                Line::from(Span::styled("Esc", Style::default().fg(Theme::SECONDARY))),
+                Line::from(Span::styled("  Close menu", Style::default().fg(Theme::SECONDARY))),
+            ],
+        ),
         't' => (
             " SPACEmenu: Task (t) ",
             vec![
                 Line::from(Span::styled("t n", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  New task", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("t e", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Edit task / description", Style::default().fg(Theme::TEXT))),
                 Line::from(Span::styled("t s", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  Change status", Style::default().fg(Theme::TEXT))),
                 Line::from(Span::styled("t d", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  Delete task", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("t a", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Assign people", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("t f", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Toggle Assigned-to-Me filter", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("t v", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Expand/collapse description", Style::default().fg(Theme::TEXT))),
                 Line::from(""),
                 Line::from(Span::styled("Esc", Style::default().fg(Theme::SECONDARY))),
                 Line::from(Span::styled("  Close menu", Style::default().fg(Theme::SECONDARY))),
@@ -62,7 +96,11 @@ pub fn render_command_menu(frame: &mut Frame, area: Rect, level: &crate::tui::ap
                 Line::from(Span::styled("SPC g", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  Go to... (u: URL)", Style::default().fg(Theme::TEXT))),
                 Line::from(Span::styled("SPC t", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Task actions (n/s/d)", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("  Task actions (n/e/s/d/a/f/v)", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("SPC c", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Comment actions (n/e/r/v)", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("SPC y", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Yank (u: copy URL)", Style::default().fg(Theme::TEXT))),
                 Line::from(Span::styled("SPC w", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  Window actions (q: quit)", Style::default().fg(Theme::TEXT))),
                 Line::from(""),

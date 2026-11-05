@@ -49,7 +49,7 @@ impl TuiLayout {
             .constraints([
                 Constraint::Length(1), // Title bar
                 Constraint::Min(10),   // Content area
-                Constraint::Length(3), // Status bar
+                Constraint::Length(1), // Status message row
             ])
             .split(area);
 
@@ -88,20 +88,12 @@ impl TuiLayout {
         frame.render_widget(title_widget, self.title_area);
     }
 
-    /// Render status bar with message and help hints
-    pub fn render_status(&self, frame: &mut Frame, status: &str, hints: &str) {
-        let status_text = Line::from(vec![
-            Span::styled(status, Style::default().fg(Theme::WARNING)),
-            Span::raw(" | "),
-            Span::styled(hints, Style::default().fg(Theme::SECONDARY)),
-        ]);
-
-        let status_widget = Paragraph::new(status_text).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(Style::default().bg(Theme::BACKGROUND)),
-        );
-
+    /// Render the one-row status message line (no key-hint bar).
+    pub fn render_status(&self, frame: &mut Frame, status: &str) {
+        let status_widget = Paragraph::new(Line::from(vec![Span::styled(
+            status,
+            Style::default().fg(Theme::WARNING),
+        )]));
         frame.render_widget(status_widget, self.status_area);
     }
 
