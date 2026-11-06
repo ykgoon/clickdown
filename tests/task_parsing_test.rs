@@ -849,3 +849,60 @@ fn test_task_assignees_as_single_object_still_fails() {
         "Single object assignees still fails (expected - should be array)"
     );
 }
+
+/// Regression (2026-11-06): ClickUp returns Attachment.date as a JSON
+/// string (e.g. "1793777721572"), unlike most other epoch fields. Tasks
+/// with attachments failed to deserialize, which surfaced as a bogus
+/// "Failed to parse response" when opening their task URLs.
+#[test]
+fn test_attachment_date_as_string_parses() {
+    let json = r#"{
+        "id": "14zrc6qa6q5",
+        "name": "attachment date regression",
+        "attachments": [
+            {
+                "id": "e8a90a23-38ad-4456-a23b-37d0fe8de075.png",
+                "date": "1793777721572",
+                "title": "image.png",
+                "type": 2,
+                "source": 1,
+                "version": 0,
+                "extension": "png",
+                "mimetype": "image/png",
+                "hidden": false,
+                "size": 395054
+            }
+        ]
+    }"#;
+    let task: clickdown::models::Task = serde_json::from_str(json).expect("must parse");
+    assert!(!task.attachments.is_empty(), "attachments must be present");
+    assert_eq!(task.attachments[0].date, Some(1793777721572));
+}
+
+/// Integer dates keep working (older API responses used numbers).
+#[test]
+fn test_attachment_date_as_int_parses() {
+    let json = r#"{
+        "id": "14zrc6qa6q3",
+        "name": "attachment date int",
+        "attachments": [
+            { "id": "a.png", "date": 1793777721572, "title": "a.png" }
+        ]
+    }"#;
+    let task: clickdown::models::Task = serde_json::from_str(json).expect("must parse");
+    assert!(!task.attachments.is_empty());
+    assert_eq!(task.attachments[0].date, Some(1793777721572));
+}
+
+/// Missing/null date stays None.
+#[test]
+fn test_attachment_date_missing_is_none() {
+    let json = r#"{
+        "id": "14zrc6qa6q3",
+        "name": "attachment date absent",
+        "attachments": [ { "id": "a.png", "title": "a.png" } ]
+    }"#;
+    let task: clickdown::models::Task = serde_json::from_str(json).expect("must parse");
+    assert!(!task.attachments.is_empty());
+    assert_eq!(task.attachments[0].date, None);
+}

@@ -346,7 +346,10 @@ pub struct Attachment {
     pub id: String,
     #[serde(default)]
     pub version: Option<i64>,
-    #[serde(default)]
+    /// ClickUp sends the attachment epoch-millis timestamp as a JSON string
+    /// (e.g. "1793777721572"), unlike most other date fields which arrive
+    /// as numbers. Accept both or tasks with attachments fail to parse.
+    #[serde(default, deserialize_with = "flexible_i64")]
     pub date: Option<i64>,
     #[serde(default)]
     pub title: Option<String>,
