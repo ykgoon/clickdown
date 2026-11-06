@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+┌ Tasks ───────────────────────────────────────────────────┐
+│▸ ▾ IN PROGRESS (1)                                       │
+│  [↑] Review pull request                                 │
+│  ▾ TODO (1)                                              │
+│  [•] Write unit tests                                    │
+│  ▾ DONE (1)                                              │
+│  [⚡ ] Deploy to production                               │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘

@@ -233,12 +233,19 @@ ClickDown automatically saves your navigation state when you exit and restores i
 | `Enter` | Select/open item |
 | `Esc` | Go back / Close |
 
+### Task List
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Focus the selected task's status group |
+| `Tab` (on focused status) | Fold/unfold the status group (hides/shows its tasks) |
+
 ### Global
 
 | Key | Action |
 |-----|--------|
 | `SPC q` | Quit application (confirmation dialog) |
-| `Tab` | Toggle sidebar |
+| `SPC w s` | Toggle sidebar |
 | `?` | Show keyboard shortcuts help |
 | `u` | Copy element URL to clipboard |
 

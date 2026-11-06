@@ -263,6 +263,32 @@ fn test_task_list_with_selection() {
     });
 }
 
+#[test]
+fn test_task_list_header_focused() {
+    let tasks = create_test_tasks();
+    let mut task_list = GroupedTaskList::from_tasks(tasks);
+    // Tab focus: move selection from the first task to its status group header
+    task_list.select_group_header_of_selected_task();
+
+    assert_widget_snapshot("task_list_header_focused", 60, 15, |frame| {
+        let area = Rect::new(0, 0, 60, 15);
+        render_task_list(frame, &task_list, area, false);
+    });
+}
+
+#[test]
+fn test_task_list_folded_group() {
+    let tasks = create_test_tasks();
+    let mut folded = std::collections::HashSet::new();
+    folded.insert("in progress".to_string());
+    let task_list = GroupedTaskList::from_tasks_with_folds(tasks, folded);
+
+    assert_widget_snapshot("task_list_folded_group", 60, 15, |frame| {
+        let area = Rect::new(0, 0, 60, 15);
+        render_task_list(frame, &task_list, area, false);
+    });
+}
+
 // ============================================================================
 // Assigned Tasks View Snapshot Tests
 // ============================================================================

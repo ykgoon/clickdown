@@ -129,7 +129,8 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
         &[
             ("SPC", "Open command menu"),
             ("SPC q", "Quit (saves session)"),
-            ("Tab", "Toggle sidebar"),
+            ("SPC w s", "Toggle sidebar"),
+            ("Tab", "Cycle focus / fold status (task list)"),
             ("?", "Show this help"),
             ("u", "Copy element URL"),
         ],
@@ -148,6 +149,7 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
         "Task List",
         &[
             ("a", "Toggle Assigned to Me filter"),
+            ("Tab", "Focus status group / fold-unfold"),
             ("n", "Create new task"),
             ("s", "Open status picker"),
             ("d", "Delete selected task"),

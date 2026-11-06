@@ -1,5 +1,7 @@
 //! Task list widget
 
+use std::collections::HashSet;
+
 use crate::models::task::{
     get_status_group_priority, resolve_status_group, sort_tasks, StatusGroupPriority,
 };
@@ -17,8 +19,9 @@ use ratatui::{
 #[derive(Debug, Clone)]
 pub enum ListRow {
     Header {
-        label: String,
-        #[allow(dead_code)]
+        /// Resolved status group name (the fold key).
+        group_name: String,
+        /// Number of tasks in the group (including folded/hidden ones).
         count: usize,
     },
     Task(Task),
@@ -27,10 +30,17 @@ pub enum ListRow {
 /// Grouped task list state, replacing the flat `TaskListState`
 ///
 /// Rows are a flat sequence of `ListRow::Header` and `ListRow::Task` items.
-/// Navigation (j/k) skips header rows and only selects task rows.
+/// Navigation (j/k) skips header rows and only selects task rows. Status
+/// group headers can receive focus (Tab) and be folded/unfolded; tasks of a
+/// folded group are hidden from the list.
 #[derive(Debug, Clone)]
 pub struct GroupedTaskList {
+    /// All rows (headers + tasks), ignoring folds.
+    all_rows: Vec<ListRow>,
+    /// Visible rows: tasks of folded groups are hidden; headers always show.
     rows: Vec<ListRow>,
+    /// Names of currently folded status groups.
+    folded: HashSet<String>,
     list: ListState,
     /// Visible row count from the most recent render (for page scrolling).
     viewport_height: usize,
@@ -39,7 +49,9 @@ pub struct GroupedTaskList {
 impl GroupedTaskList {
     pub fn new() -> Self {
         Self {
+            all_rows: Vec::new(),
             rows: Vec::new(),
+            folded: HashSet::new(),
             list: ListState::default(),
             viewport_height: 0,
         }
@@ -51,7 +63,14 @@ impl GroupedTaskList {
     /// `status.status` when `status_group` is `None`), sorted within groups by
     /// `updated_at` descending. Known status groups (in_progress, todo, done)
     /// appear first in priority order; unknown groups appear after.
-    pub fn from_tasks(mut tasks: Vec<Task>) -> Self {
+    pub fn from_tasks(tasks: Vec<Task>) -> Self {
+        Self::from_tasks_with_folds(tasks, HashSet::new())
+    }
+
+    /// Build a grouped task list, preserving fold state across rebuilds.
+    ///
+    /// Groups whose name appears in `folded` start folded (their tasks hidden).
+    pub fn from_tasks_with_folds(mut tasks: Vec<Task>, folded: HashSet<String>) -> Self {
         // Ensure tasks are sorted by status priority and recency
         tasks = sort_tasks(tasks);
 
@@ -77,29 +96,51 @@ impl GroupedTaskList {
         });
 
         // Build rows: header + tasks for each non-empty group
-        let mut rows: Vec<ListRow> = Vec::new();
+        let mut all_rows: Vec<ListRow> = Vec::new();
         for (group_name, _priority, group_tasks) in &groups {
-            let label = format_group_label(group_name, group_tasks.len());
-            rows.push(ListRow::Header {
-                label,
+            all_rows.push(ListRow::Header {
+                group_name: group_name.clone(),
                 count: group_tasks.len(),
             });
             for task in group_tasks {
-                rows.push(ListRow::Task(task.clone()));
+                all_rows.push(ListRow::Task(task.clone()));
             }
         }
 
-        // Select first task (skip headers)
-        let first_task_index = rows.iter().position(|r| matches!(r, ListRow::Task(_)));
-
-        let mut list = ListState::default();
-        list.select(first_task_index);
-
-        Self {
-            rows,
-            list,
+        let mut slf = Self {
+            all_rows,
+            rows: Vec::new(),
+            folded,
+            list: ListState::default(),
             viewport_height: 0,
-        }
+        };
+        slf.recompute_visible_rows();
+
+        // Select first visible task (skip headers)
+        let first_task_index = slf.rows.iter().position(|r| matches!(r, ListRow::Task(_)));
+        slf.list.select(first_task_index);
+
+        slf
+    }
+
+    /// Rebuild `rows` from `all_rows`, hiding tasks of folded groups.
+    /// Headers always remain visible.
+    fn recompute_visible_rows(&mut self) {
+        let mut current_group = String::new();
+        let folded = &self.folded;
+        let rows: Vec<ListRow> = self
+            .all_rows
+            .iter()
+            .filter(|row| match row {
+                ListRow::Header { group_name, .. } => {
+                    current_group = group_name.clone();
+                    true
+                }
+                ListRow::Task(_) => !folded.contains(&current_group),
+            })
+            .cloned()
+            .collect();
+        self.rows = rows;
     }
 
     /// Record the visible row count from the latest render (page size).
@@ -218,6 +259,55 @@ impl GroupedTaskList {
             })
     }
 
+    /// Names of the currently folded status groups.
+    pub fn folded_groups(&self) -> &HashSet<String> {
+        &self.folded
+    }
+
+    /// Move selection from the selected task row to its status group header.
+    ///
+    /// Returns the group name when the selection moved; `None` when the
+    /// current selection is not on a task row (e.g. already on a header).
+    pub fn select_group_header_of_selected_task(&mut self) -> Option<String> {
+        let idx = self.list.selected()?;
+        match self.rows.get(idx) {
+            Some(ListRow::Task(_)) => {}
+            _ => return None,
+        }
+        let header_idx = self.rows[..idx]
+            .iter()
+            .rposition(|row| matches!(row, ListRow::Header { .. }))?;
+        self.list.select(Some(header_idx));
+        match &self.rows[header_idx] {
+            ListRow::Header { group_name, .. } => Some(group_name.clone()),
+            ListRow::Task(_) => None,
+        }
+    }
+
+    /// Fold/unfold the status group of the selected header row (Tab on header).
+    ///
+    /// Returns `(group_name, task_count, now_folded)` on success; `None` when
+    /// the current selection is not on a header row.
+    pub fn toggle_fold_of_selected_header(&mut self) -> Option<(String, usize, bool)> {
+        let idx = self.list.selected()?;
+        let (group_name, count) = match self.rows.get(idx)? {
+            ListRow::Header { group_name, count } => (group_name.clone(), *count),
+            ListRow::Task(_) => return None,
+        };
+        if !self.folded.remove(&group_name) {
+            self.folded.insert(group_name.clone());
+        }
+        let now_folded = self.folded.contains(&group_name);
+        self.recompute_visible_rows();
+        // Keep focus on the header (headers are always visible).
+        let header_idx = self
+            .rows
+            .iter()
+            .position(|row| matches!(row, ListRow::Header { group_name: n, .. } if *n == group_name));
+        self.list.select(header_idx);
+        Some((group_name, count, now_folded))
+    }
+
     /// Select item by index (raw index into rows, may select a header — callers should prefer navigation methods)
     pub fn select(&mut self, index: Option<usize>) {
         if let Some(i) = index {
@@ -259,10 +349,11 @@ impl Default for GroupedTaskList {
 }
 
 /// Format a group label for display from the resolved status group name.
-/// e.g., `"in progress"` with count 3 → "▸ IN PROGRESS (3)"
-///       `"review"` with count 2 → "▸ REVIEW (2)"
-fn format_group_label(group_name: &str, count: usize) -> String {
-    format!("▸ {} ({})", group_name.to_uppercase(), count)
+/// e.g., unfolded:  "in progress" with count 3 → "▾ IN PROGRESS (3)"
+///       folded:    "in progress" with count 3 → "▸ IN PROGRESS (3)"
+fn format_group_label(group_name: &str, count: usize, folded: bool) -> String {
+    let arrow = if folded { "▸" } else { "▾" };
+    format!("{} {} ({})", arrow, group_name.to_uppercase(), count)
 }
 
 /// Type alias for backwards compatibility — use `GroupedTaskList` directly.
@@ -312,10 +403,14 @@ pub fn render_task_list(frame: &mut Frame, state: &GroupedTaskList, area: Rect, 
         .rows()
         .iter()
         .map(|row| match row {
-            ListRow::Header { label, .. } => {
-                // Header rows: dimmed, bold text, no highlight symbol
+            ListRow::Header {
+                group_name,
+                count,
+            } => {
+                let folded = state.folded_groups().contains(group_name);
+                // Header rows: dimmed, bold text; ▸ folded / ▾ unfolded
                 ListItem::new(Line::from(vec![Span::styled(
-                    label.as_str(),
+                    format_group_label(group_name, *count, folded),
                     Style::default()
                         .fg(Theme::TEXT_DIM)
                         .add_modifier(Modifier::BOLD),
@@ -391,16 +486,16 @@ mod tests {
         assert_eq!(rows.len(), 7);
 
         // First group: In Progress (highest priority)
-        assert!(matches!(&rows[0], ListRow::Header { label, .. } if label.contains("IN_PROGRESS")));
+        assert!(matches!(&rows[0], ListRow::Header { group_name, .. } if group_name == "in_progress"));
         assert!(matches!(&rows[1], ListRow::Task(t) if t.id == "t2"));
         assert!(matches!(&rows[2], ListRow::Task(t) if t.id == "t4"));
 
         // Second group: Todo
-        assert!(matches!(&rows[3], ListRow::Header { label, .. } if label.contains("TODO")));
+        assert!(matches!(&rows[3], ListRow::Header { group_name, .. } if group_name == "todo"));
         assert!(matches!(&rows[4], ListRow::Task(t) if t.id == "t1"));
 
         // Third group: Done
-        assert!(matches!(&rows[5], ListRow::Header { label, .. } if label.contains("DONE")));
+        assert!(matches!(&rows[5], ListRow::Header { group_name, .. } if group_name == "done"));
         assert!(matches!(&rows[6], ListRow::Task(t) if t.id == "t3"));
     }
 
@@ -417,8 +512,8 @@ mod tests {
 
         // Only Todo and Done groups (no In Progress or Other)
         assert_eq!(rows.len(), 4);
-        assert!(matches!(&rows[0], ListRow::Header { label, .. } if label.contains("TODO")));
-        assert!(matches!(&rows[2], ListRow::Header { label, .. } if label.contains("DONE")));
+        assert!(matches!(&rows[0], ListRow::Header { group_name, .. } if group_name == "todo"));
+        assert!(matches!(&rows[2], ListRow::Header { group_name, .. } if group_name == "done"));
     }
 
     #[test]
@@ -518,7 +613,7 @@ mod tests {
         // One header + two tasks
         assert_eq!(rows.len(), 3);
         assert!(
-            matches!(&rows[0], ListRow::Header { label, count } if label.contains("TODO") && *count == 2)
+            matches!(&rows[0], ListRow::Header { group_name, count } if group_name == "todo" && *count == 2)
         );
         assert!(matches!(&rows[1], ListRow::Task(t) if t.id == "t1"));
         assert!(matches!(&rows[2], ListRow::Task(t) if t.id == "t2"));
@@ -554,9 +649,9 @@ mod tests {
         // t1 has status_group="unknown_status", t2 has status_group=None → resolves to "test"
         // Both have Fallback priority so they sort alphabetically: "test" < "unknown_status"
         assert_eq!(rows.len(), 4); // 2 headers + 2 tasks
-        assert!(matches!(&rows[0], ListRow::Header { label, .. } if label.contains("TEST")));
+        assert!(matches!(&rows[0], ListRow::Header { group_name, .. } if group_name == "test"));
         assert!(
-            matches!(&rows[2], ListRow::Header { label, .. } if label.contains("UNKNOWN_STATUS"))
+            matches!(&rows[2], ListRow::Header { group_name, .. } if group_name == "unknown_status")
         );
     }
 
@@ -609,7 +704,7 @@ mod tests {
              not collapsed into a single OTHER header. Rows: {:?}",
             rows.iter()
                 .filter_map(|r| match r {
-                    ListRow::Header { label, .. } => Some(label.clone()),
+                    ListRow::Header { group_name, .. } => Some(group_name.clone()),
                     _ => None,
                 })
                 .collect::<Vec<_>>()
@@ -620,18 +715,18 @@ mod tests {
         let headers: Vec<&str> = rows
             .iter()
             .filter_map(|r| match r {
-                ListRow::Header { label, .. } => Some(label.as_str()),
+                ListRow::Header { group_name, .. } => Some(group_name.as_str()),
                 _ => None,
             })
             .collect();
 
-        // Known groups should be in priority order: IN PROGRESS < TODO < DONE
+        // Known groups should be in priority order: in progress < todo < done
         let in_progress_idx = headers
             .iter()
-            .position(|h| h.contains("IN PROGRESS"))
+            .position(|h| h.contains("in progress"))
             .unwrap();
-        let todo_idx = headers.iter().position(|h| h.contains("TODO")).unwrap();
-        let done_idx = headers.iter().position(|h| h.contains("DONE")).unwrap();
+        let todo_idx = headers.iter().position(|h| h.contains("todo")).unwrap();
+        let done_idx = headers.iter().position(|h| h.contains("done")).unwrap();
 
         assert!(
             in_progress_idx < todo_idx,
@@ -640,8 +735,8 @@ mod tests {
         assert!(todo_idx < done_idx, "TODO should appear before DONE");
 
         // Unknown groups (REVIEW, BLOCKED) should appear after known groups
-        let review_idx = headers.iter().position(|h| h.contains("REVIEW")).unwrap();
-        let blocked_idx = headers.iter().position(|h| h.contains("BLOCKED")).unwrap();
+        let review_idx = headers.iter().position(|h| h.contains("review")).unwrap();
+        let blocked_idx = headers.iter().position(|h| h.contains("blocked")).unwrap();
         let last_known = done_idx.max(todo_idx.max(in_progress_idx));
         assert!(
             review_idx > last_known,
@@ -651,5 +746,108 @@ mod tests {
             blocked_idx > last_known,
             "BLOCKED should appear after known status groups"
         );
+    }
+
+    /// Tab focus: select_group_header_of_selected_task moves selection from a
+    /// task to its status group header; toggle_fold_of_selected_header then
+    /// folds that status, hiding its tasks.
+    #[test]
+    fn test_tab_focus_header_and_fold_hides_tasks() {
+        let tasks = vec![
+            make_task("t1", Some("in_progress"), Some(2000)),
+            make_task("t2", Some("in_progress"), Some(1000)),
+            make_task("t3", Some("todo"), Some(1500)),
+        ];
+
+        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        assert!(matches!(grouped.selected_task(), Some(t) if t.id == "t1"));
+
+        // Focus the status header of the selected task
+        let group = grouped.select_group_header_of_selected_task();
+        assert_eq!(group.as_deref(), Some("in_progress"));
+        assert!(grouped.selected_task().is_none());
+
+        // Fold it: both in_progress tasks are hidden
+        let (name, count, folded) = grouped.toggle_fold_of_selected_header().unwrap();
+        assert_eq!(name, "in_progress");
+        assert_eq!(count, 2);
+        assert!(folded);
+
+        let rows = grouped.rows();
+        assert_eq!(rows.len(), 3, "IN_PROGRESS header + TODO header + t3 remain");
+        assert!(matches!(&rows[0], ListRow::Header { group_name, .. } if group_name == "in_progress"));
+        assert!(matches!(&rows[1], ListRow::Header { group_name, .. } if group_name == "todo"));
+        assert!(matches!(&rows[2], ListRow::Task(t) if t.id == "t3"));
+        assert!(grouped.selected_task().is_none(), "header stays focused after folding");
+
+        // Unfold: tasks reappear
+        let (_, _, folded) = grouped.toggle_fold_of_selected_header().unwrap();
+        assert!(!folded);
+        assert_eq!(grouped.rows().len(), 5);
+    }
+
+    /// Toggle on a non-header selection is a no-op returning None.
+    #[test]
+    fn test_toggle_fold_ignores_task_selection() {
+        let tasks = vec![make_task("t1", Some("todo"), Some(1000))];
+        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        assert!(grouped.selected_task().is_some());
+        assert!(grouped.toggle_fold_of_selected_header().is_none());
+        assert!(grouped.folded_groups().is_empty());
+        assert!(grouped.select_group_header_of_selected_task().is_some());
+    }
+
+    /// Fold state survives rebuilds (e.g. task reload / status change), and
+    /// tasks moved into a folded group are hidden too.
+    #[test]
+    fn test_fold_state_survives_rebuild() {
+        let tasks = vec![
+            make_task("t1", Some("in_progress"), Some(2000)),
+            make_task("t2", Some("todo"), Some(1000)),
+        ];
+
+        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        grouped.select_group_header_of_selected_task();
+        grouped.toggle_fold_of_selected_header();
+        assert_eq!(grouped.rows().len(), 3, "two headers + the remaining visible task");
+
+        // Rebuild with the same folds (what the app does on reload)
+        let rebuilt = GroupedTaskList::from_tasks_with_folds(
+            vec![
+                make_task("t1", Some("in_progress"), Some(2000)),
+                make_task("t2", Some("todo"), Some(1000)),
+            ],
+            grouped.folded_groups().clone(),
+        );
+        assert_eq!(rebuilt.rows().len(), 3, "folded group's tasks stay hidden after rebuild");
+        assert!(rebuilt.folded_groups().contains("in_progress"));
+
+        // A new task landing in the folded group is hidden; visible groups select normally
+        let rebuilt2 = GroupedTaskList::from_tasks_with_folds(
+            vec![
+                make_task("t1", Some("in_progress"), Some(2000)),
+                make_task("t3", Some("in_progress"), Some(1500)),
+                make_task("t2", Some("todo"), Some(1000)),
+            ],
+            rebuilt.folded_groups().clone(),
+        );
+        assert!(
+            matches!(rebuilt2.selected_task(), Some(t) if t.id == "t2"),
+            "first visible task is selected"
+        );
+    }
+
+    /// j/k navigation still works while a header is focused.
+    #[test]
+    fn test_select_next_from_header_moves_to_next_task() {
+        let tasks = vec![
+            make_task("t1", Some("in_progress"), Some(2000)),
+            make_task("t2", Some("todo"), Some(1000)),
+        ];
+        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        grouped.select(Some(0)); // header row
+        assert!(grouped.selected_task().is_none());
+        grouped.select_next();
+        assert!(matches!(grouped.selected_task(), Some(t) if t.id == "t1"));
     }
 }

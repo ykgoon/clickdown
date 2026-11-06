@@ -83,6 +83,8 @@ pub fn render_command_menu(frame: &mut Frame, area: Rect, level: &crate::tui::ap
         'w' => (
             " SPACEmenu: Window (w) ",
             vec![
+                Line::from(Span::styled("w s", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Toggle sidebar", Style::default().fg(Theme::TEXT))),
                 Line::from(Span::styled("w q", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  Quit ClickDown", Style::default().fg(Theme::TEXT))),
                 Line::from(""),

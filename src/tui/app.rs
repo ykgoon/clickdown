@@ -889,6 +889,15 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         tracing::debug!("Copy URL via SPACEmenu (y u)");
                         self.copy_url();
                     }
+                    ('w', KeyCode::Char('s')) => {
+                        // Toggle sidebar (also on screens where Tab folds groups)
+                        self.sidebar.visible = !self.sidebar.visible;
+                        self.status = if self.sidebar.visible {
+                            "Sidebar shown".to_string()
+                        } else {
+                            "Sidebar hidden".to_string()
+                        };
+                    }
                     ('w', KeyCode::Char('q')) => {
                         self.dialog.show(DialogType::ConfirmQuit);
                     }
@@ -2331,8 +2340,11 @@ impl TuiApp {
                             Ok(tasks) => {
                                 // Store tasks as source of truth
                                 self.tasks = tasks;
-                                // Build grouped task list
-                                self.task_list = GroupedTaskList::from_tasks(self.tasks.clone());
+                                // Build grouped task list (preserving fold state)
+                                self.task_list = GroupedTaskList::from_tasks_with_folds(
+                                    self.tasks.clone(),
+                                    self.task_list.folded_groups().clone(),
+                                );
 
                                 // Check if we're restoring a session
                                 if self.restoring_session {
@@ -3158,7 +3170,8 @@ impl TuiApp {
                     self.navigate_back();
                 }
                 KeyCode::Tab => {
-                    self.sidebar.visible = !self.sidebar.visible;
+                    // Focus status group of selected task / fold-unfold focused group
+                    self.tab_task_list_focus();
                 }
                 _ => {}
             }
@@ -5755,11 +5768,36 @@ impl TuiApp {
         &mut self.task_list
     }
 
+    /// Tab on the tasks screen: focus the selected task's status group header,
+    /// or fold/unfold the focused status group (hiding its tasks).
+    fn tab_task_list_focus(&mut self) {
+        if let Some(group_name) = self.task_list.select_group_header_of_selected_task() {
+            self.status = format!("Status group focused: {}", group_name);
+            return;
+        }
+        match self.task_list.toggle_fold_of_selected_header() {
+            Some((name, count, folded)) => {
+                let suffix = if count == 1 { "" } else { "s" };
+                self.status = if folded {
+                    format!("Folded {} — {} task{} hidden", name, count, suffix)
+                } else {
+                    format!("Unfolded {} — {} task{} visible", name, count, suffix)
+                };
+            }
+            None => {
+                self.status = "No status group focused".to_string();
+            }
+        }
+    }
+
     /// Rebuild the grouped task list from `self.tasks`.
     /// Preserves the currently selected task by ID if it still exists.
     fn rebuild_task_list(&mut self) {
         let selected_id = self.task_list.selected_task().map(|t| t.id.clone());
-        self.task_list = GroupedTaskList::from_tasks(self.tasks.clone());
+        self.task_list = GroupedTaskList::from_tasks_with_folds(
+            self.tasks.clone(),
+            self.task_list.folded_groups().clone(),
+        );
         if let Some(ref id) = selected_id {
             if !self
                 .task_list
