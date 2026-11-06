@@ -114,23 +114,37 @@ fn test_input_event_types() {
     }
 }
 
-/// Test quit detection
+/// Test that plain q and plain space do NOT quit (SPC q sequence only, via dialog)
 #[test]
 fn test_quit_detection() {
-    use clickdown::tui::input::is_quit;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::input::InputEvent;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
 
-    // Ctrl+Q should be detected as quit
-    let ctrl_q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
-    assert!(is_quit(ctrl_q), "Ctrl+Q should be detected as quit");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut app = TuiApp::with_client(Arc::new(MockClickUpClient::new())).unwrap();
 
-    // Capital Q should be detected as quit
-    let capital_q = KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::NONE);
-    assert!(is_quit(capital_q), "Q should be detected as quit");
+        // Plain q in normal mode must not open the quit dialog
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::NONE,
+        )));
+        assert!(!app.is_dialog_visible(), "plain q should not quit");
 
-    // Other keys should not be detected as quit
-    let other = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
-    assert!(!is_quit(other), "Other keys should not be detected as quit");
+        // Plain space alone must not open the quit dialog
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(' '),
+            KeyModifiers::NONE,
+        )));
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(!app.is_dialog_visible(), "plain space should not quit");
+    });
 }
 
 /// Test dialog state
@@ -266,7 +280,7 @@ fn test_help_dialog_shows_all_shortcuts() {
     assert!(content.contains("Esc"), "Missing Esc key");
 
     // Assert Global shortcuts
-    assert!(content.contains("Ctrl+Q"), "Missing Ctrl+Q quit");
+    assert!(content.contains("SPC q"), "Missing SPC q quit");
     assert!(content.contains("Tab"), "Missing Tab key");
     assert!(content.contains("?"), "Missing ? help toggle");
     assert!(content.contains("u"), "Missing u URL copy");
@@ -459,41 +473,59 @@ fn test_task_list_state() {
 }
 
 /// Test that Ctrl+Shift+V does NOT trigger quit
+/// (quit is now the SPC q sequence via the command menu, so modifier combos are inert)
 #[test]
 fn test_ctrl_shift_v_does_not_quit() {
-    use clickdown::tui::input::is_quit;
+    use clickdown::tui::app::TuiApp;
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::input::InputEvent;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
 
-    // Ctrl+Shift+V should NOT be detected as quit
-    let ctrl_shift_v = KeyEvent::new(
-        KeyCode::Char('v'),
-        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-    );
-    assert!(
-        !is_quit(ctrl_shift_v),
-        "Ctrl+Shift+V should NOT trigger quit"
-    );
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut app = TuiApp::with_client(Arc::new(MockClickUpClient::new())).unwrap();
 
-    // Ctrl+Shift+Q should NOT be detected as quit (only exact Ctrl+Q)
-    let ctrl_shift_q = KeyEvent::new(
-        KeyCode::Char('q'),
-        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-    );
-    assert!(
-        !is_quit(ctrl_shift_q),
-        "Ctrl+Shift+Q should NOT trigger quit"
-    );
+        // Ctrl+Shift+V should NOT open the quit dialog
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('v'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        )));
+        assert!(!app.is_dialog_visible(), "Ctrl+Shift+V should NOT quit");
+
+        // Ctrl+Shift+Q should NOT open the quit dialog
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        )));
+        assert!(!app.is_dialog_visible(), "Ctrl+Shift+Q should NOT quit");
+    });
 }
 
-/// Test that exact Ctrl+Q triggers quit
+/// Test that the SPC q sequence opens the quit confirmation dialog
 #[test]
-fn test_exact_ctrl_q_triggers_quit() {
-    use clickdown::tui::input::is_quit;
+fn test_spc_q_sequence_triggers_quit_dialog() {
+    use clickdown::tui::app::TuiApp;
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::input::InputEvent;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
 
-    // Exact Ctrl+Q (no Shift) should trigger quit
-    let ctrl_q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
-    assert!(is_quit(ctrl_q), "Exact Ctrl+Q should trigger quit");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut app = TuiApp::with_client(Arc::new(MockClickUpClient::new())).unwrap();
+
+        // SPC opens the command menu, then q at the root requests quit
+        for key in [' ', 'q'] {
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(key),
+                KeyModifiers::NONE,
+            )));
+        }
+
+        assert!(app.is_dialog_visible(), "SPC q should open the quit dialog");
+        assert!(!app.command_menu_open_for_test(), "menu should close after SPC q");
+    });
 }
 
 /// Test partial token masking display

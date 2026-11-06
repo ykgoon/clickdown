@@ -208,12 +208,12 @@ ClickDown uses Personal API Token authentication via a terminal-based form:
 ClickDown automatically saves your navigation state when you exit and restores it on startup:
 
 - **What is saved**: Your current screen (Tasks, Task Detail, Document, etc.) and navigation context (workspace, space, folder, list IDs)
-- **When it saves**: On graceful exit (Ctrl+Q or confirmed quit)
+- **When it saves**: On graceful exit (SPC q, confirmed quit)
 - **When it restores**: On every startup if saved state exists
 - **Fallback behavior**: If a saved resource no longer exists (e.g., deleted list), ClickDown falls back to the nearest valid parent and shows a status message
 
 **Example scenarios:**
-- You're viewing a task detail panel, exit with Ctrl+Q → Next startup opens directly to that task
+- You're viewing a task detail panel, quit with SPC q → Next startup opens directly to that task
 - You're browsing a list, exit → Next startup shows that list
 - Your saved list was deleted → Next startup shows the parent folder with message "Saved list not found, showing lists"
 
@@ -237,7 +237,7 @@ ClickDown automatically saves your navigation state when you exit and restores i
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+Q` | Quit application |
+| `SPC q` | Quit application (confirmation dialog) |
 | `Tab` | Toggle sidebar |
 | `?` | Show keyboard shortcuts help |
 | `u` | Copy element URL to clipboard |

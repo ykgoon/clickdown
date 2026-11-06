@@ -19,7 +19,7 @@ use crate::models::{
 use crate::tui::widgets::SidebarItem;
 use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlGenerator};
 
-use super::input::{is_quit, InputEvent};
+use super::input::InputEvent;
 use super::layout::{generate_screen_title, split_task_detail, TuiLayout};
 use super::terminal;
 use super::widgets::{
@@ -661,6 +661,11 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         'c' => self.command_menu = Some(CommandMenuLevel::Group('c')),
                         'y' => self.command_menu = Some(CommandMenuLevel::Group('y')),
                         'w' => self.command_menu = Some(CommandMenuLevel::Group('w')),
+                        'q' => {
+                            // `SPC q` -- quit via confirmation dialog (saves session)
+                            self.command_menu = None;
+                            self.dialog.show(DialogType::ConfirmQuit);
+                        }
                         _ => {
                             self.command_menu = None;
                             self.status = format!("No command group '{}'", c);
@@ -2743,14 +2748,6 @@ impl TuiApp {
 
         if event::poll(Duration::from_millis(16))? {
             let evt = event::read()?;
-
-            // Check for quit (Ctrl+Q)
-            if let event::Event::Key(key) = &evt {
-                if is_quit(*key) {
-                    self.dialog.show(DialogType::ConfirmQuit);
-                    return Ok(Some(InputEvent::None));
-                }
-            }
 
             // Handle dialog input — return the key event so update() can process it
             // This keeps dialog confirmation testable through the public update() method
@@ -6290,6 +6287,48 @@ mod tests {
             app.command_menu.is_none(),
             "SPACE in INPUT mode must be text, not menu"
         );
+    }
+
+    #[test]
+    fn test_spc_q_quit_sequence() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mock_client = MockClickUpClient::new();
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.screen = Screen::Workspaces;
+
+        // Plain q in normal mode must not quit
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::NONE,
+        )));
+        assert!(
+            !app.dialog.is_visible(),
+            "plain q must not open quit dialog"
+        );
+
+        // SPC q opens the ConfirmQuit dialog and closes the menu
+        for key in [' ', 'q'] {
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(key),
+                KeyModifiers::NONE,
+            )));
+        }
+        assert!(
+            app.dialog.is_visible(),
+            "SPC q must open the quit confirmation dialog"
+        );
+        assert!(
+            app.command_menu.is_none(),
+            "SPACEmenu must close after SPC q"
+        );
+
+        // Esc cancels the quit
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(!app.dialog.is_visible(), "Esc must cancel quit");
+        assert_ne!(app.state, AppState::Quitting, "quit must be cancelled");
     }
 
     #[test]

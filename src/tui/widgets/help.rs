@@ -127,7 +127,8 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
     let global = section(
         "Global",
         &[
-            ("Ctrl+Q", "Quit (saves session)"),
+            ("SPC", "Open command menu"),
+            ("SPC q", "Quit (saves session)"),
             ("Tab", "Toggle sidebar"),
             ("?", "Show this help"),
             ("u", "Copy element URL"),

@@ -1,6 +1,6 @@
 //! Input event handling for TUI
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::KeyEvent;
 
 /// Represents a TUI input event
 #[derive(Debug, Clone)]
@@ -13,11 +13,7 @@ pub enum InputEvent {
     None,
 }
 
-/// Check if quit was requested (Ctrl+Q only)
-pub fn is_quit(key: KeyEvent) -> bool {
-    match key.code {
-        KeyCode::Char('q') if key.modifiers == KeyModifiers::CONTROL => true,
-        KeyCode::Char('Q') => true,
-        _ => false,
-    }
-}
+// Quit is now the `SPC q` sequence: SPACE opens the transient SPACEmenu
+// (only in normal mode -- text-input/insert contexts consume SPACE as text),
+// and `q` at the menu root requests quit via the ConfirmQuit dialog.
+// There is deliberately no single-key quit.
