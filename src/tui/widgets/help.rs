@@ -160,7 +160,8 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
             ("s", "Open status picker"),
             ("A", "Open assignee picker"),
             ("e", "Edit task"),
-            ("Tab", "Toggle comments focus"),
+            ("Tab", "Next focus (description → comments)"),
+            ("↑/↓ PgUp/PgDn", "Scroll focused item"),
             ("Esc", "Back to task list"),
         ],
     );
@@ -177,7 +178,8 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
     let comments = section(
         "Comments",
         &[
-            ("Tab", "Toggle focus (task/comments)"),
+            ("Tab", "Next focus (comments → description)"),
+            ("↑/↓ PgUp/PgDn", "Scroll focused comment"),
             ("j/k", "Navigate comments"),
             ("n", "New comment"),
             ("e", "Edit selected comment"),

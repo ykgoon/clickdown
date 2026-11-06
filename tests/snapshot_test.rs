@@ -1179,6 +1179,7 @@ fn test_comments_thread_title_truncates_multibyte_author() {
             true,
             Rect::new(0, 0, 80, 20),
             &view_mode,
+            0,
         );
     });
 }

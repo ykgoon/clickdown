@@ -16,6 +16,8 @@ pub const MIN_HEIGHT: u16 = 24;
 /// Height ratio for task detail view: description panel gets 30%, comments get 70%
 pub const TASK_DETAIL_DESCRIPTION_RATIO: u16 = 30;
 pub const TASK_DETAIL_COMMENTS_RATIO: u16 = 70;
+/// Pane share of the task screen given to the TAB-focused element (issue: focus traversal)
+pub const TASK_DETAIL_FOCUSED_RATIO: u16 = 65;
 
 /// Create a standard titled block with the given title
 pub fn titled_block(title: impl Into<Line<'static>>) -> Block<'static> {
@@ -147,6 +149,35 @@ pub fn split_task_detail(area: Rect) -> (Rect, Rect) {
         .constraints([
             Constraint::Percentage(TASK_DETAIL_DESCRIPTION_RATIO),
             Constraint::Percentage(TASK_DETAIL_COMMENTS_RATIO),
+        ])
+        .split(area);
+
+    (chunks[0], chunks[1])
+}
+
+/// Split with the DESCRIPTION focused: it grows to 65% of the area so more
+/// of its content is visible. Returns (description_area, comments_area).
+pub fn split_task_detail_focus_description(area: Rect) -> (Rect, Rect) {
+    let chunks = ratatui::layout::Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(TASK_DETAIL_FOCUSED_RATIO),
+            Constraint::Percentage(100 - TASK_DETAIL_FOCUSED_RATIO),
+        ])
+        .split(area);
+
+    (chunks[0], chunks[1])
+}
+
+/// Split with the COMMENTS focused: they grow to 65% of the area so the
+/// focused comment is larger and more readable.
+/// Returns (description_area, comments_area).
+pub fn split_task_detail_focus_comments(area: Rect) -> (Rect, Rect) {
+    let chunks = ratatui::layout::Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(100 - TASK_DETAIL_FOCUSED_RATIO),
+            Constraint::Percentage(TASK_DETAIL_FOCUSED_RATIO),
         ])
         .split(area);
 

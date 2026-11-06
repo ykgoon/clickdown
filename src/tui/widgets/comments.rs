@@ -22,6 +22,7 @@ pub fn render_comments(
     comment_focus: bool,
     area: Rect,
     view_mode: &CommentViewMode,
+    pane_scroll: usize,
 ) {
     // Build title based on view mode
     let title = match view_mode {
@@ -91,6 +92,7 @@ pub fn render_comments(
         comment_focus,
         chunks[0],
         view_mode,
+        pane_scroll,
     );
 
     // Render input form if editing or creating
@@ -140,6 +142,7 @@ fn render_comment_list(
     comment_focus: bool,
     area: Rect,
     view_mode: &CommentViewMode,
+    pane_scroll: usize,
 ) {
     // Check if area is too small
     if area.height < 3 || area.width < 15 {
@@ -364,15 +367,21 @@ fn render_comment_list(
     let total_lines = all_comment_lines.len();
     let available_height = area.height as usize;
 
-    // Calculate visible range based on scroll position
-    // For simplicity, we'll scroll by comment index, not line index
-    let mut scroll_offset = 0;
+    // Compute the scroll offset: pane_scroll gives the user manual control
+    // (Up/Down, PageUp/PageDown, Ctrl+F/Ctrl+U while a comment is focused);
+    // auto-scroll then guarantees the selected comment stays in range.
+    // For simplicity, we scroll by line index.
+    let mut scroll_offset = pane_scroll;
 
     // Find the line index where the selected comment starts
     let selected_line_start = all_comment_lines
         .iter()
         .position(|(idx, _)| *idx == selected_index)
         .unwrap_or(0);
+
+    // Clamp manual offset so it cannot scroll past the content
+    let max_offset = total_lines.saturating_sub(available_height);
+    scroll_offset = scroll_offset.min(max_offset);
 
     // Calculate visible range
     let visible_start = scroll_offset;
