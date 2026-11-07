@@ -17,7 +17,7 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Fast & Native**: Built with Rust and ratatui TUI framework for native terminal performance
 - **Workspace Navigation**: Browse workspaces, spaces, folders, and lists
 - **Task Management**: View, create, edit, and delete tasks
-- **Assigned to Me Filter**: Per-list filter showing tasks assigned to you (press `a` in task list)
+- **Assigned to Me Filter**: Per-list filter showing tasks assigned to you (press `SPC t f` in task list)
 - **URL Navigation**: Paste any ClickUp URL to jump directly to a workspace, space, folder, list, task, comment, or document (press `g` then `u`)
 - **Document Viewing**: Read ClickUp documents with Markdown rendering
 - **Session Restore**: Automatically restores your last viewed location on startup
@@ -239,6 +239,7 @@ ClickDown automatically saves your navigation state when you exit and restores i
 |-----|--------|
 | `Tab` | Focus the selected task's status group |
 | `Tab` (on focused status) | Fold/unfold the status group (hides/shows its tasks) |
+| `SPC t f` | Toggle "Assigned to Me" filter for the current list |
 
 ### Global
 

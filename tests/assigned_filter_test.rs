@@ -386,3 +386,195 @@ fn test_assigned_filter_refetches_after_user_loads() {
         );
     });
 }
+
+/// Test: Toggling the filter via SPC t f updates the screen title suffix
+#[test]
+fn test_toggle_filter_updates_screen_title() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let mock_client = MockClickUpClient::new();
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.set_screen(Screen::Tasks);
+        app.set_current_list_id(Some("list-1".to_string()));
+        app.set_current_user_id(Some(123));
+
+        let spc_tf = |app: &mut TuiApp| {
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(' '),
+                KeyModifiers::NONE,
+            )));
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char('t'),
+                KeyModifiers::NONE,
+            )));
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char('f'),
+                KeyModifiers::NONE,
+            )));
+        };
+
+        // Toggle ON: title gains the "(Assigned to Me)" suffix
+        spc_tf(&mut app);
+        assert!(
+            app.screen_title_for_test().contains("(Assigned to Me)"),
+            "Title should show the filter suffix when the filter is active, got: {}",
+            app.screen_title_for_test()
+        );
+
+        // Toggle OFF: suffix disappears
+        spc_tf(&mut app);
+        assert!(
+            !app.screen_title_for_test().contains("(Assigned to Me)"),
+            "Title should drop the filter suffix when the filter is off, got: {}",
+            app.screen_title_for_test()
+        );
+    });
+}
+
+/// Test: SPC t f routes the fetch through the assignee-filtered endpoint,
+/// and toggling off restores the unfiltered task list
+#[test]
+fn test_toggle_on_fetches_only_assigned_tasks() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use clickdown::tui::widgets::ListRow;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let mut mock_client = MockClickUpClient::new();
+
+        // Unfiltered listing: one task with no assignees
+        let mut all_task = fixtures::test_task();
+        all_task.id = "all-1".to_string();
+        all_task.name = "All Task".to_string();
+        all_task.assignees = vec![];
+        mock_client.tasks_response = Some(Ok(vec![all_task]));
+
+        // Filtered endpoint: tasks assigned to the current user
+        let assigned = fixtures::test_tasks_with_assignees();
+        assert_eq!(assigned.len(), 3);
+        mock_client.tasks_with_assignee_response = Some(Ok(assigned));
+
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.set_screen(Screen::Tasks);
+        app.set_current_list_id(Some("list-1".to_string()));
+        app.set_current_user_id(Some(123));
+
+        let spc_tf = |app: &mut TuiApp| {
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(' '),
+                KeyModifiers::NONE,
+            )));
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char('t'),
+                KeyModifiers::NONE,
+            )));
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char('f'),
+                KeyModifiers::NONE,
+            )));
+        };
+        let pump = |app: &mut TuiApp| {
+            for _ in 0..5 {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                app.process_async_messages();
+            }
+        };
+        fn task_rows(app: &TuiApp) -> Vec<String> {
+            app.task_list_for_test()
+                .rows()
+                .iter()
+                .filter_map(|r| match r {
+                    ListRow::Task(t) => Some(t.id.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        // Toggle ON: only the assignee-filtered result set is rendered
+        spc_tf(&mut app);
+        pump(&mut app);
+        let rows = task_rows(&app);
+        assert_eq!(
+            rows.len(),
+            3,
+            "Filter ON must render the assignee-filtered task set, got: {:?}",
+            rows
+        );
+        assert!(
+            !rows.iter().any(|id| id == "all-1"),
+            "Unassigned task must not appear while the filter is active"
+        );
+
+        // Toggle OFF: the plain task listing is restored
+        spc_tf(&mut app);
+        pump(&mut app);
+        let rows = task_rows(&app);
+        assert_eq!(
+            rows,
+            vec!["all-1".to_string()],
+            "Filter OFF must restore the unfiltered task list, got: {:?}",
+            rows
+        );
+    });
+}
+
+/// Test: Esc back from task detail keeps the "(Assigned to Me)" suffix
+#[test]
+fn test_navigate_back_preserves_assigned_filter_title() {
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::app::{Screen, TuiApp};
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let mock_client = MockClickUpClient::new();
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.set_screen(Screen::Tasks);
+        app.set_current_list_id(Some("list-1".to_string()));
+        app.set_current_user_id(Some(123));
+
+        // Toggle the filter ON via SPC t f
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(' '),
+            KeyModifiers::NONE,
+        )));
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('t'),
+            KeyModifiers::NONE,
+        )));
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('f'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.screen_title_for_test().contains("(Assigned to Me)"));
+
+        // Go to task detail and come back with Esc
+        app.set_screen(Screen::TaskDetail);
+        app.navigate_back();
+
+        assert_eq!(app.screen(), Screen::Tasks);
+        assert!(
+            app.screen_title_for_test().contains("(Assigned to Me)"),
+            "Esc back to Tasks must keep the filter suffix, got: {}",
+            app.screen_title_for_test()
+        );
+    });
+}

@@ -859,6 +859,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         // Toggle "Assigned to Me" filter (tasks screen)
                         if self.screen == Screen::Tasks {
                             self.assigned_filter_active = !self.assigned_filter_active;
+                            self.update_screen_title();
                             if let Some(list_id) = &self.current_list_id {
                                 if self.assigned_filter_active {
                                     self.status = "Filtering: Assigned to Me".to_string();
@@ -1283,6 +1284,12 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     #[allow(dead_code)]
     pub fn status_message(&self) -> &str {
         &self.status
+    }
+
+    /// Get the current screen title (for testing)
+    #[allow(dead_code)]
+    pub fn screen_title_for_test(&self) -> &str {
+        &self.screen_title
     }
 
     /// Check if the assignee picker is open (for testing)
@@ -2276,18 +2283,9 @@ impl TuiApp {
                                     if let Some(restored_id) = self.restored_list_id.clone() {
                                         if self.sidebar.select_by_id(&restored_id) {
                                             // Found the list, load its tasks
-                                            let list_name = self
-                                                .lists
-                                                .iter()
-                                                .find(|l| l.id == restored_id)
-                                                .map(|l| l.name.clone())
-                                                .unwrap_or_default();
                                             self.load_tasks(restored_id.clone());
                                             self.screen = Screen::Tasks;
-                                            self.screen_title = generate_screen_title(&format!(
-                                                "Tasks: {}",
-                                                list_name
-                                            ));
+                                            self.update_screen_title();
                                         } else {
                                             // List not found, fallback to Lists screen
                                             self.restoring_session = false;
@@ -3851,15 +3849,7 @@ impl TuiApp {
             Screen::TaskDetail => {
                 // Navigate back to Tasks
                 self.screen = Screen::Tasks;
-                if let Some(list) = self
-                    .current_list_id
-                    .as_ref()
-                    .and_then(|id| self.lists.iter().find(|list| &list.id == id))
-                {
-                    self.screen_title = generate_screen_title(&format!("Tasks: {}", list.name));
-                } else {
-                    self.screen_title = generate_screen_title("Tasks");
-                }
+                self.update_screen_title();
             }
             Screen::Document => {
                 self.screen = Screen::Tasks;

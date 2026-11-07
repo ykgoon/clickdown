@@ -9,7 +9,7 @@ expression: snapshot
             ┌ Keyboard Shortcuts — Task List  (1/3) ───────────────┐            
             │                                                      │            
             │ Task List                                            │            
-            │   a             - Toggle Assigned to Me filter       │            
+            │   SPC t f       - Toggle Assigned to Me filter       │            
             │   Tab           - Focus status group / fold-unfold   │            
             │   n             - Create new task                    │            
             │   s             - Open status picker                 │            

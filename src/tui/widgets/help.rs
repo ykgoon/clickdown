@@ -148,7 +148,7 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
     let task_list = section(
         "Task List",
         &[
-            ("a", "Toggle Assigned to Me filter"),
+            ("SPC t f", "Toggle Assigned to Me filter"),
             ("Tab", "Focus status group / fold-unfold"),
             ("n", "Create new task"),
             ("s", "Open status picker"),
