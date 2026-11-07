@@ -3806,7 +3806,11 @@ impl TuiApp {
             }
             Screen::Tasks => {
                 // Navigate back to Lists
-                self.current_list_id = None;
+                // Capture the list id before clearing: the Lists screen shows
+                // the folder's lists, so sidebar focus must return to the list
+                // the user just came from. Previously the id was cleared before
+                // being read, so focus always fell back to the top.
+                let restore_list_id = self.current_list_id.take();
 
                 // Repopulate sidebar with lists
                 let mut items = Vec::new();
@@ -3816,8 +3820,8 @@ impl TuiApp {
                 }));
                 *self.sidebar.items_mut() = items;
 
-                // Restore selection using current_list_id
-                if let Some(ref list_id) = self.current_list_id {
+                // Restore selection to the previously opened list
+                if let Some(ref list_id) = restore_list_id {
                     if !self.sidebar.select_by_id(list_id) {
                         // List not found, fallback to first
                         self.sidebar.select_first();
@@ -6299,6 +6303,125 @@ mod tests {
             KeyModifiers::NONE,
         )));
         assert!(!app.is_help_visible(), "Esc must close help");
+    }
+
+    #[test]
+    fn test_esc_from_tasks_restores_previous_list_selection() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mk_list = |id: &str, name: &str| List {
+            id: id.to_string(),
+            name: name.to_string(),
+            content: None,
+            description: None,
+            archived: false,
+            hidden: false,
+            orderindex: None,
+            space: None,
+            folder: None,
+            status: None,
+            priority: None,
+            statuses: Vec::new(),
+        };
+
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        // Simulate state after navigating into "list-2": the sidebar shows the
+        // folder's lists with list-2 selected, and the Tasks screen is active.
+        app.lists = vec![
+            mk_list("list-1", "Alpha"),
+            mk_list("list-2", "Beta"),
+            mk_list("list-3", "Gamma"),
+        ];
+        *app.sidebar.items_mut() = app
+            .lists
+            .iter()
+            .map(|l| SidebarItem::List {
+                name: l.name.clone(),
+                id: l.id.clone(),
+            })
+            .collect();
+        app.sidebar.select(Some(1));
+        app.current_folder_id = Some("folder-1".to_string());
+        app.current_list_id = Some("list-2".to_string());
+        app.screen = Screen::Tasks;
+
+        // Esc goes back to the Lists screen
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+
+        assert_eq!(app.screen, Screen::Lists, "Esc must return to Lists screen");
+        let selected = app
+            .sidebar
+            .selected_item()
+            .map(|item| item.id().to_string());
+        assert_eq!(
+            selected.as_deref(),
+            Some("list-2"),
+            "Esc from Tasks must restore focus to the previously opened list"
+        );
+    }
+
+    #[test]
+    fn test_esc_from_tasks_falls_back_to_first_when_list_missing() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mk_list = |id: &str, name: &str| List {
+            id: id.to_string(),
+            name: name.to_string(),
+            content: None,
+            description: None,
+            archived: false,
+            hidden: false,
+            orderindex: None,
+            space: None,
+            folder: None,
+            status: None,
+            priority: None,
+            statuses: Vec::new(),
+        };
+
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+
+        app.lists = vec![mk_list("list-1", "Alpha"), mk_list("list-2", "Beta")];
+        *app.sidebar.items_mut() = app
+            .lists
+            .iter()
+            .map(|l| SidebarItem::List {
+                name: l.name.clone(),
+                id: l.id.clone(),
+            })
+            .collect();
+        app.sidebar.select(Some(1));
+        app.current_folder_id = Some("folder-1".to_string());
+        // The previously opened list no longer exists in the folder
+        app.current_list_id = Some("list-gone".to_string());
+        app.screen = Screen::Tasks;
+
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+
+        assert_eq!(app.screen, Screen::Lists, "Esc must return to Lists screen");
+        let selected = app
+            .sidebar
+            .selected_item()
+            .map(|item| item.id().to_string());
+        assert_eq!(
+            selected.as_deref(),
+            Some("list-1"),
+            "missing list must fall back to the first entry"
+        );
+        assert_eq!(
+            app.status(),
+            "Saved list not found, showing lists",
+            "fallback must surface a status message"
+        );
     }
 
     #[test]
