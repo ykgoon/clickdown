@@ -1586,3 +1586,46 @@ fn test_quit_dialog_enter_in_task_creation() {
         "BUG: Dialog should close on Enter but it didn't!"
     );
 }
+
+// ============================================================================
+// SPACEmenu Doom-style minibuffer (bottom edge, one key per level)
+// ============================================================================
+
+/// Root minibuffer: one row of color-coded group columns + separator + hint.
+#[test]
+fn snapshot_spc_menu_minibuffer_root() {
+    assert_widget_snapshot("spc_menu_minibuffer_root", 100, 24, |frame| {
+        let area = frame.area();
+        clickdown::tui::widgets::render_command_menu(
+            frame,
+            area,
+            &clickdown::tui::app::CommandMenuLevel::Root,
+        );
+    });
+}
+
+/// Task group level: single action keys with descriptions (never two-key chords).
+#[test]
+fn snapshot_spc_menu_minibuffer_task_group() {
+    assert_widget_snapshot("spc_menu_minibuffer_task_group", 100, 24, |frame| {
+        let area = frame.area();
+        clickdown::tui::widgets::render_command_menu(
+            frame,
+            area,
+            &clickdown::tui::app::CommandMenuLevel::Group('t'),
+        );
+    });
+}
+
+/// Window group level (small menu): label, two action rows, separator, hint.
+#[test]
+fn snapshot_spc_menu_minibuffer_window_group() {
+    assert_widget_snapshot("spc_menu_minibuffer_window_group", 100, 24, |frame| {
+        let area = frame.area();
+        clickdown::tui::widgets::render_command_menu(
+            frame,
+            area,
+            &clickdown::tui::app::CommandMenuLevel::Group('w'),
+        );
+    });
+}

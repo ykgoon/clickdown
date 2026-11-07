@@ -1,0 +1,29 @@
+---
+source: tests/snapshot_test.rs
+assertion_line: 60
+expression: snapshot
+---
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  Task                                                                                              
+  n   New task                                                                                      
+  e   Edit task / description                                                                       
+  s   Change status                                                                                 
+  d   Delete task                                                                                   
+  a   Assign people                                                                                 
+  f   Assigned-to-Me filter                                                                         
+  v   Expand/collapse description                                                                   
+ ────────────────────────────────────────────────────────────────────────────────────────────────── 
+ SPACEmenu: Task · press an action key · Esc back

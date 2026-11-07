@@ -2039,3 +2039,101 @@ fn test_delete_task_empty_response_fails_to_parse() {
         );
     });
 }
+
+/// SPACEmenu minibuffer: Esc at a group level walks back to the root menu
+/// (Doom-style hierarchy), instead of closing the whole menu.
+#[test]
+fn test_spc_menu_esc_at_group_returns_to_root() {
+    use clickdown::tui::app::{CommandMenuLevel, TuiApp};
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut app = TuiApp::with_client(Arc::new(MockClickUpClient::new())).unwrap();
+
+        // SPC opens root, 't' enters the Task group
+        for k in [' ', 't'] {
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(k),
+                KeyModifiers::NONE,
+            )));
+        }
+        assert!(app.command_menu_open_for_test(), "menu open at group level");
+        assert_eq!(
+            app.command_menu_level_for_test(),
+            Some(CommandMenuLevel::Group('t')),
+            "'t' should enter the Task group"
+        );
+
+        // Esc returns to the root level, keeping the menu open
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(app.command_menu_open_for_test(), "menu stays open at root");
+        assert_eq!(
+            app.command_menu_level_for_test(),
+            Some(CommandMenuLevel::Root),
+            "Esc at group level should return to root"
+        );
+
+        // Esc at root closes the menu entirely
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(!app.command_menu_open_for_test(), "Esc at root closes the menu");
+    });
+}
+
+/// SPACEmenu minibuffer: every root group key has a single-key display,
+/// and unknown group keys close the menu with feedback (one key per level).
+#[test]
+fn test_spc_menu_root_keys_enter_groups() {
+    use clickdown::tui::app::{CommandMenuLevel, TuiApp};
+    use clickdown::api::mock_client::MockClickUpClient;
+    use clickdown::tui::input::InputEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut app = TuiApp::with_client(Arc::new(MockClickUpClient::new())).unwrap();
+
+        for (open_key, expected) in [
+            ('g', CommandMenuLevel::Group('g')),
+            ('t', CommandMenuLevel::Group('t')),
+            ('c', CommandMenuLevel::Group('c')),
+            ('y', CommandMenuLevel::Group('y')),
+            ('w', CommandMenuLevel::Group('w')),
+        ] {
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(' '),
+                KeyModifiers::NONE,
+            )));
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(open_key),
+                KeyModifiers::NONE,
+            )));
+            assert_eq!(
+                app.command_menu_level_for_test(),
+                Some(expected),
+                "SPC {} should enter group level with a single key",
+                open_key
+            );
+            // close via Esc-at-root for the next iteration
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            )));
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            )));
+            assert!(!app.command_menu_open_for_test());
+        }
+    });
+}

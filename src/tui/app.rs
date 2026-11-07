@@ -782,6 +782,13 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
             },
             CommandMenuLevel::Group(group) => {
                 let g = group;
+                // Esc at a group level walks back to the root menu (Doom-style
+                // menu hierarchy); any other key closes the menu first.
+                if key.code == KeyCode::Esc {
+                    self.command_menu = Some(CommandMenuLevel::Root);
+                    self.status = "SPACEmenu".to_string();
+                    return;
+                }
                 // Consume the key and close the menu regardless
                 self.command_menu = None;
                 match (g, key.code) {
@@ -1326,6 +1333,12 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     #[allow(dead_code)]
     pub fn command_menu_open_for_test(&self) -> bool {
         self.command_menu.is_some()
+    }
+
+    /// Current SPACEmenu level (for testing)
+    #[allow(dead_code)]
+    pub fn command_menu_level_for_test(&self) -> Option<CommandMenuLevel> {
+        self.command_menu.clone()
     }
 
     /// URL input dialog open? (for testing)
@@ -4772,12 +4785,6 @@ impl TuiApp {
                 self.render_url_input_dialog(frame, area);
             }
 
-            // Render SPACEmenu command overlay if open (issue 7)
-            if self.command_menu.is_some() {
-                let level = self.command_menu.clone().unwrap();
-                render_command_menu(frame, area, &level);
-            }
-
             // Render @mention picker overlay if open (issue 6)
             if self.mention_picker_open {
                 render_mention_picker(
@@ -4808,6 +4815,14 @@ impl TuiApp {
                 self.status.clone()
             };
             layout.render_status(frame, &status);
+
+            // Render SPACEmenu minibuffer LAST so it docks over the bottom
+            // edge (including the status line), Doom echo-area style (issue 7).
+            // Each level displays only the single key to press at that level.
+            if self.command_menu.is_some() {
+                let level = self.command_menu.clone().unwrap();
+                render_command_menu(frame, area, &level);
+            }
         })?;
 
         Ok(())

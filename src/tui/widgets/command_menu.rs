@@ -1,4 +1,10 @@
-//! SPACEmenu command overlay (issue 7) and @mention picker overlay (issue 6)
+//! SPACEmenu Doom-style minibuffer (issue 7) and @mention picker overlay (issue 6)
+//!
+//! The SPACEmenu is docked to the bottom edge of the screen (echo-area style).
+//! Each menu level displays exactly the single key the user presses at that
+//! level: the root lists group keys (`g t c y w h q`); selecting a group shows
+//! that group's action keys (`n e s d ...`) with descriptions. Two-key chords
+//! are never displayed — only the next key to press.
 
 use crate::models::User;
 use crate::tui::theme::Theme;
@@ -10,126 +16,254 @@ use ratatui::{
     Frame,
 };
 
-/// Render the SPACEmenu command overlay as a centered popup.
-///
-/// `level` selects the root menu or a command group (`g`, `t`, `w`).
-pub fn render_command_menu(frame: &mut Frame, area: Rect, level: &crate::tui::app::CommandMenuLevel) {
-    let popup = centered(area, 50, 19);
-    frame.render_widget(Clear, popup);
+// ============================================================================
+// SPACEmenu minibuffer (Doom-style bottom-edge menu)
+// ============================================================================
 
-    let level_char = match level {
-        crate::tui::app::CommandMenuLevel::Root => ' ',
-        crate::tui::app::CommandMenuLevel::Group(c) => *c,
-    };
-    let (title, lines): (&str, Vec<Line>) = match level_char {
-        'g' => (
-            " SPACEmenu: Go (g) ",
-            vec![
-                Line::from(Span::styled("g u", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Navigate to URL", Style::default().fg(Theme::TEXT))),
-                Line::from(""),
-                Line::from(Span::styled("Esc", Style::default().fg(Theme::SECONDARY))),
-                Line::from(Span::styled("  Close menu", Style::default().fg(Theme::SECONDARY))),
-            ],
-        ),
-        'c' => (
-            " SPACEmenu: Comments (c) ",
-            vec![
-                Line::from(Span::styled("c n", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  New comment", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("c e", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Edit selected comment", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("c r", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Reply in thread", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("c v", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Expand/collapse comments", Style::default().fg(Theme::TEXT))),
-                Line::from(""),
-                Line::from(Span::styled("Esc", Style::default().fg(Theme::SECONDARY))),
-                Line::from(Span::styled("  Close menu", Style::default().fg(Theme::SECONDARY))),
-            ],
-        ),
-        'y' => (
-            " SPACEmenu: Yank (y) ",
-            vec![
-                Line::from(Span::styled("y u", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Copy task/element URL", Style::default().fg(Theme::TEXT))),
-                Line::from(""),
-                Line::from(Span::styled("Esc", Style::default().fg(Theme::SECONDARY))),
-                Line::from(Span::styled("  Close menu", Style::default().fg(Theme::SECONDARY))),
-            ],
-        ),
-        't' => (
-            " SPACEmenu: Task (t) ",
-            vec![
-                Line::from(Span::styled("t n", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  New task", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("t e", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Edit task / description", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("t s", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Change status", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("t d", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Delete task", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("t a", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Assign people", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("t f", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Toggle Assigned-to-Me filter", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("t v", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Expand/collapse description", Style::default().fg(Theme::TEXT))),
-                Line::from(""),
-                Line::from(Span::styled("Esc", Style::default().fg(Theme::SECONDARY))),
-                Line::from(Span::styled("  Close menu", Style::default().fg(Theme::SECONDARY))),
-            ],
-        ),
-        'w' => (
-            " SPACEmenu: Window (w) ",
-            vec![
-                Line::from(Span::styled("w s", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Toggle sidebar", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("w q", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Quit ClickDown", Style::default().fg(Theme::TEXT))),
-                Line::from(""),
-                Line::from(Span::styled("Esc", Style::default().fg(Theme::SECONDARY))),
-                Line::from(Span::styled("  Close menu", Style::default().fg(Theme::SECONDARY))),
-            ],
-        ),
-        _ => (
-            " SPACEmenu ",
-            vec![
-                Line::from(Span::styled("SPC g", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Go to... (u: URL)", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("SPC t", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Task actions (n/e/s/d/a/f/v)", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("SPC c", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Comment actions (n/e/r/v)", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("SPC y", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Yank (u: copy URL)", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("SPC w", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Window actions", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("SPC h", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Help (keybindings)", Style::default().fg(Theme::TEXT))),
-                Line::from(Span::styled("SPC q", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("  Quit (saves session)", Style::default().fg(Theme::TEXT))),
-                Line::from(""),
-                Line::from(Span::styled("Esc", Style::default().fg(Theme::SECONDARY))),
-                Line::from(Span::styled("  Close menu", Style::default().fg(Theme::SECONDARY))),
-            ],
-        ),
-    };
-
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .style(Style::default().bg(Theme::BACKGROUND));
-    frame.render_widget(block, popup);
-    let inner = Rect {
-        x: popup.x + 1,
-        y: popup.y + 1,
-        width: popup.width.saturating_sub(2),
-        height: popup.height.saturating_sub(2),
-    };
-    let text = Paragraph::new(lines);
-    frame.render_widget(text, inner);
+/// One selectable group in the root minibuffer row.
+struct GroupEntry {
+    label: &'static str,
+    key: char,
 }
+
+/// Root minibuffer entries, in display order (matches the key handler in app.rs).
+const ROOT_GROUPS: [GroupEntry; 7] = [
+    GroupEntry { label: "Go", key: 'g' },
+    GroupEntry { label: "Task", key: 't' },
+    GroupEntry { label: "Comments", key: 'c' },
+    GroupEntry { label: "Yank", key: 'y' },
+    GroupEntry { label: "Window", key: 'w' },
+    GroupEntry { label: "Help", key: 'h' },
+    GroupEntry { label: "Quit", key: 'q' },
+];
+
+/// Color coding per group key (consistent across root and group levels).
+fn group_color(key: char) -> Color {
+    match key {
+        'g' => Theme::PRIMARY,
+        't' => Theme::WARNING,
+        'c' => Theme::SUCCESS,
+        'y' => Color::LightBlue,
+        'w' => Color::Blue,
+        'h' => Color::Magenta,
+        'q' => Theme::ERROR,
+        _ => Theme::TEXT,
+    }
+}
+
+/// Action entries per group: (description, key). The key is the single key the
+/// user presses at this level; the full chord is implicit (`SPC`, group, key).
+fn group_actions(group: char) -> Option<(&'static str, Vec<(&'static str, char)>)> {
+    match group {
+        'g' => Some(("Go", vec![("Open URL", 'u')])),
+        't' => Some((
+            "Task",
+            vec![
+                ("New task", 'n'),
+                ("Edit task / description", 'e'),
+                ("Change status", 's'),
+                ("Delete task", 'd'),
+                ("Assign people", 'a'),
+                ("Assigned-to-Me filter", 'f'),
+                ("Expand/collapse description", 'v'),
+            ],
+        )),
+        'c' => Some((
+            "Comments",
+            vec![
+                ("New comment", 'n'),
+                ("Edit selected comment", 'e'),
+                ("Reply in thread", 'r'),
+                ("Expand/collapse comments", 'v'),
+            ],
+        )),
+        'y' => Some(("Yank", vec![("Copy task/element URL", 'u')])),
+        'w' => Some((
+            "Window",
+            vec![("Toggle sidebar", 's'), ("Quit ClickDown", 'q')],
+        )),
+        _ => None,
+    }
+}
+
+/// Rect anchored to the bottom edge of `area`: full width, `rows` tall.
+fn minibuffer_rect(area: Rect, rows: u16) -> Rect {
+    let rows = rows.min(area.height);
+    Rect {
+        x: area.x,
+        y: area.y + area.height.saturating_sub(rows),
+        width: area.width,
+        height: rows,
+    }
+}
+
+/// Paint the minibuffer background and return the padded inner rect.
+fn minibuffer_frame(frame: &mut Frame, rect: Rect) -> Rect {
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(Theme::BACKGROUND)),
+        rect,
+    );
+    Rect {
+        x: rect.x + 1,
+        y: rect.y,
+        width: rect.width.saturating_sub(2),
+        height: rect.height,
+    }
+}
+
+/// Full-width horizontal separator line.
+fn separator_line(width: u16) -> Line<'static> {
+    Line::from(Span::styled(
+        "\u{2500}".repeat(width as usize),
+        Style::default().fg(Theme::SECONDARY),
+    ))
+}
+
+/// Bottom hint line shared by both levels.
+fn minibuffer_hint(group: Option<(&'static str, char)>, esc_verb: &str) -> Line<'static> {
+    let mut spans = vec![Span::styled(
+        "SPACEmenu".to_string(),
+        Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD),
+    )];
+    if let Some((label, key)) = group {
+        spans.push(Span::styled(
+            format!(": {}", label),
+            Style::default().fg(group_color(key)),
+        ));
+    }
+    let verb = if group.is_some() { "an action key" } else { "a key" };
+    spans.push(Span::styled(
+        format!(" \u{00b7} press {} \u{00b7} ", verb),
+        Style::default().fg(Theme::SECONDARY),
+    ));
+    spans.push(Span::styled(
+        "Esc",
+        Style::default().fg(Theme::TEXT).add_modifier(Modifier::BOLD),
+    ));
+    spans.push(Span::styled(
+        format!(" {}", esc_verb),
+        Style::default().fg(Theme::SECONDARY),
+    ));
+    Line::from(spans)
+}
+
+/// Render the SPACEmenu as a Doom-style minibuffer docked to the bottom edge.
+///
+/// Each level shows exactly the key(s) the user can press at that level:
+/// Root lists group keys; a group level lists that group's action keys.
+pub fn render_command_menu(
+    frame: &mut Frame,
+    area: Rect,
+    level: &crate::tui::app::CommandMenuLevel,
+) {
+    match level {
+        crate::tui::app::CommandMenuLevel::Root => render_minibuffer_root(frame, area),
+        crate::tui::app::CommandMenuLevel::Group(group) => {
+            render_minibuffer_group(frame, area, *group)
+        }
+    }
+}
+
+/// Root level: one row of color-coded group columns (label over key),
+/// a separator, then the hint line.
+fn render_minibuffer_root(frame: &mut Frame, area: Rect) {
+    let rect = minibuffer_rect(area, 4); // labels + keys, separator, hint
+    let inner = minibuffer_frame(frame, rect);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2), // group labels + keys
+            Constraint::Length(1), // separator
+            Constraint::Length(1), // hint
+        ])
+        .split(inner);
+
+    let n = ROOT_GROUPS.len() as u32;
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints((0..n).map(|_| Constraint::Ratio(1, n)))
+        .split(rows[0]);
+
+    for (i, entry) in ROOT_GROUPS.iter().enumerate() {
+        let widget = Paragraph::new(vec![
+            Line::from(Span::styled(
+                entry.label.to_string(),
+                Style::default()
+                    .fg(group_color(entry.key))
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                entry.key.to_string(),
+                Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD),
+            )),
+        ]);
+        frame.render_widget(widget, cols[i]);
+    }
+
+    frame.render_widget(Paragraph::new(separator_line(inner.width)), rows[1]);
+    frame.render_widget(Paragraph::new(minibuffer_hint(None, "close")), rows[2]);
+}
+
+/// Group level: group name line, then one action per row
+/// (single key + description), separator, hint line.
+fn render_minibuffer_group(frame: &mut Frame, area: Rect, group: char) {
+    let Some((label, actions)) = group_actions(group) else {
+        return; // unknown group: nothing to render
+    };
+
+    let rows_needed = (actions.len() as u16) + 3; // label + actions + separator + hint
+    let rect = minibuffer_rect(area, rows_needed);
+    let inner = minibuffer_frame(frame, rect);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(vec![
+            Constraint::Length(1),                      // group label
+            Constraint::Length(actions.len() as u16),   // action rows
+            Constraint::Length(1),                      // separator
+            Constraint::Length(1),                      // hint
+        ])
+        .split(inner);
+
+    let label_line = Line::from(Span::styled(
+        format!(" {}", label),
+        Style::default()
+            .fg(group_color(group))
+            .add_modifier(Modifier::BOLD),
+    ));
+    frame.render_widget(Paragraph::new(label_line), rows[0]);
+
+    let entry_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints((0..actions.len()).map(|_| Constraint::Length(1)))
+        .split(rows[1]);
+
+    for (i, (desc, key)) in actions.iter().enumerate() {
+        let line = Line::from(vec![
+            Span::styled(
+                format!(" {:<4}", key),
+                Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                desc.to_string(),
+                Style::default().fg(Theme::TEXT),
+            ),
+        ]);
+        frame.render_widget(Paragraph::new(line), entry_rows[i]);
+    }
+
+    frame.render_widget(Paragraph::new(separator_line(inner.width)), rows[2]);
+    frame.render_widget(
+        Paragraph::new(minibuffer_hint(Some((label, group)), "back")),
+        rows[3],
+    );
+}
+
+// ============================================================================
+// @mention picker overlay (issue 6)
+// ============================================================================
 
 /// Render the @mention picker overlay: filtered member list + query line.
 pub fn render_mention_picker(
