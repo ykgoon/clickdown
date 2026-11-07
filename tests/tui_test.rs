@@ -1669,9 +1669,13 @@ fn test_help_opens_on_page_1() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mut app = rt.block_on(async { TuiApp::new().expect("Failed to create app") });
 
-    // Press '?' to open help
-    let q_key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
-    app.update(InputEvent::Key(q_key));
+    // SPC h opens the help overlay (consolidated under SPACEmenu)
+    for key in [' ', 'h'] {
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(key),
+            KeyModifiers::NONE,
+        )));
+    }
 
     assert!(app.is_help_visible(), "Help should be visible");
     assert_eq!(
@@ -1691,8 +1695,12 @@ fn test_help_pagination_j_k() {
     let mut app = rt.block_on(async { TuiApp::new().expect("Failed to create app") });
 
     // Open help
-    let q_key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
-    app.update(InputEvent::Key(q_key));
+    for key in [' ', 'h'] {
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(key),
+            KeyModifiers::NONE,
+        )));
+    }
     assert_eq!(app.help_page(), 0);
 
     // j should advance to page 1
@@ -1725,8 +1733,12 @@ fn test_help_esc_closes() {
     let mut app = rt.block_on(async { TuiApp::new().expect("Failed to create app") });
 
     // Open help
-    let q_key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
-    app.update(InputEvent::Key(q_key));
+    for key in [' ', 'h'] {
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(key),
+            KeyModifiers::NONE,
+        )));
+    }
     assert!(app.is_help_visible(), "Help should be visible");
 
     // Navigate to page 2
@@ -1752,8 +1764,12 @@ fn test_help_non_nav_keys_dont_close() {
     let mut app = rt.block_on(async { TuiApp::new().expect("Failed to create app") });
 
     // Open help
-    let q_key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
-    app.update(InputEvent::Key(q_key));
+    for key in [' ', 'h'] {
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(key),
+            KeyModifiers::NONE,
+        )));
+    }
     assert!(app.is_help_visible(), "Help should be visible");
 
     // Press 'n' - should NOT close help
@@ -1771,10 +1787,15 @@ fn test_help_non_nav_keys_dont_close() {
     app.update(InputEvent::Key(enter_key));
     assert!(app.is_help_visible(), "Enter should not close help dialog");
 
-    // ? should toggle (close)
+    // '?' no longer toggles help (consolidated under SPACEmenu); help stays open
     let q_key2 = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
     app.update(InputEvent::Key(q_key2));
-    assert!(!app.is_help_visible(), "? should toggle help closed");
+    assert!(app.is_help_visible(), "'?' must not close help");
+
+    // Esc should close
+    let esc_key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    app.update(InputEvent::Key(esc_key));
+    assert!(!app.is_help_visible(), "Esc should close help dialog");
 }
 
 /// Test that arrow keys also paginate
@@ -1787,8 +1808,12 @@ fn test_help_arrow_keys_paginate() {
     let mut app = rt.block_on(async { TuiApp::new().expect("Failed to create app") });
 
     // Open help
-    let q_key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
-    app.update(InputEvent::Key(q_key));
+    for key in [' ', 'h'] {
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(key),
+            KeyModifiers::NONE,
+        )));
+    }
     assert_eq!(app.help_page(), 0);
 
     // Down arrow should advance

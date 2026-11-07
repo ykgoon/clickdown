@@ -761,6 +761,12 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         'c' => self.command_menu = Some(CommandMenuLevel::Group('c')),
                         'y' => self.command_menu = Some(CommandMenuLevel::Group('y')),
                         'w' => self.command_menu = Some(CommandMenuLevel::Group('w')),
+                        'h' => {
+                            // `SPC h` -- open the paginated help overlay
+                            self.command_menu = None;
+                            self.help.toggle();
+                            self.status = "Help: j/k pages, Esc close".to_string();
+                        }
                         'q' => {
                             // `SPC q` -- quit via confirmation dialog (saves session)
                             self.command_menu = None;
@@ -2953,26 +2959,13 @@ impl TuiApp {
                         self.help.hide();
                         return;
                     }
-                    KeyCode::Char('?') => {
-                        self.help.toggle();
-                        return;
-                    }
                     // Other keys are ignored while help is visible
                     _ => return,
                 }
             }
         }
 
-        // Handle help toggle with ?
         if let InputEvent::Key(key) = event {
-            if key.code == KeyCode::Char('?')
-                && !self.is_text_input_active()
-                && self.screen != Screen::Auth
-            {
-                self.help.toggle();
-                return;
-            }
-
             // Handle chord completion: if leader is pending, check for matching second key
             if let Some(leader) = self.chord_leader_pending.take() {
                 if leader == KeyCode::Char('g') && key.code == KeyCode::Char('u') {
@@ -6258,6 +6251,54 @@ mod tests {
         app.screen = Screen::Auth;
         app.update(InputEvent::Key(question));
         assert!(!app.is_help_visible());
+    }
+
+    #[test]
+    fn test_spc_h_opens_help() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.screen = Screen::Workspaces;
+
+        // SPACE opens the SPACEmenu
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(' '),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.command_menu.is_some(), "SPACE must open SPACEmenu");
+
+        // SPC h opens the help overlay and closes the menu
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('h'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.is_help_visible(), "SPC h must open help");
+        assert!(
+            app.command_menu.is_none(),
+            "SPACEmenu must close after SPC h"
+        );
+        assert_eq!(app.help_page(), 0, "help opens on first page");
+
+        // j pages forward, k pages back
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('j'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.help_page(), 1, "j advances to page 2");
+
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.help_page(), 0, "k returns to page 1");
+
+        // Esc closes help
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(!app.is_help_visible(), "Esc must close help");
     }
 
     #[test]

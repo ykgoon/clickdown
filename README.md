@@ -247,7 +247,7 @@ ClickDown automatically saves your navigation state when you exit and restores i
 |-----|--------|
 | `SPC q` | Quit application (confirmation dialog) |
 | `SPC w s` | Toggle sidebar |
-| `?` | Show keyboard shortcuts help |
+| `SPC h` | Show keyboard shortcuts help |
 | `u` | Copy element URL to clipboard |
 
 ### Actions

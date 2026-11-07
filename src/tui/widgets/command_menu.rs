@@ -14,7 +14,7 @@ use ratatui::{
 ///
 /// `level` selects the root menu or a command group (`g`, `t`, `w`).
 pub fn render_command_menu(frame: &mut Frame, area: Rect, level: &crate::tui::app::CommandMenuLevel) {
-    let popup = centered(area, 50, 17);
+    let popup = centered(area, 50, 19);
     frame.render_widget(Clear, popup);
 
     let level_char = match level {
@@ -105,6 +105,8 @@ pub fn render_command_menu(frame: &mut Frame, area: Rect, level: &crate::tui::ap
                 Line::from(Span::styled("  Yank (u: copy URL)", Style::default().fg(Theme::TEXT))),
                 Line::from(Span::styled("SPC w", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  Window actions", Style::default().fg(Theme::TEXT))),
+                Line::from(Span::styled("SPC h", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Help (keybindings)", Style::default().fg(Theme::TEXT))),
                 Line::from(Span::styled("SPC q", Style::default().fg(Theme::WARNING).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  Quit (saves session)", Style::default().fg(Theme::TEXT))),
                 Line::from(""),

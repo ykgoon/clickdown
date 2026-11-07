@@ -131,7 +131,7 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
             ("SPC q", "Quit (saves session)"),
             ("SPC w s", "Toggle sidebar"),
             ("Tab", "Cycle focus / fold status (task list)"),
-            ("?", "Show this help"),
+            ("SPC h", "Show this help"),
             ("u", "Copy element URL"),
         ],
     );
