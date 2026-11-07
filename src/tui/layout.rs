@@ -74,18 +74,21 @@ impl TuiLayout {
     }
 
     /// Render title bar
+    ///
+    /// The title bar is a single-row area: the text must be rendered as the
+    /// Block's own title (drawn inside the border row). A Paragraph inside a
+    /// bordered Block has zero inner height here, which clipped all title
+    /// text.
     pub fn render_title(&self, frame: &mut Frame, title: &str) {
-        let title_widget = Paragraph::new(Line::from(vec![Span::styled(
-            title,
-            Style::default()
-                .fg(Theme::TEXT)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        )]))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(Style::default().bg(Theme::PRIMARY)),
-        );
+        let title_widget = Block::default()
+            .title(Span::styled(
+                title.to_string(),
+                Style::default()
+                    .fg(Theme::TEXT)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ))
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Theme::PRIMARY));
 
         frame.render_widget(title_widget, self.title_area);
     }
@@ -428,6 +431,31 @@ mod tests {
             desc_ratio >= 0.25 && desc_ratio <= 0.35,
             "Description ratio should be ~30%, got {}",
             desc_ratio
+        );
+    }
+}
+
+#[cfg(test)]
+mod title_render_tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    #[test]
+    fn render_title_shows_text_in_single_row_title_bar() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let layout = TuiLayout::new(frame.area());
+                layout.render_title(frame, "ClickDown - Tasks: Demo (Assigned to Me)");
+            })
+            .unwrap();
+        let row: String = (0..80)
+            .map(|x| terminal.backend().buffer()[(x, 0)].symbol().to_string())
+            .collect();
+        assert!(
+            row.contains("Assigned to Me"),
+            "Title bar row must show the title text, got: {row:?}"
         );
     }
 }

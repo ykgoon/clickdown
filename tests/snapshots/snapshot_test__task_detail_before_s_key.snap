@@ -1,9 +1,8 @@
 ---
 source: tests/snapshot_test.rs
-assertion_line: 60
 expression: snapshot
 ---
-┌──────────────────────────────────────────────────────────────────────────────┐
+┌ClickDown - Task Detail───────────────────────────────────────────────────────┐
 ┌ Task Detail ─────────────────────────────────────────────────────────────────┐
 │                                                                              │
 │ Name: Review pull request                                                    │
