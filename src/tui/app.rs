@@ -786,7 +786,6 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                 // menu hierarchy); any other key closes the menu first.
                 if key.code == KeyCode::Esc {
                     self.command_menu = Some(CommandMenuLevel::Root);
-                    self.status = "SPACEmenu".to_string();
                     return;
                 }
                 // Consume the key and close the menu regardless

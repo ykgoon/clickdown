@@ -120,32 +120,24 @@ fn separator_line(width: u16) -> Line<'static> {
     ))
 }
 
-/// Bottom hint line shared by both levels.
+/// Bottom hint line shared by both levels (no title — the menu is self-explanatory).
 fn minibuffer_hint(group: Option<(&'static str, char)>, esc_verb: &str) -> Line<'static> {
-    let mut spans = vec![Span::styled(
-        "SPACEmenu".to_string(),
-        Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD),
-    )];
-    if let Some((label, key)) = group {
-        spans.push(Span::styled(
-            format!(": {}", label),
-            Style::default().fg(group_color(key)),
-        ));
-    }
     let verb = if group.is_some() { "an action key" } else { "a key" };
-    spans.push(Span::styled(
-        format!(" \u{00b7} press {} \u{00b7} ", verb),
-        Style::default().fg(Theme::SECONDARY),
-    ));
-    spans.push(Span::styled(
-        "Esc",
-        Style::default().fg(Theme::TEXT).add_modifier(Modifier::BOLD),
-    ));
-    spans.push(Span::styled(
-        format!(" {}", esc_verb),
-        Style::default().fg(Theme::SECONDARY),
-    ));
-    Line::from(spans)
+    Line::from(vec![
+        Span::styled(
+            format!("press {}", verb),
+            Style::default().fg(Theme::SECONDARY),
+        ),
+        Span::styled(" \u{00b7} ", Style::default().fg(Theme::SECONDARY)),
+        Span::styled(
+            "Esc",
+            Style::default().fg(Theme::TEXT).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {}", esc_verb),
+            Style::default().fg(Theme::SECONDARY),
+        ),
+    ])
 }
 
 /// Render the SPACEmenu as a Doom-style minibuffer docked to the bottom edge.
