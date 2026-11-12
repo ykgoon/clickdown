@@ -20,13 +20,13 @@ use crate::tui::widgets::SidebarItem;
 use crate::utils::{ClickUpUrlGenerator, ClipboardService, UrlGenerator};
 
 use super::input::InputEvent;
-use super::layout::{generate_screen_title, split_task_detail, split_task_detail_focus_comments, split_task_detail_focus_description, TuiLayout};
+use super::layout::{generate_screen_title, split_task_detail_focus_comments, split_task_detail_focus_description, TuiLayout};
 use super::terminal;
 use super::widgets::{
     render_assignee_picker, render_auth, render_command_menu,
     render_comments, render_mention_picker,
     render_dialog, render_document, render_help, render_sidebar, render_status_picker,
-    render_task_detail_expanded, render_task_list, AuthState, DialogState, DialogType, DocumentState,
+    render_task_detail_with_editor, render_task_list, AuthState, DialogState, DialogType, DocumentState,
     GroupedTaskList, HelpContext, HelpState, ListRow, SidebarState, TaskDetailState,
 };
 
@@ -227,6 +227,8 @@ pub struct TuiApp {
     comment_selected_index: usize,
     comment_editing_index: Option<usize>,
     comment_new_text: String,
+    /// Cursor position (char index) inside `comment_new_text`
+    comment_cursor: usize,
     comment_focus: bool, // true = focus on comments, false = focus on task form
     /// Manual scroll offset of the comments pane while a comment is focused
     comment_pane_scroll: usize,
@@ -242,6 +244,8 @@ pub struct TuiApp {
     expanded_panel: Option<ExpandedPanel>,
     /// Edit buffer for the task description (insert mode, issue 7)
     description_edit_buffer: String,
+    /// Cursor position (char index) inside `description_edit_buffer`
+    description_edit_cursor: usize,
     /// Manual scroll offset for the expanded description panel (issue 5)
     description_scroll_offset: usize,
     /// Members for the @mention picker (issue 6), fetched on demand
@@ -259,7 +263,9 @@ pub struct TuiApp {
 
     /// Task creation form state
     task_name_input: String,
+    task_name_cursor: usize,
     task_description_input: String,
+    task_description_cursor: usize,
     task_creating: bool,
     task_creation_focus: TaskCreationField,
 
@@ -346,14 +352,6 @@ pub enum AppState {
     Quitting,
 }
 
-/// Convert a character index into a byte index, clamping to the string length.
-fn char_index_to_byte_index(text: &str, char_index: usize) -> usize {
-    text.char_indices()
-        .nth(char_index)
-        .map(|(byte_index, _)| byte_index)
-        .unwrap_or(text.len())
-}
-
 /// Test-only methods
 impl TuiApp {
     /// Check if any text input is currently active (comments, task creation, URL input, etc.)
@@ -419,14 +417,51 @@ impl TuiApp {
         }
     }
 
+    /// Cursor position (char index) for the active insert-mode buffer.
+    fn insert_cursor(&self) -> usize {
+        match self.insert_mode_target.as_ref() {
+            Some(InsertTarget::Description) => self.description_edit_cursor,
+            Some(InsertTarget::Comment) => self.comment_cursor,
+            _ => 0,
+        }
+    }
+
+    fn insert_set_cursor(&mut self, value: usize) {
+        match self.insert_mode_target.as_ref() {
+            Some(InsertTarget::Description) => self.description_edit_cursor = value,
+            Some(InsertTarget::Comment) => self.comment_cursor = value,
+            _ => {}
+        }
+    }
+
+    /// Apply a plain text-editing key (cursor movement, word deletion, …)
+    /// to the active insert-mode buffer. Returns true when consumed.
+    fn edit_insert_buffer(&mut self, key: &crossterm::event::KeyEvent) -> bool {
+        match self.insert_mode_target.clone() {
+            Some(InsertTarget::Description) => crate::tui::text_edit::apply_edit_key(
+                &mut self.description_edit_buffer,
+                &mut self.description_edit_cursor,
+                key,
+            ),
+            Some(InsertTarget::Comment) => crate::tui::text_edit::apply_edit_key(
+                &mut self.comment_new_text,
+                &mut self.comment_cursor,
+                key,
+            ),
+            _ => false,
+        }
+    }
+
     /// Handle keys while insert mode is active.
     /// Ctrl+S saves and exits; Esc exits to normal mode without saving;
-    /// @ opens the mention picker (issue 6); everything else is text.
+    /// @ opens the mention picker (issue 6); everything else is text and is
+    /// handled by the shared readline-style editing engine.
     fn handle_insert_mode(&mut self, key: crossterm::event::KeyEvent) {
         use crossterm::event::KeyModifiers;
         match key.code {
             KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.commit_insert_mode();
+                return;
             }
             KeyCode::Esc => {
                 // Leave insert mode without saving (vim-style)
@@ -434,6 +469,7 @@ impl TuiApp {
                 match target {
                     Some(InsertTarget::Description) => {
                         self.description_edit_buffer.clear();
+                        self.description_edit_cursor = 0;
                         self.status = "Description edit cancelled".to_string();
                     }
                     Some(InsertTarget::Comment) => {
@@ -441,40 +477,45 @@ impl TuiApp {
                     }
                     _ => {}
                 }
-            }
-            KeyCode::Enter => {
-                let mut buf = self.insert_buffer();
-                buf.push('\n');
-                self.insert_set_buffer(buf);
-            }
-            KeyCode::Backspace => {
-                let buf = self.insert_buffer();
-                let mut trimmed = buf.clone();
-                trimmed.pop();
-                self.insert_set_buffer(trimmed);
+                return;
             }
             KeyCode::Tab => {
                 // Only meaningful in task creation: switch field
                 if self.task_creating {
                     self.handle_task_creation_input(key);
                 }
+                return;
             }
-            KeyCode::Char(c) => {
+            KeyCode::Char('@') if !key.modifiers.intersects(
+                KeyModifiers::CONTROL | KeyModifiers::ALT,
+            ) => {
+                // Insert the '@' then open the mention picker (issue 6)
                 let mut buf = self.insert_buffer();
-                buf.push(c);
+                let mut cursor = self.insert_cursor();
+                crate::tui::text_edit::insert_char(&mut buf, &mut cursor, '@');
                 self.insert_set_buffer(buf);
-                // '@' opens the mention picker (issue 6)
-                if c == '@' {
-                    self.open_mention_picker();
-                }
+                self.insert_set_cursor(cursor);
+                self.open_mention_picker();
+                return;
+            }
+            KeyCode::Enter => {
+                let mut buf = self.insert_buffer();
+                let mut cursor = self.insert_cursor();
+                crate::tui::text_edit::insert_char(&mut buf, &mut cursor, '\n');
+                self.insert_set_buffer(buf);
+                self.insert_set_cursor(cursor);
+                return;
             }
             _ => {}
         }
+
+        self.edit_insert_buffer(&key);
     }
 
     /// Cancel comment editing (normal-mode Esc path)
     fn cancel_comment_editing(&mut self) {
         self.comment_new_text.clear();
+        self.comment_cursor = 0;
         self.comment_editing_index = None;
         self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
             "Reply cancelled".to_string()
@@ -504,6 +545,7 @@ impl TuiApp {
             Some(t) => t.clone(),
             None => {
                 self.description_edit_buffer.clear();
+                self.description_edit_cursor = 0;
                 self.status = "No task selected".to_string();
                 return;
             }
@@ -512,6 +554,7 @@ impl TuiApp {
             Some(c) => c.clone(),
             None => {
                 self.description_edit_buffer.clear();
+                self.description_edit_cursor = 0;
                 self.status = "Not authenticated".to_string();
                 return;
             }
@@ -520,6 +563,7 @@ impl TuiApp {
         let new_text = self.description_edit_buffer.clone();
         if new_text.trim().is_empty() {
             self.description_edit_buffer.clear();
+            self.description_edit_cursor = 0;
             self.status = "Description cannot be empty".to_string();
             return;
         }
@@ -577,6 +621,7 @@ impl TuiApp {
                     self.update_comment(comment_id, text);
                 } else {
                     self.comment_new_text.clear();
+                    self.comment_cursor = 0;
                     self.comment_editing_index = None;
                     self.status = "Comment no longer exists".to_string();
                 }
@@ -735,6 +780,7 @@ fn start_comment_compose(&mut self, kind: ComposeKind) {
                 self.comment_focus = true;
             }
             self.comment_new_text.clear();
+            self.comment_cursor = 0;
             // usize::MAX is a sentinel value indicating "new comment" mode
             self.comment_editing_index = Some(usize::MAX);
             self.insert_mode_target = Some(InsertTarget::Comment);
@@ -754,6 +800,7 @@ fn start_comment_compose(&mut self, kind: ComposeKind) {
             }
             let comment = &self.comments[self.comment_selected_index];
             self.comment_new_text = comment.text.clone();
+            self.comment_cursor = self.comment_new_text.chars().count();
             self.comment_editing_index = Some(self.comment_selected_index);
             self.insert_mode_target = Some(InsertTarget::Comment);
             self.status =
@@ -765,6 +812,7 @@ fn start_comment_compose(&mut self, kind: ComposeKind) {
                 return;
             }
             self.comment_new_text.clear();
+            self.comment_cursor = 0;
             self.comment_editing_index = Some(usize::MAX);
             self.insert_mode_target = Some(InsertTarget::Comment);
             let author = match &self.comment_view_mode {
@@ -828,7 +876,9 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                     ('t', KeyCode::Char('n')) => {
                         // New task from tasks screen
                         self.task_name_input.clear();
+                        self.task_name_cursor = 0;
                         self.task_description_input.clear();
+                        self.task_description_cursor = 0;
                         self.task_creating = true;
                         self.task_creation_focus = TaskCreationField::Name;
                         self.task_detail.task = None;
@@ -871,6 +921,8 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                                 .as_ref()
                                 .and_then(|t| t.description.as_ref().map(|d| d.as_text()))
                                 .unwrap_or_default();
+                            self.description_edit_cursor =
+                                self.description_edit_buffer.chars().count();
                             self.insert_mode_target = Some(InsertTarget::Description);
                             self.status = "INSERT mode: edit description, Ctrl+S save, Esc normal mode".to_string();
                             return;
@@ -885,6 +937,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                                 self.comment_selected_index = 0;
                                 self.comment_editing_index = None;
                                 self.comment_new_text.clear();
+                                self.comment_cursor = 0;
                                 self.comment_focus = false;
                                 self.comment_view_mode = CommentViewMode::TopLevel;
                                 self.screen = Screen::TaskDetail;
@@ -1066,9 +1119,16 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                 new_buf = format!("{} @{} ", buf, username);
             }
 
+            let new_cursor = new_buf.chars().count();
             match self.mention_prev_target.as_ref() {
-                Some(InsertTarget::Description) => self.description_edit_buffer = new_buf,
-                Some(InsertTarget::Comment) => self.comment_new_text = new_buf,
+                Some(InsertTarget::Description) => {
+                    self.description_edit_buffer = new_buf;
+                    self.description_edit_cursor = new_cursor;
+                }
+                Some(InsertTarget::Comment) => {
+                    self.comment_new_text = new_buf;
+                    self.comment_cursor = new_cursor;
+                }
                 _ => {}
             }
             self.status = format!("Mentioned @{}", username);
@@ -1140,7 +1200,9 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
             }
             KeyCode::Esc => {
                 self.task_name_input.clear();
+                self.task_name_cursor = 0;
                 self.task_description_input.clear();
+                self.task_description_cursor = 0;
                 self.task_creating = false;
                 self.task_detail.creating = false;
                 self.screen = Screen::Tasks;
@@ -1169,25 +1231,21 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                 return;
             }
         }
-        if let KeyCode::Char(c) = key.code {
-            // Add character to focused field
-            match self.task_creation_focus {
-                TaskCreationField::Name => self.task_name_input.push(c),
-                TaskCreationField::Description => self.task_description_input.push(c),
+        match self.task_creation_focus {
+            TaskCreationField::Name => {
+                crate::tui::text_edit::apply_edit_key(
+                    &mut self.task_name_input,
+                    &mut self.task_name_cursor,
+                    &key,
+                );
             }
-            return;
-        }
-        if let KeyCode::Backspace = key.code {
-            // Remove character from focused field
-            match self.task_creation_focus {
-                TaskCreationField::Name => {
-                    self.task_name_input.pop();
-                }
-                TaskCreationField::Description => {
-                    self.task_description_input.pop();
-                }
+            TaskCreationField::Description => {
+                crate::tui::text_edit::apply_edit_key(
+                    &mut self.task_description_input,
+                    &mut self.task_description_cursor,
+                    &key,
+                );
             }
-            return;
         }
     }
 
@@ -1235,6 +1293,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                                 Some(comment_id) => self.update_comment(comment_id, text),
                                 None => {
                                     self.comment_new_text.clear();
+                                    self.comment_cursor = 0;
                                     self.comment_editing_index = None;
                                     self.status = "Comment no longer exists".to_string();
                                 }
@@ -1268,6 +1327,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
             }
             KeyCode::Esc => {
                 self.comment_new_text.clear();
+                self.comment_cursor = 0;
                 self.comment_editing_index = None;
                 self.status = if matches!(self.comment_view_mode, CommentViewMode::InThread { .. })
                 {
@@ -1276,17 +1336,14 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                     "Comment editing cancelled".to_string()
                 };
             }
-            KeyCode::Enter => {
-                // Newline inside the comment text
-                self.comment_new_text.push('\n');
+            _ => {
+                // Text editing (typing, cursor movement, word deletion, …)
+                crate::tui::text_edit::apply_edit_key(
+                    &mut self.comment_new_text,
+                    &mut self.comment_cursor,
+                    &key,
+                );
             }
-            KeyCode::Char(c) => {
-                self.comment_new_text.push(c);
-            }
-            KeyCode::Backspace => {
-                self.comment_new_text.pop();
-            }
-            _ => {}
         }
     }
 
@@ -1673,17 +1730,21 @@ impl TuiApp {
             comment_selected_index: 0,
             comment_editing_index: None,
             comment_new_text: String::new(),
+            comment_cursor: 0,
             comment_focus: false,
             comment_pane_scroll: 0,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
             task_name_input: String::new(),
+            task_name_cursor: 0,
             task_description_input: String::new(),
+            task_description_cursor: 0,
             task_creating: false,
             insert_mode_target: None,
             command_menu: None,
             expanded_panel: None,
             description_edit_buffer: String::new(),
+            description_edit_cursor: 0,
             description_scroll_offset: 0,
             mention_members: Vec::new(),
             mention_cursor: 0,
@@ -1805,17 +1866,21 @@ impl TuiApp {
             comment_selected_index: 0,
             comment_editing_index: None,
             comment_new_text: String::new(),
+            comment_cursor: 0,
             comment_focus: false,
             comment_pane_scroll: 0,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
             task_name_input: String::new(),
+            task_name_cursor: 0,
             task_description_input: String::new(),
+            task_description_cursor: 0,
             task_creating: false,
             insert_mode_target: None,
             command_menu: None,
             expanded_panel: None,
             description_edit_buffer: String::new(),
+            description_edit_cursor: 0,
             description_scroll_offset: 0,
             mention_members: Vec::new(),
             mention_cursor: 0,
@@ -1912,17 +1977,21 @@ impl TuiApp {
             comment_selected_index: 0,
             comment_editing_index: None,
             comment_new_text: String::new(),
+            comment_cursor: 0,
             comment_focus: false,
             comment_pane_scroll: 0,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
             task_name_input: String::new(),
+            task_name_cursor: 0,
             task_description_input: String::new(),
+            task_description_cursor: 0,
             task_creating: false,
             insert_mode_target: None,
             command_menu: None,
             expanded_panel: None,
             description_edit_buffer: String::new(),
+            description_edit_cursor: 0,
             description_scroll_offset: 0,
             mention_members: Vec::new(),
             mention_cursor: 0,
@@ -2509,6 +2578,7 @@ impl TuiApp {
                                 self.comment_selected_index = 0;
                                 self.comment_editing_index = None;
                                 self.comment_new_text.clear();
+                                self.comment_cursor = 0;
                             }
                         }
                     }
@@ -2518,6 +2588,7 @@ impl TuiApp {
                             Ok(comment) => {
                                 self.comments.insert(0, comment);
                                 self.comment_new_text.clear();
+                                self.comment_cursor = 0;
                                 self.comment_editing_index = None;
                                 self.status = if comment_meta.is_reply {
                                     "Reply added".to_string()
@@ -2559,6 +2630,7 @@ impl TuiApp {
                                     self.comments[idx] = comment;
                                 }
                                 self.comment_new_text.clear();
+                                self.comment_cursor = 0;
                                 self.comment_editing_index = None;
                                 self.status = "Comment updated".to_string();
                             }
@@ -2720,6 +2792,7 @@ impl TuiApp {
                                 self.rebuild_task_list();
                                 self.task_detail.task = Some(updated_task.clone());
                                 self.description_edit_buffer.clear();
+                                self.description_edit_cursor = 0;
                                 self.status = "Description saved".to_string();
                             }
                             Err(e) => {
@@ -2872,7 +2945,9 @@ impl TuiApp {
                             Ok(task) => {
                                 self.loading = false;
                                 self.task_name_input.clear();
+                                self.task_name_cursor = 0;
                                 self.task_description_input.clear();
+                                self.task_description_cursor = 0;
                                 self.task_creating = false;
                                 self.task_detail.creating = false;
                                 self.status = format!("Task created: {}", task.name);
@@ -2916,6 +2991,7 @@ impl TuiApp {
                                     self.comment_selected_index = 0;
                                     self.comment_editing_index = None;
                                     self.comment_new_text.clear();
+                                    self.comment_cursor = 0;
                                     self.comment_focus = false;
                                     self.comment_view_mode = CommentViewMode::TopLevel;
                                     if self.screen == Screen::TaskDetail {
@@ -3137,9 +3213,11 @@ impl TuiApp {
                             match clipboard.get_text() {
                                 Ok(text) => {
                                     // Insert clipboard content at cursor position
-                                    for c in text.chars() {
-                                        self.auth_state.add_char(c);
-                                    }
+                                    crate::tui::text_edit::insert_str(
+                                        &mut self.auth_state.token_input,
+                                        &mut self.auth_state.cursor_pos,
+                                        &text,
+                                    );
                                     self.status = "Pasted from clipboard".to_string();
                                 }
                                 Err(_) => {
@@ -3153,13 +3231,20 @@ impl TuiApp {
                         }
                     }
                 }
-                KeyCode::Char(c) => {
-                    self.auth_state.add_char(c);
+                KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.auth_state.cursor_pos = 0;
                 }
-                KeyCode::Backspace => {
-                    self.auth_state.remove_char();
+                KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.auth_state.cursor_pos = self.auth_state.token_input.chars().count();
                 }
-                _ => {}
+                _ => {
+                    // Typing, cursor movement, Ctrl+W, Home/End, …
+                    crate::tui::text_edit::apply_edit_key(
+                        &mut self.auth_state.token_input,
+                        &mut self.auth_state.cursor_pos,
+                        &key,
+                    );
+                }
             }
         }
     }
@@ -3295,7 +3380,9 @@ impl TuiApp {
                     KeyCode::Esc => {
                         // Cancel task creation
                         self.task_name_input.clear();
+                        self.task_name_cursor = 0;
                         self.task_description_input.clear();
+                        self.task_description_cursor = 0;
                         self.task_creating = false;
                         self.task_detail.creating = false;
                         self.screen = Screen::Tasks;
@@ -3311,27 +3398,26 @@ impl TuiApp {
                         };
                         return;
                     }
-                    KeyCode::Char(c) => {
-                        // Add character to focused field
-                        match self.task_creation_focus {
-                            TaskCreationField::Name => self.task_name_input.push(c),
-                            TaskCreationField::Description => self.task_description_input.push(c),
-                        }
-                        return;
-                    }
-                    KeyCode::Backspace => {
-                        // Remove character from focused field
+                    _ => {
+                        // Text editing (typing, cursor movement, word deletion, …)
                         match self.task_creation_focus {
                             TaskCreationField::Name => {
-                                self.task_name_input.pop();
+                                crate::tui::text_edit::apply_edit_key(
+                                    &mut self.task_name_input,
+                                    &mut self.task_name_cursor,
+                                    &key,
+                                );
                             }
                             TaskCreationField::Description => {
-                                self.task_description_input.pop();
+                                crate::tui::text_edit::apply_edit_key(
+                                    &mut self.task_description_input,
+                                    &mut self.task_description_cursor,
+                                    &key,
+                                );
                             }
                         }
                         return;
                     }
-                    _ => {}
                 }
             }
             return;
@@ -3389,6 +3475,7 @@ impl TuiApp {
                                         Some(comment_id) => self.update_comment(comment_id, text),
                                         None => {
                                             self.comment_new_text.clear();
+                                            self.comment_cursor = 0;
                                             self.comment_editing_index = None;
                                             self.status = "Comment no longer exists".to_string();
                                             return;
@@ -3430,6 +3517,7 @@ impl TuiApp {
                     KeyCode::Esc => {
                         // Cancel editing
                         self.comment_new_text.clear();
+                        self.comment_cursor = 0;
                         self.comment_editing_index = None;
                         self.status =
                             if matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
@@ -3439,21 +3527,15 @@ impl TuiApp {
                             };
                         return;
                     }
-                    KeyCode::Enter => {
-                        // Newline inside the comment text
-                        self.comment_new_text.push('\n');
+                    _ => {
+                        // Text editing (typing, cursor movement, word deletion, …)
+                        crate::tui::text_edit::apply_edit_key(
+                            &mut self.comment_new_text,
+                            &mut self.comment_cursor,
+                            &key,
+                        );
                         return;
                     }
-                    KeyCode::Char(c) => {
-                        // Add character to comment text
-                        self.comment_new_text.push(c);
-                        return;
-                    }
-                    KeyCode::Backspace => {
-                        self.comment_new_text.pop();
-                        return;
-                    }
-                    _ => {}
                 }
             }
 
@@ -3478,6 +3560,7 @@ impl TuiApp {
                     {
                         // Cancel comment editing
                         self.comment_new_text.clear();
+                        self.comment_cursor = 0;
                         self.comment_editing_index = None;
                         self.status = "Comment editing cancelled".to_string();
                     } else {
@@ -3580,6 +3663,8 @@ impl TuiApp {
                             .as_ref()
                             .map(|d| d.as_text())
                             .unwrap_or_default();
+                        self.description_edit_cursor =
+                            self.description_edit_buffer.chars().count();
                         self.insert_mode_target = Some(InsertTarget::Description);
                         self.status =
                             "INSERT mode: edit description, Ctrl+S save, Esc normal mode".to_string();
@@ -4752,103 +4837,108 @@ impl TuiApp {
         }
 
         terminal.draw(|frame: &mut Frame| {
-            let area = frame.area();
-            let layout = TuiLayout::new(area);
-
-            // Render title bar
-            layout.render_title(frame, &self.screen_title);
-
-            // Check if terminal is too small
-            if layout.too_small {
-                layout.render_too_small_warning(frame);
-                return;
-            }
-
-            // Render content area
-            if self.sidebar.visible {
-                let (sidebar_area, content_area) = layout.split_content(25);
-                self.render_sidebar_content(frame, sidebar_area, content_area);
-            } else {
-                self.render_main_content(frame, layout.content_area);
-            }
-
-            // Render dialog if visible
-            render_dialog(frame, &self.dialog, area);
-
-            // Render assignee picker overlay if open
-            if self.assignee_picker_open {
-                render_assignee_picker(
-                    frame,
-                    area,
-                    &self.assignee_picker_members,
-                    &self.assignee_picker_selected,
-                    self.assignee_picker_cursor,
-                );
-            }
-
-            // Render status picker overlay if open
-            if self.status_picker_open {
-                let current_status = self.status_picker_task_id.as_ref().and_then(|task_id| {
-                    self.tasks
-                        .iter()
-                        .find(|t| &t.id == task_id)
-                        .and_then(|t| t.status.as_ref().map(|s| s.status.as_str()))
-                });
-                render_status_picker(
-                    frame,
-                    area,
-                    &self.status_picker_statuses,
-                    self.status_picker_cursor,
-                    current_status,
-                );
-            }
-
-            // Render URL input dialog if open
-            if self.url_input_open {
-                self.render_url_input_dialog(frame, area);
-            }
-
-            // Render @mention picker overlay if open (issue 6)
-            if self.mention_picker_open {
-                render_mention_picker(
-                    frame,
-                    area,
-                    &self.mention_members,
-                    self.mention_cursor,
-                    &self.mention_query,
-                );
-            }
-
-            // Render help overlay if visible
-            let help_context = self.get_help_context();
-            render_help(frame, &self.help, &help_context, area);
-
-            // Render status line
-            // Priority: error > navigating > url_copy_status > loading > regular status
-            let status = if let Some(ref error) = self.error {
-                error.clone()
-            } else if self.navigating {
-                format!("Loading... {}", self.navigating_level)
-            } else if let Some(ref url_status) = self.url_copy_status {
-                // Show URL copy status (takes priority over regular status)
-                url_status.clone()
-            } else if self.loading {
-                "Loading...".to_string()
-            } else {
-                self.status.clone()
-            };
-            layout.render_status(frame, &status);
-
-            // Render SPACEmenu minibuffer LAST so it docks over the bottom
-            // edge (including the status line), Doom echo-area style (issue 7).
-            // Each level displays only the single key to press at that level.
-            if self.command_menu.is_some() {
-                let level = self.command_menu.clone().unwrap();
-                render_command_menu(frame, area, &level);
-            }
+            self.draw_ui(frame);
         })?;
 
         Ok(())
+    }
+
+    /// Draw the whole UI into `frame` (shared by the live loop and tests).
+    pub fn draw_ui(&mut self, frame: &mut Frame) {
+        let area = frame.area();
+        let layout = TuiLayout::new(area);
+
+        // Render title bar
+        layout.render_title(frame, &self.screen_title);
+
+        // Check if terminal is too small
+        if layout.too_small {
+            layout.render_too_small_warning(frame);
+            return;
+        }
+
+        // Render content area
+        if self.sidebar.visible {
+            let (sidebar_area, content_area) = layout.split_content(25);
+            self.render_sidebar_content(frame, sidebar_area, content_area);
+        } else {
+            self.render_main_content(frame, layout.content_area);
+        }
+
+        // Render dialog if visible
+        render_dialog(frame, &self.dialog, area);
+
+        // Render assignee picker overlay if open
+        if self.assignee_picker_open {
+            render_assignee_picker(
+                frame,
+                area,
+                &self.assignee_picker_members,
+                &self.assignee_picker_selected,
+                self.assignee_picker_cursor,
+            );
+        }
+
+        // Render status picker overlay if open
+        if self.status_picker_open {
+            let current_status = self.status_picker_task_id.as_ref().and_then(|task_id| {
+                self.tasks
+                    .iter()
+                    .find(|t| &t.id == task_id)
+                    .and_then(|t| t.status.as_ref().map(|s| s.status.as_str()))
+            });
+            render_status_picker(
+                frame,
+                area,
+                &self.status_picker_statuses,
+                self.status_picker_cursor,
+                current_status,
+            );
+        }
+
+        // Render URL input dialog if open
+        if self.url_input_open {
+            self.render_url_input_dialog(frame, area);
+        }
+
+        // Render @mention picker overlay if open (issue 6)
+        if self.mention_picker_open {
+            render_mention_picker(
+                frame,
+                area,
+                &self.mention_members,
+                self.mention_cursor,
+                &self.mention_query,
+            );
+        }
+
+        // Render help overlay if visible
+        let help_context = self.get_help_context();
+        render_help(frame, &self.help, &help_context, area);
+
+        // Render status line
+        // Priority: error > navigating > url_copy_status > loading > regular status
+        let status = if let Some(ref error) = self.error {
+            error.clone()
+        } else if self.navigating {
+            format!("Loading... {}", self.navigating_level)
+        } else if let Some(ref url_status) = self.url_copy_status {
+            // Show URL copy status (takes priority over regular status)
+            url_status.clone()
+        } else if self.loading {
+            "Loading...".to_string()
+        } else {
+            self.status.clone()
+        };
+        layout.render_status(frame, &status);
+
+        // Render SPACEmenu minibuffer LAST so it docks over the bottom
+        // edge (including the status line), Doom echo-area style (issue 7).
+        // Each level displays only the single key to press at that level.
+        if self.command_menu.is_some() {
+            let level = self.command_menu.clone().unwrap();
+            render_command_menu(frame, area, &level);
+        }
     }
 
     fn render_sidebar_content(
@@ -4885,7 +4975,17 @@ impl TuiApp {
                 if task_detail_area.height > 0 {
                     // Render task detail (30% normally, 65% when description
                     // is focused, full screen when expanded)
-                    render_task_detail_expanded(
+                    let description_edit = if self.insert_mode_target
+                        == Some(InsertTarget::Description)
+                    {
+                        Some((
+                            self.description_edit_buffer.as_str(),
+                            self.description_edit_cursor,
+                        ))
+                    } else {
+                        None
+                    };
+                    render_task_detail_with_editor(
                         frame,
                         &self.task_detail,
                         task_detail_area,
@@ -4897,6 +4997,9 @@ impl TuiApp {
                             || (self.expanded_panel.is_none()
                                 && self.task_screen_focus() == TaskScreenFocus::Description),
                         &mut self.description_scroll_offset,
+                        Some(self.task_name_cursor),
+                        Some(self.task_description_cursor),
+                        description_edit,
                     );
                 }
 
@@ -4909,6 +5012,7 @@ impl TuiApp {
                         self.comment_selected_index,
                         self.comment_editing_index,
                         &self.comment_new_text,
+                        self.comment_cursor,
                         self.comment_focus,
                         comments_area,
                         &self.comment_view_mode,
@@ -4929,7 +5033,7 @@ impl TuiApp {
     fn render_url_input_dialog(&self, frame: &mut Frame, area: Rect) {
         use ratatui::{
             style::{Modifier, Style},
-            text::{Line, Span},
+            text::Span,
             widgets::{Block, Borders, Clear, Paragraph},
         };
 
@@ -4987,42 +5091,26 @@ impl TuiApp {
         );
         frame.render_widget(prompt, inner[0]);
 
-        // Input field with cursor
-        let cursor_pos = self
-            .url_input_cursor
-            .min(self.url_input_text.chars().count());
-        let input_line: Line = if self.url_input_text.is_empty() {
-            Line::from(Span::styled(
-                "https://app.clickup.com/...",
-                Style::default().fg(ratatui::style::Color::DarkGray),
-            ))
+        // Input field: a live caret that scrolls horizontally with the text
+        let input_rect = inner[2];
+        let input_style = Style::default().fg(ratatui::style::Color::Rgb(205, 214, 244));
+        if self.url_input_text.is_empty() {
+            frame.render_widget(
+                Paragraph::new(Span::styled(
+                    "https://app.clickup.com/...",
+                    Style::default().fg(ratatui::style::Color::DarkGray),
+                )),
+                input_rect,
+            );
         } else {
-            // Build the line with cursor position tracking
-            let before_cursor: String = self.url_input_text.chars().take(cursor_pos).collect();
-            let after_cursor: String = self.url_input_text.chars().skip(cursor_pos).collect();
-            let mut spans = vec![Span::styled(
-                before_cursor,
-                Style::default().fg(ratatui::style::Color::Rgb(205, 214, 244)),
-            )];
-            if after_cursor.is_empty() {
-                // Show cursor block at end
-                spans.push(Span::styled(
-                    " ",
-                    Style::default()
-                        .fg(ratatui::style::Color::Rgb(205, 214, 244))
-                        .bg(ratatui::style::Color::Rgb(88, 91, 112)),
-                ));
-            } else {
-                spans.push(Span::styled(
-                    after_cursor,
-                    Style::default()
-                        .fg(ratatui::style::Color::Rgb(205, 214, 244))
-                        .bg(ratatui::style::Color::Rgb(88, 91, 112)),
-                ));
-            }
-            Line::from(spans)
-        };
-        frame.render_widget(Paragraph::new(input_line), inner[2]);
+            crate::tui::text_edit::render_editable_line(
+                frame,
+                input_rect,
+                &self.url_input_text,
+                self.url_input_cursor,
+                input_style,
+            );
+        }
 
         // Error message (if any)
         if let Some(ref error) = self.url_input_error {
@@ -5121,46 +5209,31 @@ impl TuiApp {
                 use arboard::Clipboard;
                 if let Ok(mut clipboard) = Clipboard::new() {
                     if let Ok(text) = clipboard.get_text() {
-                        for c in text.chars() {
-                            let byte_index = char_index_to_byte_index(
-                                &self.url_input_text,
-                                self.url_input_cursor,
-                            );
-                            self.url_input_text.insert(byte_index, c);
-                            self.url_input_cursor += 1;
-                        }
+                        crate::tui::text_edit::insert_str(
+                            &mut self.url_input_text,
+                            &mut self.url_input_cursor,
+                            &text,
+                        );
                         self.url_input_error = None;
                     }
                 }
             }
-            KeyCode::Char(c) => {
-                let byte_index =
-                    char_index_to_byte_index(&self.url_input_text, self.url_input_cursor);
-                self.url_input_text.insert(byte_index, c);
-                self.url_input_cursor += 1;
-                self.url_input_error = None;
+            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.url_input_cursor = 0;
             }
-            KeyCode::Backspace => {
-                if self.url_input_cursor > 0 {
-                    let start =
-                        char_index_to_byte_index(&self.url_input_text, self.url_input_cursor - 1);
-                    let end = char_index_to_byte_index(&self.url_input_text, self.url_input_cursor);
-                    self.url_input_text.replace_range(start..end, "");
-                    self.url_input_cursor -= 1;
+            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.url_input_cursor = self.url_input_text.chars().count();
+            }
+            _ => {
+                // Typing, cursor movement, word deletion, Home/End, …
+                if crate::tui::text_edit::apply_edit_key(
+                    &mut self.url_input_text,
+                    &mut self.url_input_cursor,
+                    &key,
+                ) {
                     self.url_input_error = None;
                 }
             }
-            KeyCode::Left => {
-                if self.url_input_cursor > 0 {
-                    self.url_input_cursor -= 1;
-                }
-            }
-            KeyCode::Right => {
-                if self.url_input_cursor < self.url_input_text.chars().count() {
-                    self.url_input_cursor += 1;
-                }
-            }
-            _ => {}
         }
     }
 

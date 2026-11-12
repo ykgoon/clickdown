@@ -78,6 +78,40 @@ pub fn render_task_detail_expanded(
     description_focused: bool,
     manual_scroll: &mut usize,
 ) {
+    render_task_detail_with_editor(
+        frame,
+        state,
+        area,
+        task_name_input,
+        task_description_input,
+        task_creation_focus,
+        expanded,
+        description_focused,
+        manual_scroll,
+        None,
+        None,
+        None,
+    );
+}
+
+/// Same as [`render_task_detail_expanded`] but aware of the live text editors:
+/// `description_edit` is `Some((buffer, cursor))` while the description is in
+/// INSERT mode, and the task-creation cursors place the caret in the form.
+#[allow(clippy::too_many_arguments)]
+pub fn render_task_detail_with_editor(
+    frame: &mut Frame,
+    state: &TaskDetailState,
+    area: Rect,
+    task_name_input: &str,
+    task_description_input: &str,
+    task_creation_focus: &TaskCreationField,
+    expanded: bool,
+    description_focused: bool,
+    manual_scroll: &mut usize,
+    name_cursor: Option<usize>,
+    description_input_cursor: Option<usize>,
+    description_edit: Option<(&str, usize)>,
+) {
     if state.creating {
         render_task_creation_form(
             frame,
@@ -85,6 +119,8 @@ pub fn render_task_detail_expanded(
             task_name_input,
             task_description_input,
             task_creation_focus,
+            name_cursor,
+            description_input_cursor,
         );
         return;
     }
@@ -227,6 +263,30 @@ pub fn render_task_detail_expanded(
         } else {
             Style::default().fg(Theme::TEXT_DIM)
         };
+
+        // INSERT mode: show the live edit buffer with a visible caret that the
+        // viewport follows, so long descriptions never hide the cursor.
+        if let Some((buffer, cursor)) = description_edit {
+            let edit_block = Block::default()
+                .title(Span::styled(
+                    " Description (INSERT — Ctrl+S save, Esc cancel) ",
+                    Style::default()
+                        .fg(Theme::WARNING)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Theme::WARNING));
+            crate::tui::text_edit::render_editable(
+                frame,
+                desc_area,
+                edit_block,
+                buffer,
+                cursor.min(buffer.chars().count()),
+                Style::default().fg(Theme::TEXT),
+            );
+            return;
+        }
+
         let desc_paragraph = Paragraph::new(desc)
             .block(
                 Block::default()
@@ -260,13 +320,19 @@ pub fn render_task_detail_expanded(
     }
 }
 
-/// Render the task creation form with name and description input fields
+/// Render the task creation form with name and description input fields.
+///
+/// When the cursors are supplied the fields render with a real terminal caret
+/// and scroll to follow it; otherwise a block indicator is used (widget-only
+/// snapshot tests call this without cursor state).
 fn render_task_creation_form(
     frame: &mut Frame,
     area: Rect,
     name_input: &str,
     description_input: &str,
     focus: &TaskCreationField,
+    name_cursor: Option<usize>,
+    description_cursor: Option<usize>,
 ) {
     let block = Block::default()
         .title(" New Task ")
@@ -288,58 +354,47 @@ fn render_task_creation_form(
         ])
         .split(inner_area);
 
+    let focused_style = Style::default()
+        .fg(Theme::WARNING)
+        .add_modifier(Modifier::BOLD);
+    let idle_style = Style::default().fg(Theme::SECONDARY);
+    let text_style = Style::default().fg(Theme::TEXT);
+
     // Name field
     let name_style = if *focus == TaskCreationField::Name {
-        Style::default()
-            .fg(Theme::WARNING)
-            .add_modifier(Modifier::BOLD)
+        focused_style
     } else {
-        Style::default().fg(Theme::SECONDARY)
+        idle_style
     };
     let name_block = Block::default()
         .title(" Name * ")
         .borders(Borders::ALL)
         .style(name_style);
     let name_area = name_block.inner(inner[0]);
+
     frame.render_widget(name_block, inner[0]);
 
-    // Display cursor indicator for focused field
-    let cursor_indicator = if *focus == TaskCreationField::Name {
-        "█"
-    } else {
-        ""
-    };
-    let name_content = if name_input.is_empty() {
-        Line::from(Span::styled(
-            format!(
-                "{}{}",
-                cursor_indicator,
-                if *focus == TaskCreationField::Name {
-                    ""
-                } else {
-                    ""
-                }
-            ),
-            Style::default().fg(Theme::SECONDARY),
-        ))
-    } else {
-        Line::from(vec![
-            Span::styled(name_input.to_string(), name_style),
-            Span::styled(
-                cursor_indicator.to_string(),
-                Style::default().fg(Theme::WARNING),
-            ),
-        ])
-    };
-    frame.render_widget(Paragraph::new(name_content), name_area);
+    match (*focus == TaskCreationField::Name, name_cursor) {
+        (true, Some(cursor)) => crate::tui::text_edit::render_editable_area(
+            frame,
+            name_area,
+            name_input,
+            cursor.min(name_input.chars().count()),
+            text_style,
+        ),
+        (true, None) => {
+            let mut spans: Vec<Span> = vec![Span::styled(name_input.to_string(), name_style)];
+            spans.push(Span::styled("█", Style::default().fg(Theme::WARNING)));
+            frame.render_widget(Paragraph::new(Line::from(spans)), name_area);
+        }
+        _ => frame.render_widget(Paragraph::new(name_input.to_string()), name_area),
+    }
 
     // Description field
     let desc_style = if *focus == TaskCreationField::Description {
-        Style::default()
-            .fg(Theme::WARNING)
-            .add_modifier(Modifier::BOLD)
+        focused_style
     } else {
-        Style::default().fg(Theme::SECONDARY)
+        idle_style
     };
     let desc_block = Block::default()
         .title(" Description (optional) ")
@@ -348,45 +403,37 @@ fn render_task_creation_form(
     let desc_area = desc_block.inner(inner[1]);
     frame.render_widget(desc_block, inner[1]);
 
-    let cursor_indicator = if *focus == TaskCreationField::Description {
-        "█"
+    if *focus == TaskCreationField::Description {
+        if let Some(cursor) = description_cursor {
+            crate::tui::text_edit::render_editable_area(
+                frame,
+                desc_area,
+                description_input,
+                cursor.min(description_input.chars().count()),
+                text_style,
+            );
+        } else {
+            let mut spans: Vec<Span> = description_input
+                .lines()
+                .flat_map(|line| {
+                    vec![
+                        Span::styled(line.to_string(), desc_style),
+                        Span::styled("\n", Style::default()),
+                    ]
+                })
+                .collect();
+            spans.push(Span::styled("█", Style::default().fg(Theme::WARNING)));
+            frame.render_widget(
+                Paragraph::new(Line::from(spans)).wrap(Wrap { trim: false }),
+                desc_area,
+            );
+        }
     } else {
-        ""
-    };
-    let desc_content = if description_input.is_empty() {
-        Line::from(Span::styled(
-            format!(
-                "{}{}",
-                cursor_indicator,
-                if *focus == TaskCreationField::Description {
-                    ""
-                } else {
-                    ""
-                }
-            ),
-            Style::default().fg(Theme::SECONDARY),
-        ))
-    } else {
-        let mut spans: Vec<Span> = description_input
-            .lines()
-            .flat_map(|line| {
-                vec![
-                    Span::styled(line.to_string(), desc_style),
-                    Span::styled("\n", Style::default()),
-                ]
-            })
-            .collect();
-        // Add cursor at end
-        spans.push(Span::styled(
-            cursor_indicator.to_string(),
-            Style::default().fg(Theme::WARNING),
-        ));
-        Line::from(spans)
-    };
-    frame.render_widget(
-        Paragraph::new(desc_content).wrap(Wrap { trim: false }),
-        desc_area,
-    );
+        frame.render_widget(
+            Paragraph::new(description_input.to_string()).wrap(Wrap { trim: false }),
+            desc_area,
+        );
+    }
 
     // Hint text
     let hint = Paragraph::new("Tab: switch field | Ctrl+S: create | Esc: cancel")

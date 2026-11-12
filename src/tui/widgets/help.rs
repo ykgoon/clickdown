@@ -192,7 +192,23 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
         ],
     );
 
-    let forms = section("Forms", &[("Ctrl+S", "Save"), ("Esc", "Cancel")]);
+    let forms = section(
+        "Forms & Text Input",
+        &[
+            ("Ctrl+S", "Save"),
+            ("Esc", "Cancel"),
+            ("←/→ ↑/↓", "Move caret"),
+            ("Home/End", "Line start / end"),
+            ("Ctrl+A / Ctrl+E", "Line start / end"),
+            ("Ctrl+Home/End", "Buffer start / end"),
+            ("Ctrl+←/→", "Jump by word"),
+            ("Ctrl+W / Ctrl+Backspace", "Delete previous word"),
+            ("Alt+Backspace", "Delete previous word"),
+            ("Alt+D / Ctrl+Delete", "Delete next word"),
+            ("Ctrl+K / Ctrl+U", "Kill to line end / start"),
+            ("Ctrl+D / Delete", "Delete character"),
+        ],
+    );
 
     let session = section(
         "Session",

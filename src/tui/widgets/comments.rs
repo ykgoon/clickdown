@@ -13,12 +13,14 @@ use ratatui::{
 };
 
 /// Render comments section with list of comments and optional form
+#[allow(clippy::too_many_arguments)]
 pub fn render_comments(
     frame: &mut Frame,
     comments: &[Comment],
     selected_index: usize,
     editing_index: Option<usize>,
     new_text: &str,
+    comment_cursor: usize,
     comment_focus: bool,
     area: Rect,
     view_mode: &CommentViewMode,
@@ -70,10 +72,14 @@ pub fn render_comments(
     let has_input = editing_index.is_some() || !new_text.is_empty();
 
     let constraints = if has_input {
-        vec![
-            Constraint::Percentage(70), // Comments list
-            Constraint::Percentage(30), // Input form
-        ]
+        // The compose box grows with the text and is never squeezed below
+        // three text rows, so the caret always has readable context around it.
+        // Keep at least a few rows for the comment list above the box.
+        let max_input = inner_area.height.saturating_sub(4).max(4);
+        let input_height = chunks_input_height(new_text, inner_area.width)
+            .max(5)
+            .min(max_input);
+        vec![Constraint::Min(1), Constraint::Length(input_height)]
     } else {
         vec![Constraint::Percentage(100)]
     };
@@ -115,25 +121,58 @@ pub fn render_comments(
             Style::default().fg(Theme::SECONDARY)
         };
 
-        let input = Paragraph::new(input_text)
-            .style(input_style)
-            .wrap(ratatui::widgets::Wrap { trim: false })
-            .block(
-                Block::default()
-                    .title(edit_label)
-                    .borders(Borders::ALL)
-                    .style(Style::default().fg(if comment_focus {
-                        Theme::WARNING
-                    } else {
-                        Theme::SECONDARY
-                    })),
-            );
+        let block = Block::default()
+            .title(edit_label)
+            .borders(Borders::ALL)
+            .style(Style::default().fg(if comment_focus {
+                Theme::WARNING
+            } else {
+                Theme::SECONDARY
+            }));
 
-        frame.render_widget(input, chunks[1]);
+        if comment_focus {
+            // Live caret: the terminal cursor is placed inside the wrapped
+            // text and the view scrolls to follow it, so the caret is always
+            // visible no matter how long the comment grows.
+            crate::tui::text_edit::render_editable(
+                frame,
+                chunks[1],
+                block,
+                &input_text,
+                comment_cursor.min(input_text.chars().count()),
+                input_style,
+            );
+        } else {
+            let input = Paragraph::new(input_text.clone())
+                .style(input_style)
+                .wrap(ratatui::widgets::Wrap { trim: false })
+                .block(block);
+            frame.render_widget(input, chunks[1]);
+        }
     }
 }
 
+/// Height (in rows, including borders) needed by the compose box for the
+/// given text and available width.
+fn chunks_input_height(text: &str, width: u16) -> u16 {
+    let inner_width = width.saturating_sub(2).max(1) as usize;
+    let mut rows = 0usize;
+    if text.is_empty() {
+        rows = 1;
+    } else {
+        for line in text.lines() {
+            let len = line.chars().count();
+            rows += (len / inner_width) + 1;
+        }
+        if text.ends_with('\n') {
+            rows += 1;
+        }
+    }
+    (rows.max(1) as u16).saturating_add(2)
+}
+
 /// Render the list of comments with scrolling support
+#[allow(clippy::too_many_arguments)]
 fn render_comment_list(
     frame: &mut Frame,
     comments: &[Comment],
@@ -144,11 +183,6 @@ fn render_comment_list(
     view_mode: &CommentViewMode,
     pane_scroll: usize,
 ) {
-    // Check if area is too small
-    if area.height < 3 || area.width < 15 {
-        return;
-    }
-
     // Filter comments based on view mode
     let filtered_comments: Vec<(usize, &Comment)> = match view_mode {
         CommentViewMode::TopLevel => {
@@ -212,12 +246,20 @@ fn render_comment_list(
     };
 
     if filtered_comments.is_empty() {
-        let empty_msg = match view_mode {
-            CommentViewMode::TopLevel => "No comments yet. Press 'n' to add one.",
-            CommentViewMode::InThread { .. } => "No replies yet. Press 'r' to reply.",
-        };
-        let paragraph = Paragraph::new(empty_msg).style(Style::default().fg(Theme::SECONDARY));
-        frame.render_widget(paragraph, area);
+        if area.height >= 1 && area.width >= 15 {
+            let empty_msg = match view_mode {
+                CommentViewMode::TopLevel => "No comments yet. Press 'n' to add one.",
+                CommentViewMode::InThread { .. } => "No replies yet. Press 'r' to reply.",
+            };
+            let paragraph =
+                Paragraph::new(empty_msg).style(Style::default().fg(Theme::SECONDARY));
+            frame.render_widget(paragraph, area);
+        }
+        return;
+    }
+
+    // Check if area is too small for a comment row
+    if area.height < 3 || area.width < 15 {
         return;
     }
 

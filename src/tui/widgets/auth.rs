@@ -89,48 +89,70 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
         .style(Style::default().fg(Theme::SECONDARY));
     frame.render_widget(help, inner[1]);
 
-    // Token input (partially masked: first 4 chars visible, rest masked)
-    let input_display = if state.loading {
-        "Loading...".to_string()
+    // Token input (partially masked: first 4 chars visible, rest masked).
+    // The masked string is rendered through the shared single-line editor so
+    // the caret is always visible even for very long tokens.
+    let line_area = inner[2];
+    let style = Style::default()
+        .fg(Theme::TEXT)
+        .add_modifier(Modifier::BOLD);
+    let prefix = "Token: ";
+
+    if state.loading {
+        frame.render_widget(
+            Paragraph::new(format!("{}Loading...", prefix)).style(style),
+            line_area,
+        );
     } else if state.token_input.is_empty() {
-        // Show placeholder when empty
-        "[Type or paste your token here]".to_string()
+        frame.render_widget(
+            Paragraph::new(format!("{}[Type or paste your token here]", prefix))
+                .style(Style::default().fg(Theme::SECONDARY)),
+            line_area,
+        );
+        // Caret sits right after "Token: " on the empty field.
+        let prefix_len = prefix.chars().count() as u16;
+        frame.set_cursor_position((
+            (line_area.x + prefix_len).min(line_area.x + line_area.width.saturating_sub(1)),
+            line_area.y,
+        ));
     } else {
-        // Show first 4 characters unmasked, rest as bullets
-        let visible_chars = 4;
-        let mut display = String::new();
-
-        // Build display with cursor indicator in one pass
         let token_chars: Vec<char> = state.token_input.chars().collect();
-        for i in 0..=token_chars.len() {
-            // Add cursor indicator at cursor position
-            if i == state.cursor_pos {
-                display.push('█'); // Block cursor for better visibility
+        let cursor = state.cursor_pos.min(token_chars.len());
+
+        // Insert a block caret so the position stays visible even where the
+        // hardware cursor is not drawn (and in widget snapshots).
+        let mut masked = String::new();
+        for (i, c) in token_chars.iter().enumerate() {
+            if i == cursor {
+                masked.push('█');
             }
-            // Add character or bullet
-            if i < token_chars.len() {
-                if i < visible_chars {
-                    display.push(token_chars[i]);
-                } else {
-                    display.push('•');
-                }
-            }
+            masked.push(if i < 4 { *c } else { '•' });
         }
-        // Handle cursor at end
-        if state.cursor_pos > token_chars.len() {
-            display.push('█');
+        if cursor >= token_chars.len() {
+            masked.push('█');
         }
 
-        display
-    };
+        let prefix_len = prefix.chars().count();
+        let caret_in_full = prefix_len + cursor + usize::from(cursor < token_chars.len());
+        let full = format!("{}{}", prefix, masked);
 
-    // Use bright white for better visibility
-    let input = Paragraph::new(format!("Token: {}", input_display)).style(
-        Style::default()
-            .fg(Theme::TEXT)
-            .add_modifier(Modifier::BOLD),
-    );
-    frame.render_widget(input, inner[2]);
+        // Horizontal window that keeps the caret in view.
+        let width = line_area.width as usize;
+        let chars: Vec<char> = full.chars().collect();
+        let start = if caret_in_full >= width {
+            caret_in_full + 1 - width
+        } else {
+            0
+        };
+        let visible: String = chars.iter().skip(start).take(width).collect();
+        frame.render_widget(Paragraph::new(visible).style(style), line_area);
+
+        let cursor_x = line_area.x + (caret_in_full - start) as u16;
+        frame.set_cursor_position((
+            cursor_x.min(line_area.x + line_area.width.saturating_sub(1)),
+            line_area.y,
+        ));
+    }
 
     // Show token length for debugging
     let token_len_info = Paragraph::new(format!("({} characters)", state.token_input.len()))

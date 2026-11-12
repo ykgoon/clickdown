@@ -271,12 +271,27 @@ ClickDown automatically saves your navigation state when you exit and restores i
 | `Ctrl+S` | Save comment |
 | `Esc` | Cancel editing / Exit thread |
 
-### Forms
+### Forms and Text Input
+
+Every text field (comments, description, task creation, URL dialog, token
+input) behaves like a readline/bash prompt. The caret is always visible: the
+view scrolls to follow it, so long comments and descriptions never hide the
+part you are typing in.
 
 | Key | Action |
 |-----|--------|
 | `Ctrl+S` | Save form |
 | `Esc` | Cancel editing |
+| `←` / `→` | Move caret one character |
+| `↑` / `↓` | Move caret one line |
+| `Home` / `End` | Start / end of line |
+| `Ctrl+A` / `Ctrl+E` | Start / end of line |
+| `Ctrl+Home` / `Ctrl+End` | Start / end of buffer |
+| `Ctrl+←` / `Ctrl+→`, `Alt+B` / `Alt+F` | Move by word |
+| `Ctrl+W`, `Ctrl+Backspace`, `Alt+Backspace` | Delete previous word |
+| `Alt+D`, `Ctrl+Delete` | Delete next word |
+| `Ctrl+K` / `Ctrl+U` | Kill to end / start of line |
+| `Ctrl+D` / `Delete` | Delete character under caret |
 
 ## Copying Element URLs
 

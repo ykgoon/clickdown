@@ -1202,6 +1202,7 @@ fn test_comments_thread_title_truncates_multibyte_author() {
             0,
             None,
             "",
+            0,
             true,
             Rect::new(0, 0, 80, 20),
             &view_mode,
