@@ -247,7 +247,7 @@ ClickDown automatically saves your navigation state when you exit and restores i
 |-----|--------|
 | `SPC q` | Quit application immediately (no confirmation) |
 | `SPC w s` | Toggle sidebar |
-| `u` | Copy element URL to clipboard |
+| `SPC y u` | Copy element URL to clipboard |
 
 ### Actions
 
@@ -299,7 +299,7 @@ ClickDown allows you to quickly copy ClickUp web app URLs for any element. This 
 **How to use:**
 1. Navigate to any element (workspace, space, folder, list, task, comment, or document)
 2. Select the element using `j`/`k` navigation
-3. Press `u` to copy the URL to your clipboard
+3. Press `SPC y u` to copy the URL to your clipboard
 4. Paste the URL in your browser to open the element in ClickUp
 
 **URL formats:**

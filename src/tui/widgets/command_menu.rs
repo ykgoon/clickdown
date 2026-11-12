@@ -31,7 +31,7 @@ const ROOT_GROUPS: [GroupEntry; 6] = [
     GroupEntry { label: "Go", key: 'g' },
     GroupEntry { label: "Task", key: 't' },
     GroupEntry { label: "Comments", key: 'c' },
-    GroupEntry { label: "Yank", key: 'y' },
+    GroupEntry { label: "Copy", key: 'y' },
     GroupEntry { label: "Window", key: 'w' },
     GroupEntry { label: "Quit", key: 'q' },
 ];
@@ -75,7 +75,7 @@ fn group_actions(group: char) -> Option<(&'static str, Vec<(&'static str, char)>
                 ("Expand/collapse comments", 'v'),
             ],
         )),
-        'y' => Some(("Yank", vec![("Copy task/element URL", 'u')])),
+        'y' => Some(("Copy", vec![("Task/element URL", 'u')])),
         'w' => Some(("Window", vec![("Toggle sidebar", 's')])),
         _ => None,
     }
