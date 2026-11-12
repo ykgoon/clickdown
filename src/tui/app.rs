@@ -1486,6 +1486,12 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
         &self.url_input_text
     }
 
+    /// Whether the app has been asked to quit (for testing)
+    #[allow(dead_code)]
+    pub fn is_quitting_for_test(&self) -> bool {
+        self.state == AppState::Quitting
+    }
+
     /// Check if comment editing is active (for testing)
     #[allow(dead_code)]
     pub fn is_comment_editing_active(&self) -> bool {
