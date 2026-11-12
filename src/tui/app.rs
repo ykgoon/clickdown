@@ -25,9 +25,9 @@ use super::terminal;
 use super::widgets::{
     render_assignee_picker, render_auth, render_command_menu,
     render_comments, render_mention_picker,
-    render_dialog, render_document, render_help, render_sidebar, render_status_picker,
+    render_dialog, render_document, render_sidebar, render_status_picker,
     render_task_detail_with_editor, render_task_list, AuthState, DialogState, DialogType, DocumentState,
-    GroupedTaskList, HelpContext, HelpState, ListRow, SidebarState, TaskDetailState,
+    GroupedTaskList, ListRow, SidebarState, TaskDetailState,
 };
 
 /// Application screens
@@ -204,9 +204,6 @@ pub struct TuiApp {
 
     /// Dialog state
     dialog: DialogState,
-
-    /// Help state
-    help: HelpState,
 
     /// Current screen title
     screen_title: String,
@@ -842,16 +839,10 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         'c' => self.command_menu = Some(CommandMenuLevel::Group('c')),
                         'y' => self.command_menu = Some(CommandMenuLevel::Group('y')),
                         'w' => self.command_menu = Some(CommandMenuLevel::Group('w')),
-                        'h' => {
-                            // `SPC h` -- open the paginated help overlay
-                            self.command_menu = None;
-                            self.help.toggle();
-                            self.status = "Help: j/k pages, Esc close".to_string();
-                        }
                         'q' => {
-                            // `SPC q` -- quit via confirmation dialog (saves session)
+                            // `SPC q` -- quit immediately (session is saved on exit)
                             self.command_menu = None;
-                            self.dialog.show(DialogType::ConfirmQuit);
+                            self.quit();
                         }
                         _ => {
                             self.command_menu = None;
@@ -997,9 +988,6 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         } else {
                             "Sidebar hidden".to_string()
                         };
-                    }
-                    ('w', KeyCode::Char('q')) => {
-                        self.dialog.show(DialogType::ConfirmQuit);
                     }
                     _ => {
                         self.status = format!("No command '{}{}'", g,
@@ -1498,12 +1486,6 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
         &self.url_input_text
     }
 
-    /// Check if help dialog is visible (for testing)
-    #[allow(dead_code)]
-    pub fn is_help_visible(&self) -> bool {
-        self.help.visible
-    }
-
     /// Check if comment editing is active (for testing)
     #[allow(dead_code)]
     pub fn is_comment_editing_active(&self) -> bool {
@@ -1614,12 +1596,6 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
         self.task_screen_focus()
     }
 
-    /// Get help dialog current page (for testing)
-    #[allow(dead_code)]
-    pub fn help_page(&self) -> u8 {
-        self.help.page
-    }
-
     /// Get the URL input error message (for testing)
     #[allow(dead_code)]
     pub fn url_input_error(&self) -> Option<&str> {
@@ -1717,7 +1693,6 @@ impl TuiApp {
             manage_stored_token: true,
             document: DocumentState::new(),
             dialog: DialogState::new(),
-            help: HelpState::new(),
             screen_title: generate_screen_title("Authentication"),
             status: String::new(),
             workspaces: Vec::new(),
@@ -1853,7 +1828,6 @@ impl TuiApp {
             manage_stored_token: false,
             document: DocumentState::new(),
             dialog: DialogState::new(),
-            help: HelpState::new(),
             screen_title: generate_screen_title("Workspaces"),
             status: String::new(),
             workspaces: Vec::new(),
@@ -1964,7 +1938,6 @@ impl TuiApp {
             manage_stored_token: false,
             document: DocumentState::new(),
             dialog: DialogState::new(),
-            help: HelpState::new(),
             screen_title: generate_screen_title("Workspaces"),
             status: String::new(),
             workspaces: Vec::new(),
@@ -3079,28 +3052,6 @@ impl TuiApp {
             return;
         }
 
-        // When help is visible, handle pagination and close
-        if self.help.visible {
-            if let InputEvent::Key(key) = event {
-                match key.code {
-                    KeyCode::Char('j') | KeyCode::Down | KeyCode::Right => {
-                        self.help.next_page();
-                        return;
-                    }
-                    KeyCode::Char('k') | KeyCode::Up | KeyCode::Left => {
-                        self.help.prev_page();
-                        return;
-                    }
-                    KeyCode::Esc => {
-                        self.help.hide();
-                        return;
-                    }
-                    // Other keys are ignored while help is visible
-                    _ => return,
-                }
-            }
-        }
-
         if let InputEvent::Key(key) = event {
             // Handle chord completion: if leader is pending, check for matching second key
             if let Some(leader) = self.chord_leader_pending.take() {
@@ -3143,16 +3094,6 @@ impl TuiApp {
                     KeyCode::Enter => {
                         if self.dialog.confirmed() {
                             match &self.dialog.dialog_type {
-                                Some(DialogType::ConfirmQuit) => {
-                                    // Save session state before quitting
-                                    if let Err(e) = self.save_session_state() {
-                                        tracing::error!("Failed to save session state: {}", e);
-                                    }
-                                    // Signal the run_loop to break
-                                    self.dialog.hide();
-                                    self.state = AppState::Quitting;
-                                    return;
-                                }
                                 Some(DialogType::ConfirmDelete) => {
                                     // Delete the selected task
                                     self.delete_selected_task();
@@ -4912,10 +4853,6 @@ impl TuiApp {
             );
         }
 
-        // Render help overlay if visible
-        let help_context = self.get_help_context();
-        render_help(frame, &self.help, &help_context, area);
-
         // Render status line
         // Priority: error > navigating > url_copy_status > loading > regular status
         let status = if let Some(ref error) = self.error {
@@ -5125,25 +5062,6 @@ impl TuiApp {
         let hints = Paragraph::new("Enter: Navigate | Esc: Cancel | Ctrl+V: Paste")
             .style(Style::default().fg(ratatui::style::Color::DarkGray));
         frame.render_widget(hints, inner[5]);
-    }
-
-    /// Determine the current help context based on screen and focus state
-    fn get_help_context(&self) -> HelpContext {
-        match self.screen {
-            Screen::Auth => HelpContext::Auth,
-            Screen::Workspaces | Screen::Spaces | Screen::Folders | Screen::Lists => {
-                HelpContext::Navigation
-            }
-            Screen::Tasks => HelpContext::TaskList,
-            Screen::TaskDetail => {
-                if self.comment_focus {
-                    HelpContext::Comments
-                } else {
-                    HelpContext::TaskDetail
-                }
-            }
-            Screen::Document => HelpContext::Document,
-        }
     }
 
     /// Open the URL input dialog
@@ -5689,6 +5607,15 @@ impl TuiApp {
     /// Save the current session state to the cache
     ///
     /// This captures the current navigation context for restoration on next startup.
+    /// Signal the run loop to quit, saving session state on the way out.
+    fn quit(&mut self) {
+        if let Err(e) = self.save_session_state() {
+            tracing::error!("Failed to save session state: {}", e);
+        }
+        self.state = AppState::Quitting;
+        self.status = "Bye".to_string();
+    }
+
     pub fn save_session_state(&mut self) -> Result<()> {
         let state = SessionState::from_app(
             &self.screen,
@@ -6345,16 +6272,18 @@ mod tests {
     }
 
     #[test]
-    fn test_question_mark_does_not_toggle_help_in_text_inputs_or_auth() {
+    fn test_question_mark_is_a_noop_everywhere() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
         let mock_client = MockClickUpClient::new().with_tasks(vec![]);
         let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
         let question = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE);
 
+        // No help overlay exists any more: '?' must not open one, and the
+        // text-input contexts must still receive it as text.
         app.url_input_open = true;
         app.update(InputEvent::Key(question));
-        assert!(!app.is_help_visible());
+        assert_eq!(app.url_input_text(), "?");
 
         app.url_input_open = false;
         app.screen = Screen::TaskDetail;
@@ -6362,61 +6291,39 @@ mod tests {
         app.comments = vec![make_comment("comment-1", "Body", None)];
         app.comment_editing_index = Some(0);
         app.update(InputEvent::Key(question));
-        assert!(!app.is_help_visible());
+        assert_eq!(app.comment_new_text(), "?");
 
         app.comment_editing_index = None;
         app.comment_new_text.clear();
         app.screen = Screen::Auth;
         app.update(InputEvent::Key(question));
-        assert!(!app.is_help_visible());
+        assert_eq!(app.auth_state.token_input, "?");
     }
 
     #[test]
-    fn test_spc_h_opens_help() {
+    fn test_spc_h_is_not_a_command_any_more() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
         let mock_client = MockClickUpClient::new().with_tasks(vec![]);
         let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
         app.screen = Screen::Workspaces;
 
-        // SPACE opens the SPACEmenu
         app.update(InputEvent::Key(KeyEvent::new(
             KeyCode::Char(' '),
             KeyModifiers::NONE,
         )));
         assert!(app.command_menu.is_some(), "SPACE must open SPACEmenu");
 
-        // SPC h opens the help overlay and closes the menu
         app.update(InputEvent::Key(KeyEvent::new(
             KeyCode::Char('h'),
             KeyModifiers::NONE,
         )));
-        assert!(app.is_help_visible(), "SPC h must open help");
         assert!(
             app.command_menu.is_none(),
-            "SPACEmenu must close after SPC h"
+            "SPACEmenu must close on an unknown group key"
         );
-        assert_eq!(app.help_page(), 0, "help opens on first page");
-
-        // j pages forward, k pages back
-        app.update(InputEvent::Key(KeyEvent::new(
-            KeyCode::Char('j'),
-            KeyModifiers::NONE,
-        )));
-        assert_eq!(app.help_page(), 1, "j advances to page 2");
-
-        app.update(InputEvent::Key(KeyEvent::new(
-            KeyCode::Char('k'),
-            KeyModifiers::NONE,
-        )));
-        assert_eq!(app.help_page(), 0, "k returns to page 1");
-
-        // Esc closes help
-        app.update(InputEvent::Key(KeyEvent::new(
-            KeyCode::Esc,
-            KeyModifiers::NONE,
-        )));
-        assert!(!app.is_help_visible(), "Esc must close help");
+        assert_eq!(app.status(), "No command group 'h'");
+        assert_eq!(app.screen, Screen::Workspaces, "no overlay opened");
     }
 
     #[test]
@@ -6741,12 +6648,9 @@ mod tests {
             KeyCode::Char('q'),
             KeyModifiers::NONE,
         )));
-        assert!(
-            !app.dialog.is_visible(),
-            "plain q must not open quit dialog"
-        );
+        assert_ne!(app.state, AppState::Quitting, "plain q must not quit");
 
-        // SPC q opens the ConfirmQuit dialog and closes the menu
+        // SPC q quits immediately: no confirmation dialog, menu closes
         for key in [' ', 'q'] {
             app.update(InputEvent::Key(KeyEvent::new(
                 KeyCode::Char(key),
@@ -6754,21 +6658,37 @@ mod tests {
             )));
         }
         assert!(
-            app.dialog.is_visible(),
-            "SPC q must open the quit confirmation dialog"
+            !app.dialog.is_visible(),
+            "SPC q must not show any confirmation dialog"
+        );
+        assert_eq!(
+            app.state,
+            AppState::Quitting,
+            "SPC q must request an immediate quit"
         );
         assert!(
             app.command_menu.is_none(),
             "SPACEmenu must close after SPC q"
         );
+    }
 
-        // Esc cancels the quit
-        app.update(InputEvent::Key(KeyEvent::new(
-            KeyCode::Esc,
-            KeyModifiers::NONE,
-        )));
-        assert!(!app.dialog.is_visible(), "Esc must cancel quit");
-        assert_ne!(app.state, AppState::Quitting, "quit must be cancelled");
+    #[test]
+    fn test_window_group_has_no_quit_action() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mock_client = MockClickUpClient::new().with_tasks(vec![]);
+        let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
+        app.screen = Screen::Workspaces;
+
+        for key in [' ', 'w', 'q'] {
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(key),
+                KeyModifiers::NONE,
+            )));
+        }
+        assert_ne!(app.state, AppState::Quitting, "w q must not quit");
+        assert!(!app.dialog.is_visible(), "w q must not open a dialog");
+        assert_eq!(app.status(), "No command 'wq'");
     }
 
     #[test]

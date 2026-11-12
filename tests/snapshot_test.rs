@@ -17,7 +17,6 @@ use clickdown::tui::widgets::{
     comments::render_comments,
     dialog::{render_dialog, DialogState, DialogType},
     document::{render_document, DocumentState},
-    help::{render_help, HelpContext, HelpState},
     sidebar::{render_sidebar, SidebarItem, SidebarState},
     task_detail::{render_task_detail, TaskDetailState},
     task_list::{render_task_list, GroupedTaskList},
@@ -610,32 +609,6 @@ fn test_document_view_with_content() {
 
 // ============================================================================
 // ============================================================================
-// Help Dialog Snapshot Tests (Task 3.6)
-// ============================================================================
-
-#[test]
-fn test_help_dialog_visible() {
-    let mut help = HelpState::new();
-    help.visible = true;
-
-    assert_widget_snapshot("help_dialog_visible", 80, 24, |frame| {
-        let area = Rect::new(0, 0, 80, 24);
-        render_help(frame, &help, &HelpContext::TaskList, area);
-    });
-}
-
-#[test]
-fn test_dialog_quit_confirmation() {
-    let mut dialog = DialogState::new();
-    dialog.show(DialogType::ConfirmQuit);
-
-    assert_widget_snapshot("dialog_quit_confirmation", 80, 24, |frame| {
-        let area = Rect::new(0, 0, 80, 24);
-        render_dialog(frame, &dialog, area);
-    });
-}
-
-// ============================================================================
 // Full Screen Layout Snapshot Tests (Task 4.1)
 // ============================================================================
 
@@ -784,13 +757,6 @@ fn test_screen_title_inbox() {
 // ============================================================================
 // Status Bar Tests (Task 4.5)
 // ============================================================================
-
-#[test]
-fn test_status_bar_help() {
-    // Status bar content for main view with help
-    let status = " j/k: Navigate | Enter: Select | Esc: Back | ?: Help | q: Quit ";
-    assert_snapshot!("status_bar_help", status.to_string());
-}
 
 #[test]
 fn test_status_bar_error() {
@@ -1545,14 +1511,12 @@ fn test_task_creation_can_type_g() {
     );
 }
 
-/// Test that Enter closes quit dialog during task creation
-/// Bug: Enter in task creation mode routes to handle_task_creation_input instead of dialog handling
+/// `SPC q` quits immediately, even mid-form: no dialog is involved any more.
 #[test]
-fn test_quit_dialog_enter_in_task_creation() {
+fn test_spc_q_quits_immediately_during_task_creation() {
     use clickdown::api::mock_client::MockClickUpClient;
     use clickdown::tui::app::{Screen, TuiApp};
     use clickdown::tui::input::InputEvent;
-    use clickdown::tui::widgets::DialogType;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::Arc;
 
@@ -1563,28 +1527,21 @@ fn test_quit_dialog_enter_in_task_creation() {
         .block_on(async { TuiApp::with_client(Arc::new(mock_client)) })
         .unwrap();
 
-    // Set up task creation mode
     app.set_screen(Screen::TaskDetail);
     app.set_current_list_id(Some("list-1".to_string()));
     app.set_task_creating(true);
     app.set_task_creation_focus(TaskCreationField::Name);
 
-    // Show quit dialog
-    app.dialog_mut_for_test().show(DialogType::ConfirmQuit);
-    assert!(app.is_dialog_visible(), "Dialog should be visible");
+    for key in [' ', 'q'] {
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Char(key),
+            KeyModifiers::NONE,
+        )));
+    }
 
-    // Type Enter - should close dialog (not just switch field in task creation)
-    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    app.update(InputEvent::Key(enter_key));
-
-    // Assert dialog is hidden after Enter
-    assert_snapshot!(
-        "quit_dialog_enter_in_task_creation",
-        app.is_dialog_visible()
-    );
     assert!(
         !app.is_dialog_visible(),
-        "BUG: Dialog should close on Enter but it didn't!"
+        "SPC q must not show a confirmation dialog"
     );
 }
 

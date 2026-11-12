@@ -6,7 +6,6 @@ pub mod command_menu;
 pub mod comments;
 pub mod dialog;
 pub mod document;
-pub mod help;
 pub mod sidebar;
 pub mod status_picker;
 pub mod task_detail;
@@ -18,7 +17,6 @@ pub use comments::render_comments;
 pub use command_menu::{render_command_menu, render_mention_picker};
 pub use dialog::{render_dialog, DialogState, DialogType};
 pub use document::{render_document, DocumentState};
-pub use help::{render_help, HelpContext, HelpState};
 pub use sidebar::{render_sidebar, SidebarItem, SidebarState};
 pub use status_picker::render_status_picker;
 pub use task_detail::{

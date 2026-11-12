@@ -1,6 +1,0 @@
----
-source: tests/snapshot_test.rs
-assertion_line: 1470
-expression: app.is_dialog_visible()
----
-false

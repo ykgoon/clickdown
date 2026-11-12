@@ -2,7 +2,7 @@
 //!
 //! The SPACEmenu is docked to the bottom edge of the screen (echo-area style).
 //! Each menu level displays exactly the single key the user presses at that
-//! level: the root lists group keys (`g t c y w h q`); selecting a group shows
+//! level: the root lists group keys (`g t c y w q`); selecting a group shows
 //! that group's action keys (`n e s d ...`) with descriptions. Two-key chords
 //! are never displayed — only the next key to press.
 
@@ -27,13 +27,12 @@ struct GroupEntry {
 }
 
 /// Root minibuffer entries, in display order (matches the key handler in app.rs).
-const ROOT_GROUPS: [GroupEntry; 7] = [
+const ROOT_GROUPS: [GroupEntry; 6] = [
     GroupEntry { label: "Go", key: 'g' },
     GroupEntry { label: "Task", key: 't' },
     GroupEntry { label: "Comments", key: 'c' },
     GroupEntry { label: "Yank", key: 'y' },
     GroupEntry { label: "Window", key: 'w' },
-    GroupEntry { label: "Help", key: 'h' },
     GroupEntry { label: "Quit", key: 'q' },
 ];
 
@@ -45,7 +44,6 @@ fn group_color(key: char) -> Color {
         'c' => Theme::SUCCESS,
         'y' => Color::LightBlue,
         'w' => Color::Blue,
-        'h' => Color::Magenta,
         'q' => Theme::ERROR,
         _ => Theme::TEXT,
     }
@@ -78,10 +76,7 @@ fn group_actions(group: char) -> Option<(&'static str, Vec<(&'static str, char)>
             ],
         )),
         'y' => Some(("Yank", vec![("Copy task/element URL", 'u')])),
-        'w' => Some((
-            "Window",
-            vec![("Toggle sidebar", 's'), ("Quit ClickDown", 'q')],
-        )),
+        'w' => Some(("Window", vec![("Toggle sidebar", 's')])),
         _ => None,
     }
 }
