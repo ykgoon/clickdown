@@ -130,7 +130,9 @@ pub fn render_comments(
                 Theme::SECONDARY
             }));
 
-        if comment_focus {
+        // Compose is active whenever an edit index is set (new, reply, edit)
+        // or the comments pane holds focus; the caret must be shown then.
+        if editing_index.is_some() || comment_focus {
             // Live caret: the terminal cursor is placed inside the wrapped
             // text and the view scrolls to follow it, so the caret is always
             // visible no matter how long the comment grows.
