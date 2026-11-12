@@ -1,0 +1,22 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+┌ Task Detail ─────────────────────────────────────────────┐
+│                                                          │
+│ Name: Review pull request                                │
+│ Status: in progress                                      │
+│ Priority: high                                           │
+│ Assignees: None                                          │
+│ ┌ Description (j/k scroll) ────────────────────────────┐ │
+│ │line 1 of the description                             │ │
+│ │line 2 of the description                             │ │
+│ │line 3 of the description                             │ │
+│ │line 4 of the description                             │ │
+│ │line 5 of the description                             │ │
+│ │line 6 of the description                             │ │
+│ │line 7 of the description                             │ │
+│ │line 8 of the description                             │ │
+│ └──────────────────────────────────────────────────────┘ │
+│                                                          │
+└──────────────────────────────────────────────────────────┘

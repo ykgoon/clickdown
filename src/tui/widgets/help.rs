@@ -163,7 +163,7 @@ fn page_lines(context: &HelpContext, page: u8) -> Vec<Line<'static>> {
             ("A", "Open assignee picker"),
             ("e", "Edit task"),
             ("Tab", "Next focus (description → comments)"),
-            ("↑/↓ PgUp/PgDn", "Scroll focused item"),
+            ("j/k ↑/↓ PgUp/PgDn", "Scroll focused description"),
             ("Esc", "Back to task list"),
         ],
     );

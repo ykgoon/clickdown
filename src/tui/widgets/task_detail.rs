@@ -48,6 +48,7 @@ pub fn render_task_detail(
     task_description_input: &str,
     task_creation_focus: &TaskCreationField,
 ) {
+    let mut manual_scroll = 0usize;
     render_task_detail_expanded(
         frame,
         state,
@@ -56,12 +57,14 @@ pub fn render_task_detail(
         task_description_input,
         task_creation_focus,
         false,
-        0,
+        true,
+        &mut manual_scroll,
     )
 }
 
 /// Extended variant: renders the detail view with an optional full-screen
-/// expanded description panel (issue 5) and a manual scroll offset.
+/// expanded description panel (issue 5), a focus highlight for the
+/// description, and a manual scroll offset (clamped in place to the content).
 #[allow(clippy::too_many_arguments)]
 pub fn render_task_detail_expanded(
     frame: &mut Frame,
@@ -72,7 +75,8 @@ pub fn render_task_detail_expanded(
     task_description_input: &str,
     task_creation_focus: &TaskCreationField,
     expanded: bool,
-    manual_scroll: usize,
+    description_focused: bool,
+    manual_scroll: &mut usize,
 ) {
     if state.creating {
         render_task_creation_form(
@@ -187,27 +191,50 @@ pub fn render_task_detail_expanded(
         let mut scroll_state = state.description_scroll.clone();
         scroll_state.update(content_height, available_height);
 
-        // When expanded, the user scrolls manually (j/k); otherwise auto
-        let effective_offset = if expanded {
-            manual_scroll.min(scroll_state.max_offset)
-        } else {
-            scroll_state.offset
-        };
+        // The description is scrolled manually whenever it holds focus
+        // (split or expanded view). The offset is clamped in place every
+        // render, so it cannot drift past the end of the content.
+        *manual_scroll = (*manual_scroll).min(scroll_state.max_offset);
+        let effective_offset = *manual_scroll;
 
         let title = if expanded {
             " Description (expanded) "
+        } else if description_focused && scroll_state.scrollable {
+            // Discoverability: the pane can be scrolled with j/k while focused
+            " Description (j/k scroll) "
         } else {
             " Description "
         };
 
-        // Render description with text wrapping and scrolling
+        // Slight focus highlight: the focused pane keeps the bright primary
+        // border with a bold title, while an unfocused pane dims to secondary
+        // so the active element is obvious at a glance.
+        let border_style = if description_focused {
+            Style::default().fg(Theme::PRIMARY)
+        } else {
+            Style::default().fg(Theme::SECONDARY)
+        };
+        let title_style = if description_focused {
+            border_style.add_modifier(Modifier::BOLD)
+        } else {
+            border_style
+        };
+
+        // Render description with text wrapping and scrolling. The text itself
+        // brightens slightly when the pane holds focus.
+        let text_style = if description_focused {
+            Style::default().fg(Theme::TEXT)
+        } else {
+            Style::default().fg(Theme::TEXT_DIM)
+        };
         let desc_paragraph = Paragraph::new(desc)
             .block(
                 Block::default()
-                    .title(title)
+                    .title(Span::styled(title, title_style))
                     .borders(Borders::ALL)
-                    .style(Style::default().fg(Theme::PRIMARY)),
+                    .border_style(border_style),
             )
+            .style(text_style)
             .wrap(Wrap { trim: true })
             .scroll((effective_offset as u16, 0));
 
@@ -226,7 +253,7 @@ pub fn render_task_detail_expanded(
         frame.render_widget(Paragraph::new("No task selected"), inner[0]);
     }
 
-    if state.editing {
+    if state.editing && !expanded {
         let edit_hint = Paragraph::new("Press Ctrl+S to save, Esc to cancel")
             .style(Style::default().fg(Theme::WARNING));
         frame.render_widget(edit_hint, inner[4]);

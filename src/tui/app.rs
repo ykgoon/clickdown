@@ -604,6 +604,17 @@ pub fn toggle_expanded_panel(&mut self, panel: ExpandedPanel) {
     }
 }
 
+    /// Reset per-task view state when a task is opened in the detail screen:
+    /// description scrolled back to the top, no expansion, description focused.
+    /// Without this the scroll offset leaks across tasks, so a short
+    /// description could open already scrolled past its end.
+    fn reset_task_detail_view(&mut self) {
+        self.description_scroll_offset = 0;
+        self.expanded_panel = None;
+        self.comment_focus = false;
+        self.comment_pane_scroll = 0;
+    }
+
     /// Current TAB-focus element on the task screen.
     ///
     /// Legacy `comment_focus` bool remains the source of truth for the
@@ -661,8 +672,30 @@ pub fn toggle_expanded_panel(&mut self, panel: ExpandedPanel) {
     /// pane) by `delta` lines. When the comment pane is focused this scrolls
     /// the whole comments pane so the focused comment stays visible.
     fn scroll_task_screen_focus(&mut self, delta: isize) {
+        // An expanded description panel owns the scroll keys: it fills the
+        // screen, so nothing else can be the scroll target.
+        if self.expanded_panel == Some(ExpandedPanel::Description) {
+            if delta > 0 {
+                self.description_scroll_down_n(delta as usize);
+            } else {
+                self.description_scroll_up_n((-delta) as usize);
+            }
+            return;
+        }
+        // Likewise an expanded comments panel owns the scroll keys.
+        if self.expanded_panel == Some(ExpandedPanel::Comments) {
+            let new_offset = if delta > 0 {
+                self.comment_pane_scroll.saturating_add(delta as usize)
+            } else {
+                self.comment_pane_scroll.saturating_sub((-delta) as usize)
+            };
+            self.comment_pane_scroll = new_offset;
+            return;
+        }
         match self.task_screen_focus() {
             TaskScreenFocus::Description => {
+                // The description scrolls with j/k, ↑/↓, PgUp/PgDn and
+                // Ctrl+F/Ctrl+U whenever it holds focus, in both layouts.
                 if delta > 0 {
                     self.description_scroll_down_n(delta as usize);
                 } else {
@@ -845,6 +878,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         if self.screen == Screen::Tasks {
                             if let Some(task) = self.task_list.selected_task().cloned() {
                                 self.task_detail.task = Some(task.clone());
+                                self.reset_task_detail_view();
                                 self.task_detail.editing = true;
                                 self.task_detail.creating = false;
                                 self.comments.clear();
@@ -1502,6 +1536,18 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     #[allow(dead_code)]
     pub fn comment_pane_scroll_for_test(&self) -> usize {
         self.comment_pane_scroll
+    }
+
+    /// Get the description pane scroll offset (for testing)
+    #[allow(dead_code)]
+    pub fn description_scroll_offset_for_test(&self) -> usize {
+        self.description_scroll_offset
+    }
+
+    /// Set the description pane scroll offset (for testing)
+    #[allow(dead_code)]
+    pub fn set_description_scroll_offset_for_test(&mut self, offset: usize) {
+        self.description_scroll_offset = offset;
     }
 
     /// Cycle task-screen focus via TAB and return the resulting focus (for testing)
@@ -2702,6 +2748,7 @@ impl TuiApp {
                                 self.navigating_level.clear();
                                 // Open the task in detail view
                                 self.task_detail.task = Some(task.clone());
+                                self.reset_task_detail_view();
                                 self.screen = Screen::TaskDetail;
                                 self.comment_view_mode = CommentViewMode::TopLevel;
                                 self.comments.clear();
@@ -2728,6 +2775,7 @@ impl TuiApp {
                             Ok(task) => {
                                 // Navigate to task detail, then find the comment
                                 self.task_detail.task = Some(task.clone());
+                                self.reset_task_detail_view();
                                 self.screen = Screen::TaskDetail;
                                 self.comment_view_mode = CommentViewMode::TopLevel;
                                 self.comments.clear();
@@ -3163,6 +3211,7 @@ impl TuiApp {
                 KeyCode::Enter => {
                     if let Some(task) = self.task_list.selected_task().cloned() {
                         self.task_detail.task = Some(task.clone());
+                        self.reset_task_detail_view();
                         self.screen = Screen::TaskDetail;
                         self.update_screen_title();
                         // Load comments for this task
@@ -3454,49 +3503,34 @@ impl TuiApp {
                 KeyCode::Down => {
                     self.scroll_task_screen_focus(1);
                 }
-                KeyCode::Char('j') if self.expanded_panel == Some(ExpandedPanel::Description) => {
-                    self.description_scroll_down();
-                }
-                KeyCode::Char('k') if self.expanded_panel == Some(ExpandedPanel::Description) => {
-                    self.description_scroll_up();
-                }
                 KeyCode::PageDown => {
-                    // Page down: scroll the focused element a page; when browsing
-                    // comments without pane-scroll intent, page the selection.
-                    if self.expanded_panel == Some(ExpandedPanel::Description) {
-                        self.description_scroll_offset = self.description_scroll_offset.saturating_add(20);
-                    } else if self.comment_focus {
-                        self.scroll_task_screen_focus(20);
-                    }
+                    // Page down: scroll the focused element a page.
+                    self.scroll_task_screen_focus(20);
                 }
                 KeyCode::PageUp => {
-                    // Page up: scroll the focused element a page; when browsing
-                    // comments without pane-scroll intent, page the selection.
-                    if self.expanded_panel == Some(ExpandedPanel::Description) {
-                        self.description_scroll_offset = self.description_scroll_offset.saturating_sub(20);
-                    } else if self.comment_focus {
-                        self.scroll_task_screen_focus(-20);
-                    }
+                    // Page up: scroll the focused element a page.
+                    self.scroll_task_screen_focus(-20);
                 }
                 KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    if self.expanded_panel == Some(ExpandedPanel::Description) {
-                        self.description_scroll_offset = self.description_scroll_offset.saturating_add(20);
-                    } else if self.comment_focus {
-                        self.scroll_task_screen_focus(20);
-                    }
+                    self.scroll_task_screen_focus(20);
                 }
                 KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    if self.expanded_panel == Some(ExpandedPanel::Description) {
-                        self.description_scroll_offset = self.description_scroll_offset.saturating_sub(20);
-                    } else if self.comment_focus {
-                        self.scroll_task_screen_focus(-20);
-                    }
+                    self.scroll_task_screen_focus(-20);
                 }
                 KeyCode::Char('j') if self.comment_focus => {
                     self.move_comment_selection(1);
                 }
                 KeyCode::Char('k') if self.comment_focus => {
                     self.move_comment_selection(-1);
+                }
+                // j/k scroll the description whenever it holds focus (split or
+                // expanded layout), matching the Up/Down behaviour above. They
+                // were previously dead keys outside the expanded panel.
+                KeyCode::Char('j') => {
+                    self.scroll_task_screen_focus(1);
+                }
+                KeyCode::Char('k') => {
+                    self.scroll_task_screen_focus(-1);
                 }
                 KeyCode::Enter if self.comment_focus => {
                     // Enter thread view when on a top-level comment
@@ -3649,16 +3683,6 @@ impl TuiApp {
                 _ => {}
             }
         }
-    }
-
-    /// Scroll the expanded description panel down
-    fn description_scroll_down(&mut self) {
-        self.description_scroll_offset = self.description_scroll_offset.saturating_add(3);
-    }
-
-    /// Scroll the expanded description panel up
-    fn description_scroll_up(&mut self) {
-        self.description_scroll_offset = self.description_scroll_offset.saturating_sub(3);
     }
 
     /// Navigate into the selected item (public for testing)
@@ -4869,7 +4893,10 @@ impl TuiApp {
                         &self.task_description_input,
                         &self.task_creation_focus,
                         self.expanded_panel == Some(ExpandedPanel::Description),
-                        self.description_scroll_offset,
+                        self.expanded_panel == Some(ExpandedPanel::Description)
+                            || (self.expanded_panel.is_none()
+                                && self.task_screen_focus() == TaskScreenFocus::Description),
+                        &mut self.description_scroll_offset,
                     );
                 }
 

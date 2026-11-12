@@ -1629,3 +1629,135 @@ fn snapshot_spc_menu_minibuffer_window_group() {
         );
     });
 }
+
+// ============================================================================
+// Description focus highlight (focused = bright border + bold title)
+// ============================================================================
+
+/// The focused, scrollable description advertises its j/k scroll keys in the
+/// block title; the unfocused pane keeps the plain title.
+#[test]
+fn test_task_detail_description_focused_scrollable() {
+    use clickdown::models::TaskDescription;
+    use clickdown::tui::widgets::task_detail::render_task_detail_expanded;
+
+    fn detail_with_long_description() -> TaskDetailState {
+        let mut detail = TaskDetailState::new();
+        let mut task = create_test_tasks().remove(0);
+        task.description = Some(TaskDescription::Plain(
+            (1..=40)
+                .map(|i| format!("line {} of the description", i))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ));
+        detail.task = Some(task);
+        detail
+    }
+
+    let detail = detail_with_long_description();
+    assert_widget_snapshot("task_detail_description_focused", 60, 18, |frame| {
+        let mut scroll = 0usize;
+        render_task_detail_expanded(
+            frame,
+            &detail,
+            Rect::new(0, 0, 60, 18),
+            "",
+            "",
+            &TaskCreationField::Name,
+            false,
+            true,
+            &mut scroll,
+        );
+    });
+}
+
+/// The highlight is a style change, which text snapshots cannot see: assert
+/// the border colour, title weight and text brightness on the buffer itself.
+#[test]
+fn test_task_detail_description_focus_highlight_style() {
+    use clickdown::models::TaskDescription;
+    use clickdown::tui::theme::Theme;
+    use clickdown::tui::widgets::task_detail::render_task_detail_expanded;
+    use ratatui::style::Modifier;
+
+    fn render_cells(focused: bool) -> ratatui::buffer::Buffer {
+        let mut detail = TaskDetailState::new();
+        let mut task = create_test_tasks().remove(0);
+        task.description = Some(TaskDescription::Plain(
+            (1..=40)
+                .map(|i| format!("line {} of the description", i))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ));
+        detail.task = Some(task);
+
+        let mut terminal = create_test_terminal(60, 18);
+        terminal
+            .draw(|frame| {
+                let mut scroll = 0usize;
+                render_task_detail_expanded(
+                    frame,
+                    &detail,
+                    Rect::new(0, 0, 60, 18),
+                    "",
+                    "",
+                    &TaskCreationField::Name,
+                    false,
+                    focused,
+                    &mut scroll,
+                );
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    let focused = render_cells(true);
+    let unfocused = render_cells(false);
+
+    // Description block top-left corner: column 2, row 6.
+    assert_eq!(
+        focused[(2, 6)].style().fg,
+        Some(Theme::PRIMARY),
+        "focused description border should be the bright primary colour"
+    );
+    assert_eq!(
+        unfocused[(2, 6)].style().fg,
+        Some(Theme::SECONDARY),
+        "unfocused description border should dim to secondary"
+    );
+
+    let title_row: String = (0..60)
+        .map(|x| focused[(x, 6)].symbol().to_string())
+        .collect();
+    assert!(
+        title_row.contains("j/k scroll"),
+        "focused scrollable description should advertise its keys, got: {title_row}"
+    );
+    let title_start = title_row.find("Description").unwrap() as u16;
+    assert!(
+        focused[(title_start, 6)]
+            .style()
+            .add_modifier
+            .contains(Modifier::BOLD),
+        "focused description title must be bold"
+    );
+    assert!(
+        !unfocused[(title_start, 6)]
+            .style()
+            .add_modifier
+            .contains(Modifier::BOLD),
+        "unfocused description title must not be bold"
+    );
+
+    // Body text brightens when the pane holds focus.
+    assert_eq!(
+        focused[(3, 7)].style().fg,
+        Some(Theme::TEXT),
+        "focused description text should be full brightness"
+    );
+    assert_eq!(
+        unfocused[(3, 7)].style().fg,
+        Some(Theme::TEXT_DIM),
+        "unfocused description text should dim"
+    );
+}
