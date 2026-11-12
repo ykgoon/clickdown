@@ -714,6 +714,7 @@ fn test_mock_client_create_comment() {
             MockClickUpClient::new().with_create_comment_response(new_comment.clone());
 
         let request = CreateCommentRequest {
+            comment: None,
             comment_text: "New comment".to_string(),
             assignee: None,
             assigned_commenter: None,
@@ -1020,6 +1021,7 @@ fn test_mock_client_create_comment_reply() {
             MockClickUpClient::new().with_create_comment_reply_response(reply_comment.clone());
 
         let request = CreateCommentRequest {
+            comment: None,
             comment_text: "This is a test reply".to_string(),
             assignee: None,
             assigned_commenter: None,
@@ -1041,6 +1043,7 @@ fn test_create_comment_request_with_parent_id() {
     use clickdown::models::CreateCommentRequest;
 
     let request = CreateCommentRequest {
+        comment: None,
         comment_text: "Reply text".to_string(),
         assignee: None,
         assigned_commenter: None,
@@ -1059,6 +1062,7 @@ fn test_create_comment_request_serialization() {
     use serde_json;
 
     let request = CreateCommentRequest {
+        comment: None,
         comment_text: "Reply content".to_string(),
         assignee: None,
         assigned_commenter: None,

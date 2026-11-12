@@ -330,6 +330,11 @@ pub fn move_char_right(text: &str, cursor: &mut usize) {
     }
 }
 
+// ---- Word-boundary wrapping -------------------------------------------
+// Replaces a hard character wrap that split words mid-way ("lorem ipsum"
+// became "ip" / "sum"). A word moves to the next visual row whole; only a
+// word wider than the row itself is broken, which is unavoidable.
+
 /// A buffer laid out in visual rows, with the cursor position resolved.
 pub struct WrappedText {
     pub lines: Vec<String>,
@@ -337,54 +342,145 @@ pub struct WrappedText {
     pub cursor_col: usize,
 }
 
-/// Wrap `text` at `width` columns (hard wrap, honouring explicit newlines)
-/// and locate `cursor` inside the resulting visual grid.
+/// Wrap `text` at `width` columns on word boundaries, honouring explicit
+/// newlines, and locate `cursor` (a char index) inside the visual grid.
 ///
-/// A cursor sitting exactly on a soft-wrap boundary is placed at the start of
-/// the following visual row, which is where the caret visually belongs.
+/// A space that falls exactly on the wrap point is consumed rather than
+/// starting the next row, so continuation rows are not indented. A caret
+/// sitting exactly on a soft-wrap boundary is placed at the start of the
+/// following visual row, which is where it visually belongs.
 pub fn wrap_with_cursor(text: &str, width: usize, cursor: usize) -> WrappedText {
     let width = width.max(1);
+    let chars: Vec<char> = text.chars().collect();
+    let cursor = cursor.min(chars.len());
+
     let mut lines: Vec<String> = vec![String::new()];
+    // One entry per char: the row that char was laid out on. The caret at
+    // index i therefore reads row_of[i] (plus a final entry for end-of-text).
+    let mut row_of: Vec<usize> = Vec::with_capacity(chars.len() + 1);
     let mut row = 0usize;
     let mut col = 0usize;
-    let mut cursor_pos: Option<(usize, usize)> = None;
+    let mut in_word = false;
 
-    for (index, c) in text.chars().enumerate() {
-        if index == cursor {
-            cursor_pos = Some((row, col));
-        }
+    for &c in &chars {
         if c == '\n' {
+            row_of.push(row);
             lines.push(String::new());
             row += 1;
             col = 0;
+            in_word = false;
             continue;
         }
+
+        if c == ' ' {
+            if col >= width {
+                // A space landing exactly on the wrap point is swallowed, so
+                // continuation rows are not indented. The caret sits at the
+                // start of the new row.
+                lines.push(String::new());
+                row += 1;
+                col = 0;
+            } else {
+                push_char(&mut lines, row, c, &mut col);
+            }
+            row_of.push(row);
+            in_word = false;
+            continue;
+        }
+
+        if !in_word {
+            // Measure the word before placing it: it moves down whole when it
+            // does not fit, unless it is wider than a row on its own.
+            let mut word_len = 0usize;
+            let mut j = row_of.len();
+            while j < chars.len() && chars[j] != ' ' && chars[j] != '\n' {
+                word_len += 1;
+                j += 1;
+            }
+
+            let remaining = width.saturating_sub(col);
+            if col > 0 && word_len > remaining && word_len <= width {
+                // Drop the separating space, then continue on a fresh row.
+                if let Some(line) = lines.get_mut(row) {
+                    let trimmed = line.trim_end().len();
+                    line.truncate(trimmed);
+                }
+                lines.push(String::new());
+                row += 1;
+                col = 0;
+            }
+            in_word = true;
+        }
+
+        // A word wider than the row is hard-broken as a last resort.
         if col >= width {
             lines.push(String::new());
             row += 1;
             col = 0;
-            // The caret belongs here if it was pending at the wrap point.
-            if index == cursor {
-                cursor_pos = Some((row, col));
-            }
         }
-        if let Some(line) = lines.get_mut(row) {
-            line.push(c);
-        }
-        col += 1;
+
+        push_char(&mut lines, row, c, &mut col);
+        row_of.push(row);
     }
-    if cursor_pos.is_none() {
-        // Caret at the end of the buffer: keep it at the end of the last
-        // visual row instead of opening an empty trailing row.
-        cursor_pos = Some((row, col.min(width)));
-    }
+    row_of.push(row);
+
+    let (cursor_row, cursor_col) = resolve_cursor(text, chars.len(), &lines, &row_of, cursor, width);
 
     WrappedText {
         lines,
-        cursor_row: cursor_pos.map(|p| p.0).unwrap_or(0),
-        cursor_col: cursor_pos.map(|p| p.1).unwrap_or(0),
+        cursor_row,
+        cursor_col,
     }
 }
+
+/// Append one char to `row`, growing `col`.
+fn push_char(lines: &mut [String], row: usize, c: char, col: &mut usize) {
+    if let Some(line) = lines.get_mut(row) {
+        line.push(c);
+    }
+    *col += 1;
+}
+
+/// Map a char index onto (row, column).
+fn resolve_cursor(
+    text: &str,
+    char_count: usize,
+    lines: &[String],
+    row_of: &[usize],
+    cursor: usize,
+    width: usize,
+) -> (usize, usize) {
+    let cursor = cursor.min(char_count);
+
+    if cursor == char_count {
+        let last = lines.len().saturating_sub(1);
+        if text.ends_with('\n') {
+            return (last, 0);
+        }
+        let col = lines.get(last).map(|l| l.chars().count()).unwrap_or(0);
+        return (last, col.min(width));
+    }
+
+    let row = row_of.get(cursor).copied().unwrap_or(0);
+    let start_of_row = row_of
+        .iter()
+        .position(|r| *r == row)
+        .filter(|i| *i <= cursor)
+        .unwrap_or(cursor);
+    let col = cursor - start_of_row;
+    (row, col.min(width))
+}
+
+/// Number of visual rows `text` needs at `width`, including explicit
+/// newlines. Shares `wrap_with_cursor` so the compose box height always
+/// matches what is actually drawn.
+pub fn wrapped_row_count(text: &str, width: usize) -> usize {
+    if text.is_empty() {
+        return 1;
+    }
+    wrap_with_cursor(text, width.max(1), 0).lines.len().max(1)
+}
+
 
 /// Render an editable buffer inside `area`, scrolling so the caret is visible.
 ///

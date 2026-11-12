@@ -156,20 +156,12 @@ pub fn render_comments(
 
 /// Height (in rows, including borders) needed by the compose box for the
 /// given text and available width.
+///
+/// Uses the same word-boundary wrapping the editor draws with, so the box is
+/// never too short for the text it contains.
 fn chunks_input_height(text: &str, width: u16) -> u16 {
     let inner_width = width.saturating_sub(2).max(1) as usize;
-    let mut rows = 0usize;
-    if text.is_empty() {
-        rows = 1;
-    } else {
-        for line in text.lines() {
-            let len = line.chars().count();
-            rows += (len / inner_width) + 1;
-        }
-        if text.ends_with('\n') {
-            rows += 1;
-        }
-    }
+    let rows = crate::tui::text_edit::wrapped_row_count(text, inner_width);
     (rows.max(1) as u16).saturating_add(2)
 }
 

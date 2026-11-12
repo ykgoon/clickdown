@@ -282,7 +282,13 @@ impl ClickUpClient {
     /// Update a task
     #[allow(dead_code)]
     pub async fn update_task(&self, task_id: &str, task: &UpdateTaskRequest) -> Result<Task> {
-        let url = ApiEndpoints::task(task_id);
+        // A markdown description only round-trips when the API is told so;
+        // without the flag ClickUp stores the raw markdown as plain text.
+        let url = if task.markdown_description.is_some() {
+            format!("{}?markdown_description=true", ApiEndpoints::task(task_id))
+        } else {
+            ApiEndpoints::task(task_id)
+        };
         self.execute::<Task>(self.request(reqwest::Method::PUT, url).json(task))
             .await
     }

@@ -428,6 +428,7 @@ impl DebugOperations {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let req = crate::models::CreateCommentRequest {
+            comment: None,
             comment_text: text.to_string(),
             parent_id: parent_id.map(|s| s.to_string()),
             assignee,
@@ -453,6 +454,7 @@ impl DebugOperations {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let req = crate::models::CreateCommentRequest {
+            comment: None,
             comment_text: text.to_string(),
             parent_id: parent_id.map(|s| s.to_string()),
             assignee,
@@ -478,6 +480,7 @@ impl DebugOperations {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let req = crate::models::CreateCommentRequest {
+            comment: None,
             comment_text: text.to_string(),
             parent_id: Some(comment_id.to_string()),
             assignee,
@@ -498,6 +501,7 @@ impl DebugOperations {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api = self.get_api();
         let req = crate::models::CreateCommentRequest {
+            comment: None,
             comment_text: text.to_string(),
             parent_id: Some(comment_id.to_string()),
             assignee,

@@ -119,10 +119,53 @@ pub struct CommentsResponse {
     pub comments: Vec<Comment>,
 }
 
+/// A segment of a ClickUp comment body.
+///
+/// Verified against the live API: a block with `type: "mention"` carrying a
+/// `user` object is what makes the ClickUp web app render a linked mention and
+/// keeps the reference on read-back. (`type: "tag"` is accepted on write but
+/// the API strips its `user`, leaving plain text — so do not use it here.)
+/// Everything else is a plain text run with empty `attributes`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum CommentBlock {
+    Text {
+        text: String,
+        attributes: BlockAttributes,
+    },
+    Tag {
+        #[serde(rename = "type")]
+        kind: &'static str,
+        user: MentionUser,
+        text: String,
+    },
+}
+
+/// Attributes on a plain text run. Always empty for text this client sends.
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
+pub struct BlockAttributes {}
+
+/// The user object embedded in a `tag` block.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct MentionUser {
+    pub id: i64,
+    pub username: String,
+    pub email: String,
+    pub initials: String,
+}
+
 /// Request body for creating a comment
+///
+/// `comment` carries the structured body ClickUp needs for real @mentions.
+/// Verified against the live API: a `type: "mention"` block with a `user`
+/// object is what the web app renders as a link, while `comment_text` alone
+/// stays plain text. When blocks are present `comment_text` must be empty —
+/// otherwise the API echoes the text twice.
 #[derive(Debug, Clone, Serialize)]
 pub struct CreateCommentRequest {
     pub comment_text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<Vec<CommentBlock>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assignee: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -280,6 +323,7 @@ mod tests {
     #[test]
     fn test_create_comment_request() {
         let request = CreateCommentRequest {
+            comment: None,
             comment_text: "New comment".to_string(),
             assignee: None,
             assigned_commenter: None,
@@ -292,6 +336,7 @@ mod tests {
     #[test]
     fn test_create_comment_request_with_parent() {
         let request = CreateCommentRequest {
+            comment: None,
             comment_text: "Reply to thread".to_string(),
             assignee: None,
             assigned_commenter: None,
@@ -480,4 +525,52 @@ mod tests {
         let comment: Comment = serde_json::from_str(json).unwrap();
         assert_eq!(comment.id, "");
     }
+
+    #[test]
+    fn create_request_without_mentions_omits_comment_blocks() {
+        let request = CreateCommentRequest {
+            comment_text: "plain comment".to_string(),
+            comment: None,
+            assignee: None,
+            assigned_commenter: None,
+            parent_id: None,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("plain comment"));
+        assert!(!json.contains("\"comment\""), "blocks must be omitted: {json}");
+    }
+
+    #[test]
+    fn create_request_with_mentions_sends_empty_text_and_tag_block() {
+        // The live API duplicates the body unless comment_text is empty when
+        // structured blocks are present.
+        let request = CreateCommentRequest {
+            comment_text: String::new(),
+            comment: Some(vec![
+                CommentBlock::Tag {
+                    kind: "mention",
+                    user: MentionUser {
+                        id: 38650140,
+                        username: "Y.K. Goon".to_string(),
+                        email: "yk@kakitangan.com".to_string(),
+                        initials: "YG".to_string(),
+                    },
+                    text: "@Y.K. Goon".to_string(),
+                },
+                CommentBlock::Text {
+                    text: " please review".to_string(),
+                    attributes: BlockAttributes {},
+                },
+            ]),
+            assignee: None,
+            assigned_commenter: None,
+            parent_id: None,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"comment_text\":\"\""), "{json}");
+        assert!(json.contains("\"type\":\"mention\""), "{json}");
+        assert!(json.contains("\"id\":38650140"), "{json}");
+        assert!(json.contains("please review"), "{json}");
+    }
+
 }

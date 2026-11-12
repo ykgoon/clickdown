@@ -527,6 +527,11 @@ pub struct UpdateTaskRequest {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Markdown form of the description. Used instead of `description` when
+    /// the text contains an @mention, because that is the only form ClickUp
+    /// turns into a real user tag (`[@Name](#user_mention#<id>)`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub markdown_description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

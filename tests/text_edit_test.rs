@@ -270,6 +270,130 @@ fn mention_insertion_updates_cursor() {
     assert!(text.contains("@alice"), "text: {text:?}");
 }
 
+/// Regression: picking a mention produced "@ @alice" because the picker
+/// filter text never entered the buffer, so the old rfind('@') lookup fell
+/// through to an append branch that added a second '@'.
+#[test]
+fn mention_selection_inserts_exactly_one_at_sign() {
+    use clickdown::models::User;
+
+    let rt = Runtime::new().unwrap();
+    let mut app = comment_app(&rt);
+    app.update(key('n'));
+    app.set_mention_members_for_test(vec![User {
+        id: 7,
+        username: "alice".to_string(),
+        email: None,
+        color: None,
+        initials: None,
+        profile_picture: None,
+    }]);
+
+    type_str(&mut app, "hi @al");
+    app.update(special(KeyCode::Enter));
+
+    let text = app.comment_new_text().to_string();
+    assert_eq!(text, "hi @alice ", "text: {text:?}");
+    assert!(
+        !text.contains("@ @"),
+        "duplicate '@' must not appear: {text:?}"
+    );
+}
+
+/// A mention picked after existing text must replace only the '@', keeping
+/// the text that preceded it on the line.
+#[test]
+fn mention_selection_keeps_preceding_text() {
+    use clickdown::models::User;
+
+    let rt = Runtime::new().unwrap();
+    let mut app = comment_app(&rt);
+    app.update(key('n'));
+    app.set_mention_members_for_test(vec![User {
+        id: 7,
+        username: "alice".to_string(),
+        email: None,
+        color: None,
+        initials: None,
+        profile_picture: None,
+    }]);
+
+    type_str(&mut app, "hi there @al");
+    assert!(app.mention_picker_open_for_test());
+    app.update(special(KeyCode::Enter));
+
+    let text = app.comment_new_text().to_string();
+    assert_eq!(text, "hi there @alice ", "text: {text:?}");
+    assert!(!text.contains("@ @"), "duplicate '@': {text:?}");
+}
+
+/// Regression at the widget level: the drawn compose box must break between
+/// words, never mid-word. The reported symptom was "ip" / "sum".
+///
+/// Rows are taken from the compose box only (border characters stripped), and
+/// every row but the last must end on a complete word — a character wrap
+/// leaves a fragment such as "ips" at the row edge.
+#[test]
+fn comment_box_wraps_on_words_when_drawn() {
+    let rt = Runtime::new().unwrap();
+    let mut app = comment_app(&rt);
+    app.update(key('n'));
+    let text = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do";
+    type_str(&mut app, text);
+
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let rows = rendered_rows(&mut app, 80, 24);
+    let screen = rows.join("\n");
+    assert!(
+        screen.contains("lorem") && screen.contains("ipsum"),
+        "compose box was not drawn:\n{screen}"
+    );
+
+    let mut body_rows: Vec<String> = rows
+        .iter()
+        .map(|r| {
+            r.trim_matches(|c| {
+                c == '│' || c == '┌' || c == '┐' || c == '└' || c == '┘' || c == '─' || c == ' '
+            })
+            .trim()
+            .to_string()
+        })
+        .filter(|r| {
+            !r.is_empty()
+                && words.iter().any(|w| r.contains(w))
+                && !r.contains("New comment")
+                && !r.contains("Comments")
+        })
+        .collect();
+    assert!(
+        body_rows.len() >= 2,
+        "expected the text to wrap over several rows, got: {body_rows:?}\n{screen}"
+    );
+    body_rows.pop(); // the final row may legitimately end mid-sentence
+
+    for row in &body_rows {
+        let last_token = row.split_whitespace().last().unwrap_or("");
+        assert!(
+            words.contains(&last_token),
+            "row ends mid-word ({last_token:?}):\n{screen}"
+        );
+    }
+}
+
+/// Regression: wrapping split words by character, so "lorem ipsum" at a
+/// narrow width became "ip" / "sum".
+#[test]
+fn wrapping_breaks_between_words_not_inside_them() {
+    let wrapped = text_edit::wrap_with_cursor("lorem ipsum", 7, 0);
+    assert_eq!(wrapped.lines, vec!["lorem", "ipsum"]);
+    for line in &wrapped.lines {
+        assert!(
+            !line.contains("ip") || line.trim() == "ipsum" || line.trim() == "lorem ipsum",
+            "word was split across rows: {line:?}"
+        );
+    }
+}
+
 #[test]
 fn comment_view_mode_sentinel_is_unaffected() {
     // Ensure the cursor additions did not disturb comment compose state.
@@ -326,3 +450,4 @@ fn task_creation_fields_support_bash_style_editing() {
     app.update(with(KeyCode::Char('w'), KeyModifiers::CONTROL));
     assert_eq!(app.task_description_input(), "desc words ");
 }
+

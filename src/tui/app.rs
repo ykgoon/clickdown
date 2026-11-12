@@ -253,6 +253,11 @@ pub struct TuiApp {
     mention_prev_target: Option<InsertTarget>,
     /// Current mention filter query (text typed after @)
     mention_query: String,
+    /// Char index of the @ that opened the picker, so a selection replaces
+    /// exactly that character instead of guessing with rfind.
+    mention_at: Option<usize>,
+    /// People that `@Name` in the current buffers may resolve to.
+    mention_registry: Vec<crate::tui::mention::MentionEntry>,
 
     /// Comment thread navigation state
     comment_view_mode: CommentViewMode,
@@ -492,6 +497,9 @@ impl TuiApp {
                 crate::tui::text_edit::insert_char(&mut buf, &mut cursor, '@');
                 self.insert_set_buffer(buf);
                 self.insert_set_cursor(cursor);
+                // Filter characters typed in the picker never reach the
+                // buffer, so record where this @ landed.
+                self.mention_at = Some(cursor.saturating_sub(1));
                 self.open_mention_picker();
                 return;
             }
@@ -568,9 +576,20 @@ impl TuiApp {
         let task_id = task.id.clone();
         let tx = self.message_tx.clone().unwrap();
         use crate::models::UpdateTaskRequest;
+        // Descriptions only carry real user tags in markdown form:
+        // `[@Name](#user_mention#<id>)`. Plain text would show up as literal
+        // "@Name" in the ClickUp web app.
+        let (description, markdown_description) =
+            if crate::tui::mention::contains_mention(&new_text, &self.mention_registry) {
+                let md = crate::tui::mention::to_markdown(&new_text, &self.mention_registry);
+                (None, Some(md))
+            } else {
+                (Some(new_text), None)
+            };
         let update = UpdateTaskRequest {
             name: None,
-            description: Some(new_text),
+            description,
+            markdown_description,
             status: None,
             priority: None,
             assignees: None,
@@ -1084,30 +1103,33 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
 
         if let Some(member) = candidates.get(self.mention_cursor) {
             let username = member.username.clone();
-            // Replace the trailing "@<query>" typed so far with "@username "
-            // NOTE: read/write via mention_prev_target — insert_mode_target was
-            // moved there when the picker opened.
+            // Splice over the '@' that opened the picker. Filter text typed
+            // in the picker only ever went to `mention_query`, never to the
+            // buffer, so no query suffix has to be stripped here.
             let buf = match self.mention_prev_target.as_ref() {
                 Some(InsertTarget::Description) => self.description_edit_buffer.clone(),
                 Some(InsertTarget::Comment) => self.comment_new_text.clone(),
                 _ => String::new(),
             };
-            let query_suffix = self.mention_query.clone();
-            let at_pos = buf.rfind('@');
-            let mut new_buf = buf.clone();
-            if let Some(pos) = at_pos {
-                // Only strip the query if it directly follows the '@'
-                let after_at = &buf[pos + 1..];
-                if after_at.starts_with(&query_suffix) {
-                    new_buf = format!("{}@{} {}", &buf[..pos], username, &buf[pos + 1 + query_suffix.len()..]);
-                } else {
-                    new_buf = format!("{} @{} ", buf, username);
+            let buf_len = buf.chars().count();
+            let at = self.mention_at.unwrap_or(buf_len).min(buf_len);
+            let before: String = buf.chars().take(at).collect();
+            let after: String = buf.chars().skip(at + 1).collect();
+            let insertion = format!("@{} ", username);
+            let new_buf = format!("{before}{insertion}{after}");
+            let new_cursor = before.chars().count() + insertion.chars().count();
+
+            // Remember who this is, so saving can emit a real ClickUp tag.
+            if let Some(entry) = crate::tui::mention::MentionEntry::from_user(member) {
+                if !self
+                    .mention_registry
+                    .iter()
+                    .any(|existing| existing.id == entry.id)
+                {
+                    self.mention_registry.push(entry);
                 }
-            } else {
-                new_buf = format!("{} @{} ", buf, username);
             }
 
-            let new_cursor = new_buf.chars().count();
             match self.mention_prev_target.as_ref() {
                 Some(InsertTarget::Description) => {
                     self.description_edit_buffer = new_buf;
@@ -1124,6 +1146,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
             self.status = "No matching member".to_string();
         }
 
+        self.mention_at = None;
         // Return to insert mode
         self.mention_picker_open = false;
         self.insert_mode_target = self.mention_prev_target.take();
@@ -1732,6 +1755,8 @@ impl TuiApp {
             mention_picker_open: false,
             mention_prev_target: None,
             mention_query: String::new(),
+            mention_at: None,
+            mention_registry: Vec::new(),
             task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
             current_user_id: None,
@@ -1867,6 +1892,8 @@ impl TuiApp {
             mention_picker_open: false,
             mention_prev_target: None,
             mention_query: String::new(),
+            mention_at: None,
+            mention_registry: Vec::new(),
             task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
             current_user_id: None,
@@ -1977,6 +2004,8 @@ impl TuiApp {
             mention_picker_open: false,
             mention_prev_target: None,
             mention_query: String::new(),
+            mention_at: None,
+            mention_registry: Vec::new(),
             task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
             current_user_id: None,
@@ -2783,6 +2812,21 @@ impl TuiApp {
                     AppMessage::MentionMembersLoaded(result) => match result {
                         Ok(members) => {
                             self.mention_members = members;
+                            // Seed the mention registry so a hand-typed
+                            // "@Some Name" still resolves to a real tag.
+                            for member in &self.mention_members {
+                                if let Some(entry) =
+                                    crate::tui::mention::MentionEntry::from_user(member)
+                                {
+                                    if !self
+                                        .mention_registry
+                                        .iter()
+                                        .any(|existing| existing.id == entry.id)
+                                    {
+                                        self.mention_registry.push(entry);
+                                    }
+                                }
+                            }
                             if self.mention_members.is_empty() {
                                 self.status = "No members found for @mentions".to_string();
                             }
@@ -4223,6 +4267,7 @@ impl TuiApp {
         let update = UpdateTaskRequest {
             name: None,
             description: None,
+            markdown_description: None,
             status: None,
             priority: None,
             assignees: Some(AssigneesUpdate::replace_all(
@@ -4445,6 +4490,7 @@ impl TuiApp {
         let update = UpdateTaskRequest {
             name: None,
             description: None,
+            markdown_description: None,
             status: Some(new_status_clone),
             priority: None,
             assignees: None,
@@ -4543,8 +4589,18 @@ impl TuiApp {
         };
 
         let tx = self.message_tx.clone().unwrap();
+        // Real @mentions need the structured block form: a `tag` block with
+        // the user object is the only shape the web app turns into a link.
+        // `comment_text` must then be empty, or ClickUp echoes the text twice.
+        let blocks = crate::tui::mention::build_comment_blocks(&text, &self.mention_registry);
+        let comment_text = if blocks.is_some() {
+            String::new()
+        } else {
+            text.clone()
+        };
         let request = CreateCommentRequest {
-            comment_text: text,
+            comment_text,
+            comment: blocks,
             assignee: None,
             assigned_commenter: None,
             parent_id: parent_id.clone(),
@@ -4681,6 +4737,9 @@ impl TuiApp {
         };
 
         let tx = self.message_tx.clone().unwrap();
+        // Editing re-sends plain text only: the update endpoint has no
+        // verified support for the structured `comment` block array, so a
+        // mention written here would save as literal "@Name" text.
         let request = UpdateCommentRequest {
             comment_text: Some(text),
             assigned: None,

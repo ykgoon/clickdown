@@ -115,6 +115,7 @@ fn test_mock_update_task_merges_assignees() {
         let update = UpdateTaskRequest {
             name: None,
             description: None,
+            markdown_description: None,
             status: None,
             priority: None,
             assignees: Some(AssigneesUpdate::replace_all(
@@ -150,6 +151,7 @@ fn test_mock_update_task_merges_all_fields() {
         let update = UpdateTaskRequest {
             name: Some("Updated Task Name".to_string()),
             description: Some("New description".to_string()),
+            markdown_description: None,
             status: Some("in_progress".to_string()),
             priority: None,
             assignees: Some(AssigneesUpdate::replace_all(
@@ -189,6 +191,7 @@ fn test_mock_update_task_clears_assignees() {
         let update = UpdateTaskRequest {
             name: None,
             description: None,
+            markdown_description: None,
             status: None,
             priority: None,
             assignees: Some(AssigneesUpdate::replace_all(
@@ -218,6 +221,7 @@ fn test_mock_update_task_preserves_assignees_when_not_updated() {
         let update = UpdateTaskRequest {
             name: Some("Updated Name".to_string()),
             description: None,
+            markdown_description: None,
             status: None,
             priority: None,
             assignees: None,
