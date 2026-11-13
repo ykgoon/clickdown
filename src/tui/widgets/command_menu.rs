@@ -77,7 +77,13 @@ fn group_actions(group: char) -> Option<(&'static str, Vec<(&'static str, char)>
                 ("Expand/collapse comments", 'v'),
             ],
         )),
-        'y' => Some(("Copy", vec![("Task/element URL", 'u')])),
+        'y' => Some((
+            "Copy",
+            vec![
+                ("Task/element URL", 'u'),
+                ("Focused description/comment", 'c'),
+            ],
+        )),
         'w' => Some(("Window", vec![("Toggle sidebar", 's')])),
         _ => None,
     }

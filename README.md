@@ -249,6 +249,7 @@ ClickDown automatically saves your navigation state when you exit and restores i
 | `SPC q` | Quit application immediately (no confirmation) |
 | `SPC w s` | Toggle sidebar |
 | `SPC y u` | Copy element URL to clipboard |
+| `SPC y c` | Copy the focused element's content (description or comment) |
 
 ### Actions
 

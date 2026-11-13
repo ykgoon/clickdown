@@ -1019,6 +1019,10 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         tracing::debug!("Copy URL via SPACEmenu (y u)");
                         self.copy_url();
                     }
+                    ('y', KeyCode::Char('c')) => {
+                        tracing::debug!("Copy focused content via SPACEmenu (y c)");
+                        self.copy_focused_content();
+                    }
                     ('w', KeyCode::Char('s')) => {
                         // Toggle sidebar (also on screens where Tab folds groups)
                         self.sidebar.visible = !self.sidebar.visible;
@@ -1612,6 +1616,24 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     #[allow(dead_code)]
     pub fn set_comment_focus(&mut self, focus: bool) {
         self.comment_focus = focus;
+    }
+
+    /// Set the highlighted comment index (for testing)
+    #[allow(dead_code)]
+    pub fn set_comment_selected_index_for_test(&mut self, index: usize) {
+        self.comment_selected_index = index;
+    }
+
+    /// Transient copy feedback shown in the status bar (for testing)
+    #[allow(dead_code)]
+    pub fn copy_status_for_test(&self) -> Option<String> {
+        self.url_copy_status.clone()
+    }
+
+    /// The text `SPC y c` would put on the clipboard (for testing)
+    #[allow(dead_code)]
+    pub fn focused_copy_text_for_test(&self) -> Option<String> {
+        self.focused_content_to_copy().map(|(text, _)| text)
     }
 
     /// Get the current task-screen focus element (for testing)
@@ -5769,6 +5791,100 @@ impl TuiApp {
                 }
             }
         });
+    }
+
+    /// Copy the content of the focused element (`SPC y c`).
+    ///
+    /// On the task detail screen the element under TAB focus decides what is
+    /// copied: the task description, or the selected comment. Everywhere else
+    /// the screen's primary content is copied, so the binding is never dead.
+    pub fn copy_focused_content(&mut self) {
+        let (text, label) = match self.focused_content_to_copy() {
+            Some(pair) => pair,
+            None => {
+                let message = self.copy_unavailable_reason();
+                self.set_copy_status(message);
+                return;
+            }
+        };
+
+        match self.clipboard.copy_text(&text) {
+            Ok(()) => {
+                let chars = text.chars().count();
+                let first_line = text.lines().next().unwrap_or("").trim();
+                let preview = if chars == 0 {
+                    String::new()
+                } else {
+                    format!(": {}", crate::utils::truncate_chars(first_line, 40))
+                };
+                self.set_copy_status(&format!("Copied {} ({} chars){}", label, chars, preview));
+            }
+            Err(e) => self.set_copy_status(&format!("Failed to copy {}: {}", label, e)),
+        }
+    }
+
+    /// The text and a short label for the focused element, if there is one.
+    ///
+    /// This is the single source of truth for `SPC y c`: the command copies
+    /// whatever this returns, and tests assert against it directly.
+    fn focused_content_to_copy(&self) -> Option<(String, &'static str)> {
+        match self.screen {
+            Screen::TaskDetail => match self.task_screen_focus() {
+                TaskScreenFocus::Comment(_) => self
+                    .selected_comment()
+                    .map(|comment| (crate::utils::comment_text_to_plain(&comment.text), "comment")),
+                TaskScreenFocus::Description => self
+                    .description_text()
+                    .filter(|text| !text.trim().is_empty())
+                    .map(|text| (text, "description")),
+            },
+            Screen::Document => {
+                let content = self.document.content.clone();
+                if content.trim().is_empty() {
+                    None
+                } else {
+                    Some((content, "document"))
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Why nothing is copyable on the current screen, for the status bar
+    fn copy_unavailable_reason(&self) -> &'static str {
+        match self.screen {
+            Screen::TaskDetail => match self.task_screen_focus() {
+                TaskScreenFocus::Comment(_) => "No comment selected",
+                TaskScreenFocus::Description => "No description to copy",
+            },
+            Screen::Document => "No document content to copy",
+            _ => "Nothing to copy on this screen",
+        }
+    }
+
+    /// Description of the task currently shown, as editable text
+    fn description_text(&self) -> Option<String> {
+        self.task_detail
+            .task
+            .as_ref()
+            .and_then(|task| task.description.as_ref().map(|d| d.as_text()))
+    }
+
+    /// The comment highlighted on the task screen, in the current view
+    fn selected_comment(&self) -> Option<&crate::models::Comment> {
+        let index = self.comment_selected_index;
+        // Only copy a comment that is actually visible in the current view, so
+        // a stale index left over from another thread cannot copy the wrong one.
+        if !self.comment_indices_in_view().contains(&index) {
+            return None;
+        }
+        self.comments.get(index)
+    }
+
+    /// Show a transient message in the status bar (shared with URL copy)
+    fn set_copy_status(&mut self, message: &str) {
+        self.url_copy_status = Some(message.to_string());
+        self.url_copy_status_time = Some(std::time::Instant::now());
     }
 
     /// Copy URL for the current context to clipboard
