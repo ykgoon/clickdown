@@ -454,6 +454,49 @@ impl ClickUpClient {
 
     // ==================== Assigned Tasks ====
 
+    /// Tasks assigned to a user across the whole Workspace (one page).
+    ///
+    /// `page` is zero-based and holds up to 100 tasks. The response has no
+    /// `last_page` field, so callers detect the end by a short/empty page.
+    pub async fn get_team_tasks_with_assignee(
+        &self,
+        team_id: &str,
+        user_id: i32,
+        page: u32,
+    ) -> Result<Vec<Task>> {
+        let mut filters = TaskFilters::default();
+        filters.assignees = vec![user_id as i64];
+        // Assigned work is mostly finished work; without this the view would
+        // silently hide everything already completed.
+        filters.include_closed = Some(true);
+        // Subtask assignments are still assignments.
+        filters.subtasks = Some(true);
+        // Most recently touched first, so the caller does not need to sort.
+        filters.order_by = Some("updated".to_string());
+        filters.reverse = Some(true);
+        filters.page = Some(page);
+
+        let query = filters.to_query_string();
+        let url = ApiEndpoints::tasks_in_team(team_id, &query);
+
+        tracing::info!(
+            "Fetching workspace tasks assigned to user {} (page {})",
+            user_id,
+            page
+        );
+
+        let response = self
+            .execute::<serde_json::Value>(self.request(reqwest::Method::GET, url))
+            .await?;
+
+        let tasks = response
+            .get("tasks")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Response missing 'tasks' field"))?;
+
+        serde_json::from_value(tasks).context("Failed to parse team tasks")
+    }
+
     pub async fn get_tasks_with_assignee(
         &self,
         list_id: &str,
@@ -639,6 +682,16 @@ macro_rules! impl_clickup_api {
                 limit: Option<i32>,
             ) -> Result<Vec<Task>> {
                 self.get_tasks_with_assignee(list_id, user_id, limit).await
+            }
+
+            async fn get_team_tasks_with_assignee(
+                &self,
+                team_id: &str,
+                user_id: i32,
+                page: u32,
+            ) -> Result<Vec<Task>> {
+                self.get_team_tasks_with_assignee(team_id, user_id, page)
+                    .await
             }
         }
     };

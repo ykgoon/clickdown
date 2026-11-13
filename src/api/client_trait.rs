@@ -143,6 +143,17 @@ pub trait ClickUpApi: Send + Sync {
 
     // ==================== Assigned Tasks ====================
 
+    /// Tasks assigned to a user across the whole Workspace.
+    ///
+    /// Backed by Get Filtered Team Tasks, which is the only endpoint that
+    /// filters by assignee without being scoped to a single list.
+    async fn get_team_tasks_with_assignee(
+        &self,
+        team_id: &str,
+        user_id: i32,
+        page: u32,
+    ) -> Result<Vec<Task>>;
+
     /// Get tasks assigned to a specific user from a list
     async fn get_tasks_with_assignee(
         &self,

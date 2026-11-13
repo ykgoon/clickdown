@@ -86,6 +86,13 @@ pub struct MockClickUpClient {
     pub update_comment_response: Option<Result<Comment>>,
     /// Override for get_tasks_with_assignee response
     pub tasks_with_assignee_response: Option<Result<Vec<Task>>>,
+    /// Override for get_team_tasks_with_assignee, keyed by page so tests can
+    /// exercise multi-page fetching.
+    pub team_tasks_response: Option<Result<Vec<Task>>>,
+    /// Page-aware override: (page, tasks). Takes precedence when present.
+    pub team_tasks_pages: std::collections::HashMap<u32, Vec<Task>>,
+    /// Pages requested from the workspace-wide assigned endpoint, in order
+    pub assigned_page_log: AssignedPageLog,
     /// Override for get_current_user response
     pub current_user_response: Option<Result<User>>,
     /// Override for get_list_members response
@@ -123,6 +130,9 @@ impl MockClickUpClient {
             create_comment_reply_response: None,
             update_comment_response: None,
             tasks_with_assignee_response: None,
+            team_tasks_response: None,
+            team_tasks_pages: std::collections::HashMap::new(),
+            assigned_page_log: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             current_user_response: None,
             list_members_response: None,
             comment_reaction_response: None,
@@ -153,6 +163,11 @@ impl MockClickUpClient {
     /// A handle to this client's reaction log, valid after the client moves
     pub fn reaction_calls_handle(&self) -> ReactionCalls {
         self.reaction_calls.clone()
+    }
+
+    /// A handle to this client's assigned-page log, valid after it moves
+    pub fn assigned_page_log_handle(&self) -> AssignedPageLog {
+        self.assigned_page_log.clone()
     }
 
     /// Record one reaction call and return the configured outcome
@@ -297,6 +312,18 @@ impl MockClickUpClient {
         self
     }
 
+    /// Set the workspace-wide assigned tasks response (all pages)
+    pub fn with_team_tasks(mut self, tasks: Vec<Task>) -> Self {
+        self.team_tasks_response = Some(Ok(tasks));
+        self
+    }
+
+    /// Set one page of workspace-wide assigned tasks
+    pub fn with_team_tasks_page(mut self, page: u32, tasks: Vec<Task>) -> Self {
+        self.team_tasks_pages.insert(page, tasks);
+        self
+    }
+
     /// Set the list members response
     pub fn with_list_members(mut self, members: Vec<User>) -> Self {
         self.list_members_response = Some(Ok(members));
@@ -313,6 +340,9 @@ impl MockClickUpClient {
 /// Shared handle to a mock's recorded reaction calls, so tests can inspect
 /// them after the client has been moved into the app.
 pub type ReactionCalls = std::sync::Arc<std::sync::Mutex<Vec<(String, String, bool)>>>;
+
+/// Shared handle to the pages requested from the assigned-tasks endpoint.
+pub type AssignedPageLog = std::sync::Arc<std::sync::Mutex<Vec<u32>>>;
 
 #[async_trait::async_trait]
 impl ClickUpApi for MockClickUpClient {
@@ -511,6 +541,25 @@ impl ClickUpApi for MockClickUpClient {
         _limit: Option<i32>,
     ) -> Result<Vec<Task>> {
         return_vec_response(&self.tasks_with_assignee_response)
+    }
+
+    async fn get_team_tasks_with_assignee(
+        &self,
+        _team_id: &str,
+        _user_id: i32,
+        page: u32,
+    ) -> Result<Vec<Task>> {
+        if let Ok(mut log) = self.assigned_page_log.lock() {
+            log.push(page);
+        }
+        if !self.team_tasks_pages.is_empty() {
+            return Ok(self
+                .team_tasks_pages
+                .get(&page)
+                .cloned()
+                .unwrap_or_default());
+        }
+        return_vec_response(&self.team_tasks_response)
     }
 
     async fn get_list_members(&self, _list_id: &str) -> Result<Vec<User>> {

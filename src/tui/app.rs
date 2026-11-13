@@ -34,6 +34,8 @@ use super::widgets::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
     Auth,
+    /// Workspace-wide "Assigned to Me" view, reachable only from the root.
+    Assigned,
     Workspaces,
     Spaces,
     Folders,
@@ -140,6 +142,8 @@ pub enum AppMessage {
     FoldersLoaded(Result<Vec<Folder>, String>),
     ListsLoaded(Result<Vec<List>, String>),
     TasksLoaded(Result<Vec<Task>, String>),
+    /// A page of workspace-wide assigned tasks, plus the page it came from
+    AssignedTasksLoaded(Result<Vec<Task>, String>, u32),
     CommentsLoaded(Result<Vec<Comment>, String>),
     /// A `SPC c u` reaction call finished: (comment_id, reaction, added)
     CommentReactionUpdated(Result<(), String>, String, String, bool),
@@ -297,6 +301,17 @@ pub struct TuiApp {
 
     /// Per-list assigned filter state
     assigned_filter_active: bool,
+
+    /// Workspace id used for the root "Assigned to Me" query
+    current_team_id: Option<String>,
+    /// Tasks gathered for the Assigned view (all pages, newest activity first)
+    assigned_tasks: Vec<Task>,
+    /// Page currently being fetched while paging through assigned tasks
+    assigned_page_in_flight: Option<u32>,
+    /// True while the Assigned view entry itself is being resolved
+    assigned_loading: bool,
+    /// Screen a task detail view was opened from, so Esc returns there
+    task_origin_screen: Screen,
 
     /// User identity for assignee filtering
     current_user_id: Option<i32>,
@@ -1824,6 +1839,11 @@ impl TuiApp {
             mention_registry: Vec::new(),
             task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
+            current_team_id: None,
+            assigned_tasks: Vec::new(),
+            assigned_page_in_flight: None,
+            assigned_loading: false,
+            task_origin_screen: Screen::Tasks,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
             cached_list_statuses: std::collections::HashMap::new(),
@@ -1964,6 +1984,11 @@ impl TuiApp {
             mention_registry: Vec::new(),
             task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
+            current_team_id: None,
+            assigned_tasks: Vec::new(),
+            assigned_page_in_flight: None,
+            assigned_loading: false,
+            task_origin_screen: Screen::Tasks,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
             cached_list_statuses: std::collections::HashMap::new(),
@@ -2079,6 +2104,11 @@ impl TuiApp {
             mention_registry: Vec::new(),
             task_creation_focus: TaskCreationField::Name,
             assigned_filter_active: false,
+            current_team_id: None,
+            assigned_tasks: Vec::new(),
+            assigned_page_in_flight: None,
+            assigned_loading: false,
+            task_origin_screen: Screen::Tasks,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
             cached_list_statuses: std::collections::HashMap::new(),
@@ -2197,14 +2227,11 @@ impl TuiApp {
                                 self.auth_invalid = false;
                                 self.error = None;
                                 self.workspaces = workspaces.clone();
-                                let mut items = Vec::new();
-                                items.extend(self.workspaces.iter().map(|w| {
-                                    SidebarItem::Workspace {
-                                        name: w.name.clone(),
-                                        id: w.id.clone(),
-                                    }
-                                }));
-                                *self.sidebar.items_mut() = items;
+                                if self.current_team_id.is_none() {
+                                    self.current_team_id =
+                                        self.workspaces.first().map(|w| w.id.clone());
+                                }
+                                *self.sidebar.items_mut() = self.root_sidebar_items();
                                 self.sidebar.select_first();
                                 self.auth_state.clear();
                                 self.state = AppState::Main;
@@ -2233,15 +2260,11 @@ impl TuiApp {
                         match result {
                             Ok(workspaces) => {
                                 self.workspaces = workspaces.clone();
-                                // Populate sidebar with workspaces
-                                let mut items = Vec::new();
-                                items.extend(self.workspaces.iter().map(|w| {
-                                    SidebarItem::Workspace {
-                                        name: w.name.clone(),
-                                        id: w.id.clone(),
-                                    }
-                                }));
-                                *self.sidebar.items_mut() = items;
+                                if self.current_team_id.is_none() {
+                                    self.current_team_id =
+                                        self.workspaces.first().map(|w| w.id.clone());
+                                }
+                                *self.sidebar.items_mut() = self.root_sidebar_items();
 
                                 // Check if we're restoring a session
                                 if self.restoring_session {
@@ -3090,6 +3113,63 @@ impl TuiApp {
                             }
                         }
                     }
+                    AppMessage::AssignedTasksLoaded(result, page) => {
+                        match result {
+                            Ok(tasks) => {
+                                let fetched = tasks.len();
+                                self.assigned_tasks.extend(tasks);
+                                Self::sort_assigned_tasks(&mut self.assigned_tasks);
+
+                                // Rebuild in place so selection survives a
+                                // multi-page load.
+                                let selected_id =
+                                    self.task_list.selected_task().map(|t| t.id.clone());
+                                self.tasks = self.assigned_tasks.clone();
+                                self.task_list = GroupedTaskList::from_tasks_with_folds(
+                                    self.tasks.clone(),
+                                    self.task_list.folded_groups().clone(),
+                                );
+                                if let Some(ref id) = selected_id {
+                                    let found = self
+                                        .task_list
+                                        .rows()
+                                        .iter()
+                                        .enumerate()
+                                        .find(|(_, r)| matches!(r, ListRow::Task(t) if &t.id == id))
+                                        .map(|(idx, _)| idx);
+                                    if let Some(idx) = found {
+                                        self.task_list.select(Some(idx));
+                                    }
+                                }
+
+                                // A full page means there is probably more; a
+                                // short page ends the walk.
+                                const PAGE_SIZE: usize = 100;
+                                if fetched == PAGE_SIZE {
+                                    if let Some(team_id) = self.current_team_id.clone() {
+                                        self.fetch_assigned_page(team_id, page + 1);
+                                        return; // keep the loading state up
+                                    }
+                                }
+
+                                self.loading = false;
+                                self.assigned_loading = false;
+                                self.assigned_page_in_flight = None;
+                                self.error = None;
+                                self.status = format!(
+                                    "Loaded {} assigned task(s)",
+                                    self.assigned_tasks.len()
+                                );
+                            }
+                            Err(e) => {
+                                self.loading = false;
+                                self.assigned_loading = false;
+                                self.assigned_page_in_flight = None;
+                                self.error = Some(format!("Failed to load assigned tasks: {}", e));
+                                self.status = "Failed to load assigned tasks".to_string();
+                            }
+                        }
+                    }
                     AppMessage::TaskRefreshed(result) => {
                         self.loading = false;
                         match result {
@@ -3378,7 +3458,7 @@ impl TuiApp {
             Screen::Workspaces | Screen::Spaces | Screen::Folders | Screen::Lists => {
                 self.update_navigation(event)
             }
-            Screen::Tasks => self.update_tasks(event),
+            Screen::Tasks | Screen::Assigned => self.update_tasks(event),
             Screen::TaskDetail => self.update_task_detail(event),
             Screen::Document => self.update_document(event),
         }
@@ -3484,6 +3564,7 @@ impl TuiApp {
                     if let Some(task) = self.task_list.selected_task().cloned() {
                         self.task_detail.task = Some(task.clone());
                         self.reset_task_detail_view();
+                        self.task_origin_screen = self.screen.clone();
                         self.screen = Screen::TaskDetail;
                         self.update_screen_title();
                         // Load comments for this task
@@ -3491,6 +3572,8 @@ impl TuiApp {
                     }
                 }
                 KeyCode::Esc => {
+                    // From the root-level Assigned view, Esc returns to the
+                    // workspace list; from a list's tasks it steps back too.
                     self.navigate_back();
                 }
                 KeyCode::Tab => {
@@ -3751,9 +3834,11 @@ impl TuiApp {
                         self.comment_editing_index = None;
                         self.status = "Comment editing cancelled".to_string();
                     } else {
-                        // Exit task detail view
+                        // Exit task detail view, returning to whichever list
+                        // the task was opened from (a list, or the
+                        // workspace-wide Assigned view).
                         self.task_detail.editing = false;
-                        self.screen = Screen::Tasks;
+                        self.screen = self.task_origin_screen.clone();
                         self.update_screen_title();
                     }
                 }
@@ -3958,6 +4043,19 @@ impl TuiApp {
     }
 
     /// Navigate into the selected item (public for testing)
+    /// Open the workspace-wide "Assigned to Me" view.
+    ///
+    /// Selecting the entry twice re-runs the query, which doubles as a
+    /// cheap manual refresh from the root.
+    fn open_assigned_view(&mut self) {
+        self.screen = Screen::Assigned;
+        self.screen_title = generate_screen_title("Assigned to Me");
+        // The hierarchy context no longer applies; clearing it keeps URL
+        // copy and refresh from pointing at a list the user has left.
+        self.current_list_id = None;
+        self.load_assigned_tasks();
+    }
+
     pub fn navigate_into(&mut self) {
         // Navigate based on current screen and selection
         // Clone the selected item to avoid borrow checker issues
@@ -3966,6 +4064,10 @@ impl TuiApp {
         // Handle navigation based on current screen
         match &self.screen {
             Screen::Workspaces => {
+                if let Some(SidebarItem::AssignedToMe) = selected_item {
+                    self.open_assigned_view();
+                    return;
+                }
                 if let Some(SidebarItem::Workspace { id, name }) = selected_item {
                     self.current_workspace_id = Some(id.clone());
                     self.current_space_id = None;
@@ -4012,6 +4114,16 @@ impl TuiApp {
         match self.screen {
             Screen::Auth => {}       // Can't go back from auth
             Screen::Workspaces => {} // Can't go back from workspaces
+            Screen::Assigned => {
+                // Return to the navigation root with the entry still selected.
+                self.screen = Screen::Workspaces;
+                self.screen_title = generate_screen_title("Workspaces");
+                *self.sidebar.items_mut() = self.root_sidebar_items();
+                if !self.sidebar.select_by_id("assigned-to-me") {
+                    self.sidebar.select_first();
+                }
+                self.status = "Back to workspaces".to_string();
+            }
             Screen::Spaces => {
                 // Navigate back to Workspaces
                 self.current_space_id = None;
@@ -4152,8 +4264,10 @@ impl TuiApp {
                 }
             }
             Screen::TaskDetail => {
-                // Navigate back to Tasks
-                self.screen = Screen::Tasks;
+                // Return to the list the task was opened from. The Assigned
+                // view is workspace-wide, so going back there is right when
+                // that is where the user came from.
+                self.screen = self.task_origin_screen.clone();
                 self.update_screen_title();
             }
             Screen::Document => {
@@ -4161,6 +4275,97 @@ impl TuiApp {
                 self.update_screen_title();
             }
         }
+    }
+
+    /// Build the navigation-root sidebar: the pinned "Assigned to Me" entry
+    /// followed by every workspace.
+    ///
+    /// The Assigned entry is deliberately only added here: it is a shortcut to
+    /// a workspace-wide query, so it makes no sense inside the hierarchy.
+    fn root_sidebar_items(&self) -> Vec<SidebarItem> {
+        let mut items = vec![SidebarItem::AssignedToMe];
+        items.extend(self.workspaces.iter().map(|w| SidebarItem::Workspace {
+            name: w.name.clone(),
+            id: w.id.clone(),
+        }));
+        items
+    }
+
+    /// Start (or restart) the workspace-wide assigned-tasks fetch from page 0.
+    ///
+    /// Pages are fetched one at a time: ClickUp caps a page at 100 tasks and
+    /// does not report the total, so the next page is requested only when the
+    /// previous one came back full. That keeps a small workload at one request.
+    fn load_assigned_tasks(&mut self) {
+        if self.current_user_id.is_none() {
+            self.status = "Waiting for your user profile...".to_string();
+            return;
+        }
+        let team_id = match self.current_team_id.clone() {
+            Some(id) => id,
+            None => {
+                self.status = "No workspace available for assigned tasks".to_string();
+                return;
+            }
+        };
+        self.assigned_tasks.clear();
+        self.assigned_loading = true;
+        self.loading = true;
+        self.status = "Loading assigned tasks...".to_string();
+        self.fetch_assigned_page(team_id, 0);
+    }
+
+    /// Request one page of workspace-wide assigned tasks.
+    fn fetch_assigned_page(&mut self, team_id: String, page: u32) {
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.loading = false;
+                self.assigned_loading = false;
+                self.error = Some("Not authenticated".to_string());
+                return;
+            }
+        };
+        let user_id = match self.current_user_id {
+            Some(id) => id,
+            None => {
+                self.loading = false;
+                self.assigned_loading = false;
+                return;
+            }
+        };
+
+        self.assigned_page_in_flight = Some(page);
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client
+                .get_team_tasks_with_assignee(&team_id, user_id, page)
+                .await;
+            let msg = match result {
+                Ok(tasks) => AppMessage::AssignedTasksLoaded(Ok(tasks), page),
+                Err(e) => AppMessage::AssignedTasksLoaded(Err(e.to_string()), page),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Sort assigned tasks so the most recently active task is on top.
+    ///
+    /// "Active" means last touched in ClickUp, so `updated_at` is the key. A
+    /// task with no timestamp sorts last instead of jumping to the top, and
+    /// ties break on creation time so the order stays stable between loads.
+    fn sort_assigned_tasks(tasks: &mut [Task]) {
+        tasks.sort_by(|a, b| {
+            b.updated_at
+                .unwrap_or(i64::MIN)
+                .cmp(&a.updated_at.unwrap_or(i64::MIN))
+                .then_with(|| {
+                    b.created_at
+                        .unwrap_or(i64::MIN)
+                        .cmp(&a.created_at.unwrap_or(i64::MIN))
+                })
+                .then_with(|| a.id.cmp(&b.id))
+        });
     }
 
     /// Authenticate with the token typed on the auth screen.
@@ -4725,6 +4930,10 @@ impl TuiApp {
                 self.load_workspaces();
                 self.status = "Refreshing workspaces...".to_string();
             }
+            Screen::Assigned => {
+                self.load_assigned_tasks();
+                self.status = "Refreshing assigned tasks...".to_string();
+            }
             Screen::Spaces => match self.current_workspace_id.clone() {
                 Some(id) => {
                     self.load_spaces(id);
@@ -5065,6 +5274,16 @@ impl TuiApp {
     fn update_screen_title(&mut self) {
         self.screen_title = match &self.screen {
             Screen::Auth => generate_screen_title("Authentication"),
+            Screen::Assigned => {
+                if self.assigned_tasks.is_empty() {
+                    generate_screen_title("Assigned to Me")
+                } else {
+                    generate_screen_title(&format!(
+                        "Assigned to Me ({})",
+                        self.assigned_tasks.len()
+                    ))
+                }
+            }
             Screen::Workspaces => generate_screen_title("Workspaces"),
             Screen::Spaces => {
                 if let Some(workspace) = self
@@ -5262,8 +5481,10 @@ impl TuiApp {
     fn render_main_content(&mut self, frame: &mut Frame, area: Rect) {
         match self.screen {
             Screen::Auth => render_auth(frame, &self.auth_state, area),
-            Screen::Tasks => {
+            Screen::Tasks | Screen::Assigned => {
                 self.task_list.set_viewport_height(area.height.saturating_sub(2) as usize);
+                // While pages are still arriving the list stays interactive;
+                // the status line carries the progress.
                 render_task_list(frame, &self.task_list, area, false)
             }
             Screen::TaskDetail => {
@@ -6008,6 +6229,9 @@ impl TuiApp {
         // Helper to get ID from sidebar item
         fn get_sidebar_id(item: &SidebarItem) -> &str {
             match item {
+                // The Assigned entry has no upstream object of its own; the
+                // URL comes from the selected task instead.
+                SidebarItem::AssignedToMe => "",
                 SidebarItem::Workspace { id, .. } => id,
                 SidebarItem::Space { id, .. } => id,
                 SidebarItem::Folder { id, .. } => id,
@@ -6070,7 +6294,7 @@ impl TuiApp {
                     return;
                 }
             }
-            Screen::Tasks => {
+            Screen::Tasks | Screen::Assigned => {
                 if let Some(task) = self.task_list.selected_task() {
                     // Short-form task URL: only need task ID
                     ClickUpUrlGenerator::task_url("", "", &task.id)
@@ -6238,6 +6462,11 @@ impl TuiApp {
     ) -> (Screen, Option<String>) {
         // Check if we have valid context for the target screen
         match target_screen {
+            Screen::Assigned => {
+                // The assigned view is a query, not a location; restore the
+                // root instead and let the user reopen it.
+                (Screen::Workspaces, None)
+            }
             Screen::Auth => {
                 // Auth screen doesn't need fallback - always valid but shouldn't be restored
                 (
@@ -6317,6 +6546,18 @@ impl TuiApp {
     #[allow(dead_code)]
     pub fn screen(&self) -> Screen {
         self.screen.clone()
+    }
+
+    /// Screen a task detail was opened from (for testing)
+    #[allow(dead_code)]
+    pub fn task_origin_for_test(&self) -> Screen {
+        self.task_origin_screen.clone()
+    }
+
+    /// Assigned-view task count (for testing)
+    #[allow(dead_code)]
+    pub fn assigned_tasks_count_for_test(&self) -> usize {
+        self.assigned_tasks.len()
     }
 
     /// Get sidebar (public for testing)

@@ -76,6 +76,11 @@ impl ApiEndpoints {
         )
     }
 
+    /// Workspace-wide task query (Get Filtered Team Tasks).
+    ///
+    /// This is the one endpoint that filters by assignee across every Space,
+    /// Folder and List at once, so "Assigned to Me" costs a page per 100
+    /// tasks instead of one request per list.
     pub fn tasks_in_team(team_id: &str, query: &str) -> String {
         format!("{}/team/{}/task{}", BASE_URL, team_id, query)
     }

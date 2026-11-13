@@ -13,6 +13,11 @@ use ratatui::{
 /// Sidebar item types
 #[derive(Debug, Clone)]
 pub enum SidebarItem {
+    /// The "Assigned to Me" entry pinned to the navigation root.
+    ///
+    /// It is not part of the workspace hierarchy: it is a shortcut to a
+    /// workspace-wide query, so it only ever appears at the root level.
+    AssignedToMe,
     Workspace { name: String, id: String },
     Space { name: String, id: String },
     Folder { name: String, id: String },
@@ -23,6 +28,9 @@ impl SidebarItem {
     /// Get the ID of this sidebar item
     pub fn id(&self) -> &str {
         match self {
+            // Synthetic entry: this ID is never used to look anything up
+            // upstream, only to keep the sidebar's selection logic uniform.
+            SidebarItem::AssignedToMe => "assigned-to-me",
             SidebarItem::Workspace { id, .. } => id,
             SidebarItem::Space { id, .. } => id,
             SidebarItem::Folder { id, .. } => id,
@@ -107,6 +115,13 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
         .iter()
         .map(|item| {
             let (type_label, name, name_style) = match item {
+                SidebarItem::AssignedToMe => (
+                    "@",
+                    "Assigned to Me".to_string(),
+                    Style::default()
+                        .fg(Theme::WARNING)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 SidebarItem::Workspace { name, .. } => (
                     "WS",
                     format!("{}", name),

@@ -1005,8 +1005,13 @@ fn test_navigation_hierarchy() {
         );
         add_level(&mut app, 1, "Workspaces", "Down");
 
-        // Navigate into workspace (workspace is now at index 0)
-        app.sidebar().select_first();
+        // Navigate into the first workspace. The root sidebar carries the
+        // pinned "Assigned to Me" entry ahead of the workspaces, so select by
+        // ID rather than by position.
+        assert!(
+            app.sidebar().select_by_id(&workspaces[0].id),
+            "first workspace should be present in the root sidebar"
+        );
         app.navigate_into();
         app.process_async_messages();
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -1543,6 +1548,31 @@ fn test_spc_q_quits_immediately_during_task_creation() {
         !app.is_dialog_visible(),
         "SPC q must not show a confirmation dialog"
     );
+}
+
+/// The navigation root pins the "Assigned to Me" entry above the workspaces.
+/// It must not appear at any deeper level, since it is a workspace-wide query
+/// rather than a location in the hierarchy.
+#[test]
+fn snapshot_navigation_root_assigned_entry() {
+    let mut sidebar = SidebarState::new();
+    *sidebar.items_mut() = vec![
+        SidebarItem::AssignedToMe,
+        SidebarItem::Workspace {
+            name: "Engineering".to_string(),
+            id: "ws-1".to_string(),
+        },
+        SidebarItem::Workspace {
+            name: "Marketing".to_string(),
+            id: "ws-2".to_string(),
+        },
+    ];
+    sidebar.select_first();
+
+    assert_widget_snapshot("navigation_root_assigned_entry", 40, 10, |frame| {
+        let area = Rect::new(0, 0, 40, 10);
+        render_sidebar(frame, &sidebar, area);
+    });
 }
 
 // ============================================================================

@@ -1,13 +1,14 @@
 ---
 source: tests/snapshot_test.rs
+assertion_line: 1106
 expression: combined_snapshot
 ---
 === Level 1: Workspaces (Down) ===
 ┌ Navigation ──────────────────────────┐
-│▸ WS Engineering                      │
+│▸ @ Assigned to Me                    │
+│  WS Engineering                      │
 │  WS Marketing                        │
 │  WS Design                           │
-│                                      │
 │                                      │
 │                                      │
 │                                      │
