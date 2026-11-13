@@ -245,6 +245,7 @@ ClickDown automatically saves your navigation state when you exit and restores i
 
 | Key | Action |
 |-----|--------|
+| `SPC r` | Refresh the current screen from ClickUp (tasks, task + comments, navigation lists) |
 | `SPC q` | Quit application immediately (no confirmation) |
 | `SPC w s` | Toggle sidebar |
 | `SPC y u` | Copy element URL to clipboard |

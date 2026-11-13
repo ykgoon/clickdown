@@ -27,12 +27,13 @@ struct GroupEntry {
 }
 
 /// Root minibuffer entries, in display order (matches the key handler in app.rs).
-const ROOT_GROUPS: [GroupEntry; 6] = [
+const ROOT_GROUPS: [GroupEntry; 7] = [
     GroupEntry { label: "Go", key: 'g' },
     GroupEntry { label: "Task", key: 't' },
     GroupEntry { label: "Comments", key: 'c' },
     GroupEntry { label: "Copy", key: 'y' },
     GroupEntry { label: "Window", key: 'w' },
+    GroupEntry { label: "Refresh", key: 'r' },
     GroupEntry { label: "Quit", key: 'q' },
 ];
 
@@ -44,6 +45,7 @@ fn group_color(key: char) -> Color {
         'c' => Theme::SUCCESS,
         'y' => Color::LightBlue,
         'w' => Color::Blue,
+        'r' => Color::Magenta,
         'q' => Theme::ERROR,
         _ => Theme::TEXT,
     }

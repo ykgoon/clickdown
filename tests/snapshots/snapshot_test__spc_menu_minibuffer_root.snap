@@ -1,6 +1,6 @@
 ---
 source: tests/snapshot_test.rs
-assertion_line: 60
+assertion_line: 59
 expression: snapshot
 ---
                                                                                                     
@@ -23,7 +23,7 @@ expression: snapshot
                                                                                                     
                                                                                                     
                                                                                                     
- Go              Task             Comments        Copy            Window           Quit             
- g               t                c               y               w                q                
+ Go            Task          Comments      Copy          Window        Refresh       Quit           
+ g             t             c             y             w             r             q              
  ────────────────────────────────────────────────────────────────────────────────────────────────── 
  press a key · Esc close

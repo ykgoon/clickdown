@@ -134,6 +134,10 @@ pub enum AppMessage {
     ListsLoaded(Result<Vec<List>, String>),
     TasksLoaded(Result<Vec<Task>, String>),
     CommentsLoaded(Result<Vec<Comment>, String>),
+    /// A task re-fetched by `SPC r` while its detail view is open
+    TaskRefreshed(Result<Task, String>),
+    /// A document re-fetched by `SPC r`
+    DocumentRefreshed(Result<Document, String>),
     CommentCreated(Result<Comment, String>, CommentCreatedMessageMeta),
     CommentUpdated(Result<Comment, String>),
     CurrentUserLoaded(Result<User, String>),
@@ -258,6 +262,17 @@ pub struct TuiApp {
     mention_at: Option<usize>,
     /// People that `@Name` in the current buffers may resolve to.
     mention_registry: Vec<crate::tui::mention::MentionEntry>,
+
+    /// Comment selected before a refresh, so a reload can reselect it
+    pending_comment_selection: Option<String>,
+
+    /// Task selected before a task-list refresh, so the reload can reselect it
+    pending_task_selection: Option<String>,
+
+    /// True while a `SPC r` on task detail is still reloading its comments,
+    /// so the follow-up comment load reports the refresh instead of a plain
+    /// "Loaded N comments".
+    refresh_reloading_comments: bool,
 
     /// Comment thread navigation state
     comment_view_mode: CommentViewMode,
@@ -858,6 +873,11 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         'c' => self.command_menu = Some(CommandMenuLevel::Group('c')),
                         'y' => self.command_menu = Some(CommandMenuLevel::Group('y')),
                         'w' => self.command_menu = Some(CommandMenuLevel::Group('w')),
+                        'r' => {
+                            // `SPC r` -- re-query ClickUp for what is on screen
+                            self.command_menu = None;
+                            self.refresh_current_view();
+                        }
                         'q' => {
                             // `SPC q` -- quit immediately (session is saved on exit)
                             self.command_menu = None;
@@ -1739,6 +1759,9 @@ impl TuiApp {
             comment_pane_scroll: 0,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
+            pending_comment_selection: None,
+            pending_task_selection: None,
+            refresh_reloading_comments: false,
             task_name_input: String::new(),
             task_name_cursor: 0,
             task_description_input: String::new(),
@@ -1876,6 +1899,9 @@ impl TuiApp {
             comment_pane_scroll: 0,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
+            pending_comment_selection: None,
+            pending_task_selection: None,
+            refresh_reloading_comments: false,
             task_name_input: String::new(),
             task_name_cursor: 0,
             task_description_input: String::new(),
@@ -1988,6 +2014,9 @@ impl TuiApp {
             comment_pane_scroll: 0,
             comment_view_mode: CommentViewMode::TopLevel,
             comment_previous_selection: None,
+            pending_comment_selection: None,
+            pending_task_selection: None,
+            refresh_reloading_comments: false,
             task_name_input: String::new(),
             task_name_cursor: 0,
             task_description_input: String::new(),
@@ -2532,6 +2561,27 @@ impl TuiApp {
                                             .count()
                                         );
                                     }
+                                } else if let Some(ref pending_id) = self.pending_task_selection.take()
+                                {
+                                    let found = self
+                                        .task_list
+                                        .rows()
+                                        .iter()
+                                        .enumerate()
+                                        .find(|(_, r)| matches!(r, ListRow::Task(t) if &t.id == pending_id))
+                                        .map(|(idx, _)| idx);
+                                    match found {
+                                        Some(idx) => self.task_list.select(Some(idx)),
+                                        None => self.task_list.select_first(),
+                                    }
+                                    self.status = format!(
+                                        "Refreshed - {} task(s)",
+                                        self.task_list
+                                            .rows()
+                                            .iter()
+                                            .filter(|r| matches!(r, ListRow::Task(_)))
+                                            .count()
+                                    );
                                 } else {
                                     self.task_list.select_first();
                                     self.status = format!(
@@ -2575,11 +2625,28 @@ impl TuiApp {
                                     );
                                 }
                                 self.comments = comments;
-                                self.comment_selected_index = 0;
+                                // A refresh reload tries to keep the user on
+                                // the same comment instead of jumping to top.
+                                if let Some(ref pending_id) = self.pending_comment_selection {
+                                    self.comment_selected_index = self
+                                        .comments
+                                        .iter()
+                                        .position(|c| &c.id == pending_id)
+                                        .unwrap_or(0);
+                                    self.pending_comment_selection = None;
+                                } else {
+                                    self.comment_selected_index = 0;
+                                }
                                 self.error = None;
-                                self.status = format!("Loaded {} comment(s)", self.comments.len());
+                                self.status = if self.refresh_reloading_comments {
+                                    self.refresh_reloading_comments = false;
+                                    format!("Refreshed - {} comment(s)", self.comments.len())
+                                } else {
+                                    format!("Loaded {} comment(s)", self.comments.len())
+                                };
                             }
                             Err(e) => {
+                                self.refresh_reloading_comments = false;
                                 self.error = Some(format!("Failed to load comments: {}", e));
                                 self.status = "Failed to load comments".to_string();
                                 self.comments.clear();
@@ -2960,6 +3027,75 @@ impl TuiApp {
                                 self.navigating = false;
                                 self.navigating_level.clear();
                                 self.status = format!("Failed to load comments: {}", e);
+                            }
+                        }
+                    }
+                    AppMessage::TaskRefreshed(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(task) => {
+                                // The user may have navigated away before the
+                                // response landed; only repaint the detail view
+                                // if it still shows this task.
+                                let still_viewing = self.screen == Screen::TaskDetail
+                                    && self
+                                        .task_detail
+                                        .task
+                                        .as_ref()
+                                        .map(|t| t.id == task.id)
+                                        .unwrap_or(false);
+                                for cached in &mut self.tasks {
+                                    if cached.id == task.id {
+                                        *cached = task.clone();
+                                        break;
+                                    }
+                                }
+                                self.rebuild_task_list();
+                                if still_viewing {
+                                    self.task_detail.task = Some(task.clone());
+                                    self.update_screen_title();
+                                    // Pull the latest comments as well.
+                                    self.load_comments(task.id);
+                                } else {
+                                    self.refresh_reloading_comments = false;
+                                    self.pending_comment_selection = None;
+                                }
+                                self.error = None;
+                                self.status = format!("Refreshed task: {}", task.name);
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to refresh task: {}", e));
+                                self.status = "Refresh failed".to_string();
+                            }
+                        }
+                    }
+                    AppMessage::DocumentRefreshed(result) => {
+                        self.loading = false;
+                        match result {
+                            Ok(doc) if self.screen == Screen::Document => {
+                                self.documents = vec![doc.clone()];
+                                self.document.title = doc.name.clone();
+                                if let Some(page) = doc.pages.first() {
+                                    if let Some(content) = page
+                                        .content_markdown
+                                        .clone()
+                                        .or_else(|| page.content.clone())
+                                    {
+                                        self.document.content = content;
+                                    }
+                                }
+                                self.update_screen_title();
+                                self.error = None;
+                                self.status = format!("Refreshed document: {}", doc.name);
+                            }
+                            // Response arrived after the user left the
+                            // document screen: nothing to repaint.
+                            Ok(_) => {
+                                self.status = "Refreshed".to_string();
+                            }
+                            Err(e) => {
+                                self.error = Some(format!("Failed to refresh document: {}", e));
+                                self.status = "Refresh failed".to_string();
                             }
                         }
                     }
@@ -4507,6 +4643,116 @@ impl TuiApp {
         });
 
         self.status_picker_open = false;
+    }
+
+    /// Re-query ClickUp for whatever is currently displayed (`SPC r`).
+    ///
+    /// Each screen maps to the request that produced it, so the refresh
+    /// re-runs that request and the usual message handlers repaint the view:
+    /// a task list picks up renamed tasks, task detail picks up new comments,
+    /// and so on. Selection/fold state is preserved where it still applies.
+    pub fn refresh_current_view(&mut self) {
+        if self.client.is_none() {
+            self.status = "Not authenticated".to_string();
+            return;
+        }
+
+        match self.screen {
+            Screen::Auth => {
+                self.status = "Nothing to refresh before sign-in".to_string();
+            }
+            Screen::Workspaces => {
+                self.load_workspaces();
+                self.status = "Refreshing workspaces...".to_string();
+            }
+            Screen::Spaces => match self.current_workspace_id.clone() {
+                Some(id) => {
+                    self.load_spaces(id);
+                    self.status = "Refreshing spaces...".to_string();
+                }
+                None => self.status = "Nothing to refresh".to_string(),
+            },
+            Screen::Folders => match self.current_space_id.clone() {
+                Some(id) => {
+                    self.load_folders(id);
+                    self.status = "Refreshing folders...".to_string();
+                }
+                None => self.status = "Nothing to refresh".to_string(),
+            },
+            Screen::Lists => match self.current_folder_id.clone() {
+                Some(id) => {
+                    self.load_lists(id);
+                    self.status = "Refreshing lists...".to_string();
+                }
+                None => self.status = "Nothing to refresh".to_string(),
+            },
+            Screen::Tasks => match self.current_list_id.clone() {
+                Some(id) => {
+                    // Remember the selected task so the rebuilt list can
+                    // land back on it even if the order changed upstream.
+                    self.pending_task_selection =
+                        self.task_list.selected_task().map(|t| t.id.clone());
+                    self.load_tasks(id);
+                    self.status = "Refreshing tasks...".to_string();
+                }
+                None => self.status = "Nothing to refresh".to_string(),
+            },
+            Screen::TaskDetail => match self.task_detail.task.as_ref().map(|t| t.id.clone()) {
+                Some(task_id) => {
+                    let client = self.client.clone().unwrap();
+                    let tx = self.message_tx.clone().unwrap();
+                    let comment_id = self.selected_comment_id();
+                    self.pending_comment_selection = comment_id;
+                    self.refresh_reloading_comments = true;
+                    self.loading = true;
+                    self.status = "Refreshing task...".to_string();
+                    tokio::spawn(async move {
+                        let result = client.get_task(&task_id).await;
+                        let msg = match result {
+                            Ok(task) => AppMessage::TaskRefreshed(Ok(task)),
+                            Err(e) => AppMessage::TaskRefreshed(Err(e.to_string())),
+                        };
+                        let _ = tx.send(msg).await;
+                    });
+                }
+                None => {
+                    // Inside the task screen without a task (e.g. creation
+                    // form): refreshing the underlying list is still useful.
+                    self.status = "Nothing to refresh".to_string();
+                }
+            },
+            Screen::Document => match self.documents.first().map(|d| d.id.clone()) {
+                Some(doc_id) => {
+                    let client = self.client.clone().unwrap();
+                    let tx = self.message_tx.clone().unwrap();
+                    self.loading = true;
+                    self.status = "Refreshing document...".to_string();
+                    tokio::spawn(async move {
+                        use crate::models::DocumentFilters;
+                        let filters = DocumentFilters::default();
+                        let result = client.search_docs(&filters).await;
+                        let msg = match result {
+                            Ok(docs) => match docs.into_iter().find(|d| d.id == doc_id) {
+                                Some(doc) => AppMessage::DocumentRefreshed(Ok(doc)),
+                                None => AppMessage::DocumentRefreshed(Err(
+                                    "Document no longer available".to_string(),
+                                )),
+                            },
+                            Err(e) => AppMessage::DocumentRefreshed(Err(e.to_string())),
+                        };
+                        let _ = tx.send(msg).await;
+                    });
+                }
+                None => self.status = "Nothing to refresh".to_string(),
+            },
+        }
+    }
+
+    /// ID of the comment currently focused/highlighted on the task screen
+    fn selected_comment_id(&self) -> Option<String> {
+        self.comments
+            .get(self.comment_selected_index)
+            .map(|c| c.id.clone())
     }
 
     /// Load comments for a task (top-level + replies)
