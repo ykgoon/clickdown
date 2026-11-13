@@ -135,6 +135,12 @@ pub trait ClickUpApi: Send + Sync {
         comment: &UpdateCommentRequest,
     ) -> Result<Comment>;
 
+    /// Add a reaction (e.g. `thumbsup`) to a comment
+    async fn add_comment_reaction(&self, comment_id: &str, reaction: &str) -> Result<()>;
+
+    /// Remove a reaction from a comment
+    async fn remove_comment_reaction(&self, comment_id: &str, reaction: &str) -> Result<()>;
+
     // ==================== Assigned Tasks ====================
 
     /// Get tasks assigned to a specific user from a list

@@ -74,6 +74,7 @@ fn group_actions(group: char) -> Option<(&'static str, Vec<(&'static str, char)>
                 ("New comment", 'n'),
                 ("Edit selected comment", 'e'),
                 ("Reply in thread", 'r'),
+                ("Thumbs-up selected comment", 'u'),
                 ("Expand/collapse comments", 'v'),
             ],
         )),

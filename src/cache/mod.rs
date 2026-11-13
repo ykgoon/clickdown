@@ -130,6 +130,7 @@ impl CacheManager {
                 assigned_by: None,
                 assigned: false,
                 reaction: String::new(),
+                reactions: Vec::new(),
                 parent_id: row.get(6)?,
             })
         })?;

@@ -658,6 +658,7 @@ fn test_mock_client_with_comments() {
                 assigned_by: None,
                 assigned: false,
                 reaction: String::new(),
+                reactions: Vec::new(),
                 parent_id: None,
             },
             Comment {
@@ -671,6 +672,7 @@ fn test_mock_client_with_comments() {
                 assigned_by: None,
                 assigned: false,
                 reaction: String::new(),
+                reactions: Vec::new(),
                 parent_id: None,
             },
         ];
@@ -707,6 +709,7 @@ fn test_mock_client_create_comment() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            reactions: Vec::new(),
             parent_id: None,
         };
 
@@ -754,6 +757,7 @@ fn test_mock_client_update_comment() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            reactions: Vec::new(),
             parent_id: None,
         };
 
@@ -804,6 +808,7 @@ fn test_cache_comments() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            reactions: Vec::new(),
             parent_id: None,
         },
         Comment {
@@ -817,6 +822,7 @@ fn test_cache_comments() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            reactions: Vec::new(),
             parent_id: None,
         },
     ];
@@ -858,6 +864,7 @@ fn test_cache_validity() {
         assigned_by: None,
         assigned: false,
         reaction: String::new(),
+        reactions: Vec::new(),
         parent_id: None,
     }];
 
@@ -901,6 +908,7 @@ fn test_clear_comments() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            reactions: Vec::new(),
             parent_id: None,
         },
         Comment {
@@ -914,6 +922,7 @@ fn test_clear_comments() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            reactions: Vec::new(),
             parent_id: None,
         },
     ];
@@ -956,6 +965,7 @@ fn test_comments_isolated_by_task() {
         assigned_by: None,
         assigned: false,
         reaction: String::new(),
+        reactions: Vec::new(),
         parent_id: None,
     };
 
@@ -970,6 +980,7 @@ fn test_comments_isolated_by_task() {
         assigned_by: None,
         assigned: false,
         reaction: String::new(),
+        reactions: Vec::new(),
         parent_id: None,
     };
 
@@ -1014,6 +1025,7 @@ fn test_mock_client_create_comment_reply() {
             assigned_by: None,
             assigned: false,
             reaction: String::new(),
+            reactions: Vec::new(),
             parent_id: Some("parent-comment-123".to_string()),
         };
 
@@ -1109,6 +1121,7 @@ fn test_reply_comment_parent_id() {
         assigned_by: None,
         assigned: false,
         reaction: String::new(),
+        reactions: Vec::new(),
         parent_id: Some("parent-123".to_string()),
     };
 
@@ -1131,6 +1144,7 @@ fn test_top_level_comment_no_parent_id() {
         assigned_by: None,
         assigned: false,
         reaction: String::new(),
+        reactions: Vec::new(),
         parent_id: None,
     };
 

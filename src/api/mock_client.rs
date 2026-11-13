@@ -90,6 +90,12 @@ pub struct MockClickUpClient {
     pub current_user_response: Option<Result<User>>,
     /// Override for get_list_members response
     pub list_members_response: Option<Result<Vec<User>>>,
+    /// Override for add/remove comment reaction (shared: both return no body)
+    pub comment_reaction_response: Option<Result<()>>,
+    /// Reaction calls recorded as (comment_id, reaction, added).
+    /// Tests keep a clone of the handle to inspect calls after handing the
+    /// client to the app.
+    pub reaction_calls: ReactionCalls,
 }
 
 #[allow(dead_code)]
@@ -119,6 +125,45 @@ impl MockClickUpClient {
             tasks_with_assignee_response: None,
             current_user_response: None,
             list_members_response: None,
+            comment_reaction_response: None,
+            reaction_calls: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Configure the reaction response
+    pub fn with_comment_reaction(mut self) -> Self {
+        self.comment_reaction_response = Some(Ok(()));
+        self
+    }
+
+    /// Configure a reaction failure
+    pub fn with_comment_reaction_error(mut self, msg: &str) -> Self {
+        self.comment_reaction_response = Some(Err(anyhow!("{}", msg)));
+        self
+    }
+
+    /// Recorded reaction calls, as (comment_id, reaction, added)
+    pub fn reaction_calls(&self) -> Vec<(String, String, bool)> {
+        self.reaction_calls
+            .lock()
+            .map(|calls| calls.clone())
+            .unwrap_or_default()
+    }
+
+    /// A handle to this client's reaction log, valid after the client moves
+    pub fn reaction_calls_handle(&self) -> ReactionCalls {
+        self.reaction_calls.clone()
+    }
+
+    /// Record one reaction call and return the configured outcome
+    fn record_reaction(&self, comment_id: &str, reaction: &str, added: bool) -> Result<()> {
+        if let Ok(mut calls) = self.reaction_calls.lock() {
+            calls.push((comment_id.to_string(), reaction.to_string(), added));
+        }
+        match &self.comment_reaction_response {
+            Some(Ok(())) => Ok(()),
+            Some(Err(e)) => Err(anyhow!(e.to_string())),
+            None => Ok(()),
         }
     }
     /// Set the workspaces response
@@ -264,6 +309,10 @@ impl MockClickUpClient {
         self
     }
 }
+
+/// Shared handle to a mock's recorded reaction calls, so tests can inspect
+/// them after the client has been moved into the app.
+pub type ReactionCalls = std::sync::Arc<std::sync::Mutex<Vec<(String, String, bool)>>>;
 
 #[async_trait::async_trait]
 impl ClickUpApi for MockClickUpClient {
@@ -466,5 +515,13 @@ impl ClickUpApi for MockClickUpClient {
 
     async fn get_list_members(&self, _list_id: &str) -> Result<Vec<User>> {
         return_vec_response(&self.list_members_response)
+    }
+
+    async fn add_comment_reaction(&self, comment_id: &str, reaction: &str) -> Result<()> {
+        self.record_reaction(comment_id, reaction, true)
+    }
+
+    async fn remove_comment_reaction(&self, comment_id: &str, reaction: &str) -> Result<()> {
+        self.record_reaction(comment_id, reaction, false)
     }
 }

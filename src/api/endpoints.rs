@@ -106,6 +106,16 @@ impl ApiEndpoints {
         format!("{}/comment/{}/reply", BASE_URL, comment_id)
     }
 
+    /// Add or remove a reaction on a comment.
+    ///
+    /// Not catalogued in the published v2 reference, but the live API serves
+    /// it: an unknown path under `/comment/{id}/` returns 404 while this one
+    /// returns 401 "Authorization header required". The reaction itself is
+    /// carried in the JSON body for both POST and DELETE.
+    pub fn comment_reaction(comment_id: &str) -> String {
+        format!("{}/comment/{}/reaction", BASE_URL, comment_id)
+    }
+
     // Notification endpoints
     pub fn notifications(workspace_id: &str) -> String {
         format!("{}/team/{}/notifications", BASE_URL, workspace_id)

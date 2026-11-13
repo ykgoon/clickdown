@@ -268,6 +268,7 @@ ClickDown automatically saves your navigation state when you exit and restores i
 | `n` | New comment |
 | `e` | Edit selected comment |
 | `r` | Reply to thread (when viewing a thread) |
+| `SPC c u` | Thumbs-up the selected comment (press again to remove) |
 | `Enter` | View comment thread |
 | `Ctrl+S` | Save comment |
 | `Esc` | Cancel editing / Exit thread |

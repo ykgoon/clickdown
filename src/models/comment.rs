@@ -29,7 +29,7 @@
 //! identify which field caused the failure.
 
 use crate::utils::deserializers::{
-    flexible_string, flexible_timestamp, null_to_empty_string, null_to_false,
+    flexible_string, flexible_timestamp, null_to_empty_string, null_to_empty_vec, null_to_false,
 };
 use serde::{Deserialize, Serialize};
 
@@ -103,9 +103,28 @@ pub struct Comment {
     /// Note: API may also return `reactions` array (ignored until needed)
     #[serde(default, deserialize_with = "null_to_empty_string")]
     pub reaction: String,
+    /// Reactions added to this comment, as emoji names (`thumbsup`, ...).
+    ///
+    /// The API returns these as a flat array of reaction names. A comment
+    /// without reactions has an empty array, so callers can test membership
+    /// directly without worrying about null.
+    #[serde(default, deserialize_with = "null_to_empty_vec")]
+    pub reactions: Vec<String>,
     /// Parent comment ID for threaded replies (None for top-level comments)
     #[serde(default, rename = "parent_id", skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
+}
+
+impl Comment {
+    /// True when this comment carries the given reaction (e.g. `thumbsup`).
+    ///
+    /// Reaction names are compared case-insensitively because the API has
+    /// returned both `thumbsup` and `THUMBSUP` shapes over time.
+    pub fn has_reaction(&self, name: &str) -> bool {
+        self.reactions
+            .iter()
+            .any(|reaction| reaction.eq_ignore_ascii_case(name))
+    }
 }
 
 /// User reference in comment context

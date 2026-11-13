@@ -416,6 +416,42 @@ impl ClickUpClient {
         Ok(response)
     }
 
+    /// Add a reaction to a comment
+    ///
+    /// The reaction endpoint replies without a body, so this checks the status
+    /// instead of parsing JSON.
+    pub async fn add_comment_reaction(&self, comment_id: &str, reaction: &str) -> Result<()> {
+        let url = ApiEndpoints::comment_reaction(comment_id);
+        let body = serde_json::json!({ "reaction": reaction });
+        self.execute_empty(self.request(reqwest::Method::POST, url).json(&body))
+            .await
+    }
+
+    /// Remove a reaction from a comment
+    pub async fn remove_comment_reaction(&self, comment_id: &str, reaction: &str) -> Result<()> {
+        let url = ApiEndpoints::comment_reaction(comment_id);
+        let body = serde_json::json!({ "reaction": reaction });
+        self.execute_empty(self.request(reqwest::Method::DELETE, url).json(&body))
+            .await
+    }
+
+    /// Execute a request that returns no meaningful body, mapping HTTP errors
+    /// the same way `parse_response` does so the UI reports them consistently.
+    async fn execute_empty(&self, request: reqwest::RequestBuilder) -> Result<()> {
+        let response = request.send().await.context("Request failed")?;
+        let status = response.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        let error_text = response.text().await.unwrap_or_default();
+        if status == reqwest::StatusCode::UNAUTHORIZED
+            && (error_text.contains("Oauth token not found") || error_text.contains("OAUTH_019"))
+        {
+            anyhow::bail!("Token invalid or expired: re-authentication required");
+        }
+        anyhow::bail!("API error ({}): {}", status, error_text);
+    }
+
     // ==================== Assigned Tasks ====
 
     pub async fn get_tasks_with_assignee(
@@ -582,6 +618,18 @@ macro_rules! impl_clickup_api {
                 comment: &UpdateCommentRequest,
             ) -> Result<Comment> {
                 self.update_comment(comment_id, comment).await
+            }
+
+            async fn add_comment_reaction(&self, comment_id: &str, reaction: &str) -> Result<()> {
+                self.add_comment_reaction(comment_id, reaction).await
+            }
+
+            async fn remove_comment_reaction(
+                &self,
+                comment_id: &str,
+                reaction: &str,
+            ) -> Result<()> {
+                self.remove_comment_reaction(comment_id, reaction).await
             }
 
             async fn get_tasks_with_assignee(

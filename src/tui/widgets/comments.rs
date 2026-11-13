@@ -354,6 +354,15 @@ fn render_comment_list(
             }
         }
 
+        // Show a thumbs-up badge when the comment carries that reaction, so
+        // `SPC c u` is visibly confirmed in the list.
+        if comment.has_reaction(crate::tui::app::THUMBS_UP_REACTION) {
+            header_spans.push(Span::styled(
+                " \u{00b7} \u{1f44d}",
+                Style::default().fg(Theme::SUCCESS),
+            ));
+        }
+
         // Task 3.4: Add "Parent comment" label for parent in thread view
         if is_parent_in_thread {
             header_spans.push(Span::styled(

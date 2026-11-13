@@ -63,6 +63,13 @@ pub enum TaskCreationField {
     Description,
 }
 
+/// The single reaction this client exposes: a thumbs-up on a comment.
+///
+/// ClickUp uses short emoji names (`thumbsup`) in the API, while the UI shows
+/// the 👍 glyph; keeping both here avoids drift between the wire value and
+/// what the comment rows render.
+pub const THUMBS_UP_REACTION: &str = "thumbsup";
+
 /// Which comment-compose action a `SPC c` command requested.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComposeKind {
@@ -134,6 +141,8 @@ pub enum AppMessage {
     ListsLoaded(Result<Vec<List>, String>),
     TasksLoaded(Result<Vec<Task>, String>),
     CommentsLoaded(Result<Vec<Comment>, String>),
+    /// A `SPC c u` reaction call finished: (comment_id, reaction, added)
+    CommentReactionUpdated(Result<(), String>, String, String, bool),
     /// A task re-fetched by `SPC r` while its detail view is open
     TaskRefreshed(Result<Task, String>),
     /// A document re-fetched by `SPC r`
@@ -1007,6 +1016,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         }
                     }
                     ('c', KeyCode::Char('n')) => self.start_comment_compose(ComposeKind::New),
+                    ('c', KeyCode::Char('u')) => self.toggle_comment_thumbs_up(),
                     ('c', KeyCode::Char('e')) => self.start_comment_compose(ComposeKind::Edit),
                     ('c', KeyCode::Char('r')) => self.start_comment_compose(ComposeKind::Reply),
                     ('c', KeyCode::Char('v')) => {
@@ -1598,6 +1608,16 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     #[allow(dead_code)]
     pub fn set_comments(&mut self, comments: Vec<crate::models::Comment>) {
         self.comments = comments;
+    }
+
+    /// Read the reactions recorded on a comment (for testing)
+    #[allow(dead_code)]
+    pub fn reactions_for_test(&self, comment_id: &str) -> Vec<String> {
+        self.comments
+            .iter()
+            .find(|c| c.id == comment_id)
+            .map(|c| c.reactions.clone())
+            .unwrap_or_default()
     }
 
     /// Get the loaded comments (for testing)
@@ -3049,6 +3069,24 @@ impl TuiApp {
                                 self.navigating = false;
                                 self.navigating_level.clear();
                                 self.status = format!("Failed to load comments: {}", e);
+                            }
+                        }
+                    }
+                    AppMessage::CommentReactionUpdated(result, comment_id, reaction, added) => {
+                        match result {
+                            Ok(()) => {
+                                self.status = if added {
+                                    "Reacted 👍".to_string()
+                                } else {
+                                    "Removed 👍".to_string()
+                                };
+                            }
+                            Err(e) => {
+                                // Roll the optimistic flip back so the UI keeps
+                                // matching what ClickUp actually stored.
+                                self.apply_reaction_locally(&comment_id, &reaction, !added);
+                                self.error = Some(format!("Failed to update reaction: {}", e));
+                                self.status = "Reaction failed".to_string();
                             }
                         }
                     }
@@ -5791,6 +5829,82 @@ impl TuiApp {
                 }
             }
         });
+    }
+
+    /// Toggle the 👍 reaction on the selected comment (`SPC c u`).
+    ///
+    /// Thumbs-up is the one reaction this client exposes; pressing it again
+    /// removes the reaction, so the binding behaves as a toggle. The
+    /// optimistic local flip keeps the UI responsive, and the API result
+    /// either confirms it or rolls it back.
+    pub fn toggle_comment_thumbs_up(&mut self) {
+        if self.screen != Screen::TaskDetail {
+            self.status = "Comments live in task detail".to_string();
+            return;
+        }
+
+        let comment_id = match self.selected_comment().map(|c| c.id.clone()) {
+            Some(id) => id,
+            None => {
+                self.status = "Select a comment to react to".to_string();
+                return;
+            }
+        };
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        // Decide direction from what is on screen, then flip it optimistically.
+        let adding = !self
+            .selected_comment()
+            .map(|c| c.has_reaction(THUMBS_UP_REACTION))
+            .unwrap_or(false);
+        self.apply_reaction_locally(&comment_id, THUMBS_UP_REACTION, adding);
+
+        self.status = if adding {
+            "Adding 👍...".to_string()
+        } else {
+            "Removing 👍...".to_string()
+        };
+
+        let tx = self.message_tx.clone().unwrap();
+        let reaction = THUMBS_UP_REACTION.to_string();
+        tokio::spawn(async move {
+            let result = if adding {
+                client.add_comment_reaction(&comment_id, &reaction).await
+            } else {
+                client.remove_comment_reaction(&comment_id, &reaction).await
+            };
+            let msg = AppMessage::CommentReactionUpdated(
+                result.map_err(|e| e.to_string()),
+                comment_id,
+                reaction,
+                adding,
+            );
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Add or remove a reaction in the loaded comment, without an API call
+    fn apply_reaction_locally(&mut self, comment_id: &str, reaction: &str, adding: bool) {
+        if let Some(comment) = self.comments.iter_mut().find(|c| c.id == comment_id) {
+            let present = comment
+                .reactions
+                .iter()
+                .any(|r| r.eq_ignore_ascii_case(reaction));
+            if adding && !present {
+                comment.reactions.push(reaction.to_string());
+            } else if !adding && present {
+                comment
+                    .reactions
+                    .retain(|r| !r.eq_ignore_ascii_case(reaction));
+            }
+        }
     }
 
     /// Copy the content of the focused element (`SPC y c`).

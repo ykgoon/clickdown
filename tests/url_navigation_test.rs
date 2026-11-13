@@ -139,7 +139,11 @@ fn test_dirty_pasted_url_still_opens_correct_task() {
         type_url_and_submit(&mut app, &url);
         pump(&mut app, 10);
 
-        assert_eq!(app.screen(), Screen::TaskDetail, "dirty paste must still navigate");
+        assert_eq!(
+            app.screen(),
+            Screen::TaskDetail,
+            "dirty paste must still navigate"
+        );
         assert_eq!(
             app.task_detail().task.as_ref().unwrap().id,
             TASK_ID,
@@ -227,6 +231,19 @@ impl clickdown::api::ClickUpApi for CustomIdOnlyClient {
         }
     }
 
+    async fn add_comment_reaction(&self, comment_id: &str, reaction: &str) -> anyhow::Result<()> {
+        self.inner.add_comment_reaction(comment_id, reaction).await
+    }
+    async fn remove_comment_reaction(
+        &self,
+        comment_id: &str,
+        reaction: &str,
+    ) -> anyhow::Result<()> {
+        self.inner
+            .remove_comment_reaction(comment_id, reaction)
+            .await
+    }
+
     async fn create_task(
         &self,
         _list_id: &str,
@@ -244,7 +261,10 @@ impl clickdown::api::ClickUpApi for CustomIdOnlyClient {
     async fn delete_task(&self, _task_id: &str) -> anyhow::Result<()> {
         self.inner.delete_task(_task_id).await
     }
-    async fn get_list_members(&self, list_id: &str) -> anyhow::Result<Vec<clickdown::models::User>> {
+    async fn get_list_members(
+        &self,
+        list_id: &str,
+    ) -> anyhow::Result<Vec<clickdown::models::User>> {
         self.inner.get_list_members(list_id).await
     }
     async fn search_docs(
@@ -253,10 +273,7 @@ impl clickdown::api::ClickUpApi for CustomIdOnlyClient {
     ) -> anyhow::Result<Vec<clickdown::models::Document>> {
         self.inner.search_docs(filters).await
     }
-    async fn get_doc_pages(
-        &self,
-        doc_id: &str,
-    ) -> anyhow::Result<Vec<clickdown::models::Page>> {
+    async fn get_doc_pages(&self, doc_id: &str) -> anyhow::Result<Vec<clickdown::models::Page>> {
         self.inner.get_doc_pages(doc_id).await
     }
     async fn get_page(&self, page_id: &str) -> anyhow::Result<clickdown::models::Page> {
@@ -280,7 +297,9 @@ impl clickdown::api::ClickUpApi for CustomIdOnlyClient {
         parent_comment_id: &str,
         comment: &clickdown::models::CreateCommentRequest,
     ) -> anyhow::Result<Comment> {
-        self.inner.create_comment_reply(parent_comment_id, comment).await
+        self.inner
+            .create_comment_reply(parent_comment_id, comment)
+            .await
     }
     async fn update_comment(
         &self,
@@ -295,7 +314,9 @@ impl clickdown::api::ClickUpApi for CustomIdOnlyClient {
         user_id: i32,
         limit: Option<i32>,
     ) -> anyhow::Result<Vec<clickdown::models::Task>> {
-        self.inner.get_tasks_with_assignee(list_id, user_id, limit).await
+        self.inner
+            .get_tasks_with_assignee(list_id, user_id, limit)
+            .await
     }
 }
 
