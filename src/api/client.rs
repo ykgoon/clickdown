@@ -12,8 +12,9 @@ use crate::models::TaskFilters;
 use crate::models::{
     ClickUpSpace as Space, Comment, CommentsResponse, CreateCommentRequest, CreateTaskRequest,
     Document, DocumentFilters, DocumentPagesResponse, DocumentsResponse, Folder, FoldersResponse,
-    List, ListsResponse, MembersResponse, Page, PageResponse, SpacesResponse, Task, TasksResponse,
-    UpdateCommentRequest, UpdateTaskRequest, User, UserResponse, Workspace, WorkspacesResponse,
+    Inbox, List, ListsResponse, MembersResponse, Page, PageResponse, SpacesResponse, Task,
+    TasksResponse, UpdateCommentRequest, UpdateTaskRequest, User, UserResponse, Workspace,
+    WorkspacesResponse,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -454,6 +455,19 @@ impl ClickUpClient {
 
     // ==================== Assigned Tasks ====
 
+    /// Fetch the workspace inbox.
+    ///
+    /// The payload is the internal web-app shape, so it is parsed with the
+    /// dedicated `Inbox` model rather than `Task`.
+    pub async fn get_inbox(&self, team_id: &str) -> Result<Inbox> {
+        let url = ApiEndpoints::inbox(team_id);
+        tracing::info!("Fetching inbox for workspace {}", team_id);
+        let response = self
+            .execute::<crate::models::InboxResponse>(self.request(reqwest::Method::GET, url))
+            .await?;
+        Ok(response.inbox)
+    }
+
     /// Tasks assigned to a user across the whole Workspace (one page).
     ///
     /// `page` is zero-based and holds up to 100 tasks. The response has no
@@ -692,6 +706,10 @@ macro_rules! impl_clickup_api {
             ) -> Result<Vec<Task>> {
                 self.get_team_tasks_with_assignee(team_id, user_id, page)
                     .await
+            }
+
+            async fn get_inbox(&self, team_id: &str) -> Result<crate::models::Inbox> {
+                self.get_inbox(team_id).await
             }
         }
     };

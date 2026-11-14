@@ -121,9 +121,17 @@ impl ApiEndpoints {
         format!("{}/comment/{}/reaction", BASE_URL, comment_id)
     }
 
-    // Notification endpoints
-    pub fn notifications(workspace_id: &str) -> String {
-        format!("{}/team/{}/notifications", BASE_URL, workspace_id)
+    // Inbox endpoint
+    //
+    // Undocumented but live: `GET /team/{id}/inbox` returns the same attention
+    // list the ClickUp web app shows. It is GET-only and takes no parameters —
+    // `page`, `limit`, `cursor` and `unread` are silently ignored — and every
+    // dismiss/read route under it returns 404, so read state is tracked
+    // locally rather than written back.
+    //
+    // Replaces the previous `/team/{id}/notifications` helper, which 404s.
+    pub fn inbox(workspace_id: &str) -> String {
+        format!("{}/team/{}/inbox", BASE_URL, workspace_id)
     }
 
     // Smart Inbox / Activity Feed endpoints

@@ -228,6 +228,80 @@ impl CacheManager {
         }
     }
 
+    /// Record that inbox entries have been seen (and optionally dismissed).
+    ///
+    /// The inbox API exposes no read state, so "inbox zero" lives here: an id
+    /// recorded with `dismissed = false` still counts as read, while `true`
+    /// hides it from the list entirely. Re-recording an id refreshes its
+    /// timestamp, so a task that becomes active again can be marked unread by
+    /// deleting the row.
+    pub fn mark_inbox_read(
+        &mut self,
+        team_id: &str,
+        task_ids: &[String],
+        dismissed: bool,
+    ) -> Result<()> {
+        if task_ids.is_empty() {
+            return Ok(());
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        let tx = self.conn.transaction()?;
+        for task_id in task_ids {
+            tx.execute(
+                "INSERT INTO inbox_read (team_id, task_id, read_at, dismissed)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(team_id, task_id) DO UPDATE SET
+                     read_at = excluded.read_at,
+                     dismissed = MAX(inbox_read.dismissed, excluded.dismissed)",
+                params![team_id, task_id, now, dismissed as i64],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Load locally tracked inbox state for a workspace.
+    ///
+    /// Returns `(read_ids, dismissed_ids)` as separate sets because the two are
+    /// used differently: read entries still appear (greyed) while dismissed
+    /// ones are filtered out.
+    pub fn load_inbox_state(
+        &self,
+        team_id: &str,
+    ) -> Result<(
+        std::collections::HashSet<String>,
+        std::collections::HashSet<String>,
+    )> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT task_id, dismissed FROM inbox_read WHERE team_id = ?1")?;
+        let rows = stmt.query_map([team_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0))
+        })?;
+
+        let mut read = std::collections::HashSet::new();
+        let mut dismissed = std::collections::HashSet::new();
+        for row in rows {
+            let (task_id, is_dismissed) = row?;
+            if is_dismissed {
+                dismissed.insert(task_id);
+            } else {
+                read.insert(task_id);
+            }
+        }
+        Ok((read, dismissed))
+    }
+
+    /// Clear locally tracked inbox state for a workspace (e.g. on logout).
+    #[allow(dead_code)]
+    pub fn clear_inbox_state(&mut self, team_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM inbox_read WHERE team_id = ?1",
+            params![team_id],
+        )?;
+        Ok(())
+    }
+
     /// Clear session state from the cache
     ///
     /// Removes all session state key-value pairs.

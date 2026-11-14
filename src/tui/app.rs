@@ -25,7 +25,7 @@ use super::terminal;
 use super::widgets::{
     render_assignee_picker, render_auth, render_command_menu,
     render_comments, render_mention_picker,
-    render_dialog, render_document, render_sidebar, render_status_picker,
+    render_dialog, render_document, render_inbox, render_sidebar, render_status_picker,
     render_task_detail_with_editor, render_task_list, AuthState, DialogState, DialogType, DocumentState,
     GroupedTaskList, ListRow, SidebarState, TaskDetailState,
 };
@@ -34,6 +34,8 @@ use super::widgets::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
     Auth,
+    /// Workspace inbox: items needing attention, reachable only from the root.
+    Inbox,
     /// Workspace-wide "Assigned to Me" view, reachable only from the root.
     Assigned,
     Workspaces,
@@ -144,6 +146,8 @@ pub enum AppMessage {
     TasksLoaded(Result<Vec<Task>, String>),
     /// A page of workspace-wide assigned tasks, plus the page it came from
     AssignedTasksLoaded(Result<Vec<Task>, String>, u32),
+    /// Inbox contents for the workspace
+    InboxLoaded(Result<crate::models::Inbox, String>),
     CommentsLoaded(Result<Vec<Comment>, String>),
     /// A `SPC c u` reaction call finished: (comment_id, reaction, added)
     CommentReactionUpdated(Result<(), String>, String, String, bool),
@@ -312,6 +316,17 @@ pub struct TuiApp {
     assigned_loading: bool,
     /// Screen a task detail view was opened from, so Esc returns there
     task_origin_screen: Screen,
+
+    /// Inbox entries currently listed (dismissed ones filtered out)
+    inbox_tasks: Vec<crate::models::InboxTask>,
+    /// Inbox ids the user has already seen, tracked locally
+    inbox_read_ids: std::collections::HashSet<String>,
+    /// Inbox ids the user dismissed, tracked locally
+    inbox_dismissed_ids: std::collections::HashSet<String>,
+    /// Selection index within the rendered inbox rows
+    inbox_selected: usize,
+    /// True while an inbox fetch is in flight
+    inbox_loading: bool,
 
     /// User identity for assignee filtering
     current_user_id: Option<i32>,
@@ -1844,6 +1859,11 @@ impl TuiApp {
             assigned_page_in_flight: None,
             assigned_loading: false,
             task_origin_screen: Screen::Tasks,
+            inbox_tasks: Vec::new(),
+            inbox_read_ids: std::collections::HashSet::new(),
+            inbox_dismissed_ids: std::collections::HashSet::new(),
+            inbox_selected: 0,
+            inbox_loading: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
             cached_list_statuses: std::collections::HashMap::new(),
@@ -1989,6 +2009,11 @@ impl TuiApp {
             assigned_page_in_flight: None,
             assigned_loading: false,
             task_origin_screen: Screen::Tasks,
+            inbox_tasks: Vec::new(),
+            inbox_read_ids: std::collections::HashSet::new(),
+            inbox_dismissed_ids: std::collections::HashSet::new(),
+            inbox_selected: 0,
+            inbox_loading: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
             cached_list_statuses: std::collections::HashMap::new(),
@@ -2035,9 +2060,18 @@ impl TuiApp {
     pub fn with_client_and_test_cache(client: Arc<dyn ClickUpApi>) -> Result<Self> {
         use std::env;
 
-        // Use a unique temporary database file for tests to avoid FK conflicts
+        // Use a unique temporary database file for tests to avoid FK conflicts.
+        // The counter keeps concurrently running tests in one binary from
+        // sharing a file: cached state (inbox read/dismiss markers) leaking
+        // across tests makes them order-dependent.
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static TEST_DB_SEQ: AtomicU32 = AtomicU32::new(0);
         let temp_dir = env::temp_dir();
-        let db_path = temp_dir.join(format!("clickdown_test_{}.db", std::process::id()));
+        let db_path = temp_dir.join(format!(
+            "clickdown_test_{}_{}.db",
+            std::process::id(),
+            TEST_DB_SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
 
         // Remove existing file if present
         let _ = std::fs::remove_file(&db_path);
@@ -2109,6 +2143,11 @@ impl TuiApp {
             assigned_page_in_flight: None,
             assigned_loading: false,
             task_origin_screen: Screen::Tasks,
+            inbox_tasks: Vec::new(),
+            inbox_read_ids: std::collections::HashSet::new(),
+            inbox_dismissed_ids: std::collections::HashSet::new(),
+            inbox_selected: 0,
+            inbox_loading: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
             cached_list_statuses: std::collections::HashMap::new(),
@@ -3113,6 +3152,38 @@ impl TuiApp {
                             }
                         }
                     }
+                    AppMessage::InboxLoaded(result) => {
+                        self.inbox_loading = false;
+                        self.loading = false;
+                        match result {
+                            Ok(inbox) => {
+                                self.apply_inbox(inbox);
+                                self.error = None;
+                                self.status = if self.inbox_tasks.is_empty() {
+                                    "Inbox clear".to_string()
+                                } else {
+                                    format!(
+                                        "Inbox: {} item(s), {} unread",
+                                        self.inbox_tasks.len(),
+                                        self.inbox_unread_count()
+                                    )
+                                };
+                                // Badge can change without a screen switch.
+                                *self.sidebar.items_mut() = self.root_sidebar_items();
+                                self.sync_sidebar_selection_to_screen();
+                                self.update_screen_title();
+                            }
+                            Err(e) => {
+                                // Undocumented endpoint: report it as
+                                // unavailable rather than as a hard failure,
+                                // and keep the user on a usable screen.
+                                tracing::warn!("Inbox unavailable: {}", e);
+                                self.inbox_tasks.clear();
+                                self.status = "Inbox unavailable".to_string();
+                                *self.sidebar.items_mut() = self.root_sidebar_items();
+                            }
+                        }
+                    }
                     AppMessage::AssignedTasksLoaded(result, page) => {
                         match result {
                             Ok(tasks) => {
@@ -3458,6 +3529,7 @@ impl TuiApp {
             Screen::Workspaces | Screen::Spaces | Screen::Folders | Screen::Lists => {
                 self.update_navigation(event)
             }
+            Screen::Inbox => self.update_inbox(event),
             Screen::Tasks | Screen::Assigned => self.update_tasks(event),
             Screen::TaskDetail => self.update_task_detail(event),
             Screen::Document => self.update_document(event),
@@ -3536,6 +3608,41 @@ impl TuiApp {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Key handling for the inbox view.
+    ///
+    /// j/k move, Enter opens the task, and there is a dedicated dismiss key so
+    /// "inbox zero" is one keystroke per item.
+    fn update_inbox(&mut self, event: InputEvent) {
+        if let InputEvent::Key(key) = event {
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if self.inbox_selected + 1 < self.inbox_tasks.len() {
+                        self.inbox_selected += 1;
+                        self.mark_inbox_entry_read_current();
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if self.inbox_selected > 0 {
+                        self.inbox_selected -= 1;
+                        self.mark_inbox_entry_read_current();
+                    }
+                }
+                KeyCode::Enter => self.open_selected_inbox_task(),
+                KeyCode::Char('d') => self.dismiss_selected_inbox_task(),
+                KeyCode::Esc => self.navigate_back(),
+                KeyCode::Char('r') => self.load_inbox(),
+                _ => {}
+            }
+        }
+    }
+
+    /// Mark the highlighted entry read (moving the cursor counts as seeing it).
+    fn mark_inbox_entry_read_current(&mut self) {
+        if let Some(task_id) = self.selected_inbox_task().map(|task| task.id.clone()) {
+            self.mark_inbox_entry_read(&task_id);
         }
     }
 
@@ -4064,6 +4171,10 @@ impl TuiApp {
         // Handle navigation based on current screen
         match &self.screen {
             Screen::Workspaces => {
+                if let Some(SidebarItem::Inbox { .. }) = selected_item {
+                    self.open_inbox_view();
+                    return;
+                }
                 if let Some(SidebarItem::AssignedToMe) = selected_item {
                     self.open_assigned_view();
                     return;
@@ -4114,6 +4225,16 @@ impl TuiApp {
         match self.screen {
             Screen::Auth => {}       // Can't go back from auth
             Screen::Workspaces => {} // Can't go back from workspaces
+            Screen::Inbox => {
+                // Back to the root with the inbox entry still selected.
+                self.screen = Screen::Workspaces;
+                self.screen_title = generate_screen_title("Workspaces");
+                *self.sidebar.items_mut() = self.root_sidebar_items();
+                if !self.sidebar.select_by_id("inbox") {
+                    self.sidebar.select_first();
+                }
+                self.status = "Back to workspaces".to_string();
+            }
             Screen::Assigned => {
                 // Return to the navigation root with the entry still selected.
                 self.screen = Screen::Workspaces;
@@ -4283,12 +4404,194 @@ impl TuiApp {
     /// The Assigned entry is deliberately only added here: it is a shortcut to
     /// a workspace-wide query, so it makes no sense inside the hierarchy.
     fn root_sidebar_items(&self) -> Vec<SidebarItem> {
-        let mut items = vec![SidebarItem::AssignedToMe];
+        let mut items = vec![
+            SidebarItem::Inbox {
+                unread: self.inbox_unread_count(),
+            },
+            SidebarItem::AssignedToMe,
+        ];
         items.extend(self.workspaces.iter().map(|w| SidebarItem::Workspace {
             name: w.name.clone(),
             id: w.id.clone(),
         }));
         items
+    }
+
+    /// Number of inbox entries the user has not seen yet.
+    ///
+    /// Counts entries that are neither read nor dismissed, which is what the
+    /// sidebar badge shows.
+    pub fn inbox_unread_count(&self) -> usize {
+        self.inbox_tasks
+            .iter()
+            .filter(|task| !self.inbox_read_ids.contains(&task.id))
+            .count()
+    }
+
+    /// Start (or restart) the inbox fetch for the current workspace.
+    ///
+    /// Treats failure as "inbox unavailable": the endpoint is undocumented, so
+    /// a rejection must not look like an application error.
+    fn load_inbox(&mut self) {
+        let team_id = match self.current_team_id.clone() {
+            Some(id) => id,
+            None => {
+                self.status = "No workspace available for inbox".to_string();
+                return;
+            }
+        };
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                self.status = "Not authenticated".to_string();
+                return;
+            }
+        };
+
+        self.inbox_loading = true;
+
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client.get_inbox(&team_id).await;
+            let msg = match result {
+                Ok(inbox) => AppMessage::InboxLoaded(Ok(inbox)),
+                Err(e) => AppMessage::InboxLoaded(Err(e.to_string())),
+            };
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// Apply the loaded inbox: drop dismissed entries, order by recency.
+    fn apply_inbox(&mut self, inbox: crate::models::Inbox) {
+        // Locally dismissed entries are hidden; everything else is shown.
+        let mut tasks: Vec<crate::models::InboxTask> = inbox
+            .tasks
+            .into_iter()
+            .filter(|task| !self.inbox_dismissed_ids.contains(&task.id))
+            .collect();
+
+        // The API's own order is not by recency, so sort explicitly: most
+        // recent activity first, matching the "what happened last" intention.
+        tasks.sort_by(|a, b| {
+            b.updated_at
+                .unwrap_or(i64::MIN)
+                .cmp(&a.updated_at.unwrap_or(i64::MIN))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+
+        self.inbox_tasks = tasks;
+        if self.inbox_selected >= self.inbox_tasks.len() {
+            self.inbox_selected = self.inbox_tasks.len().saturating_sub(1);
+        }
+    }
+
+    /// The inbox entry currently highlighted.
+    fn selected_inbox_task(&self) -> Option<&crate::models::InboxTask> {
+        self.inbox_tasks.get(self.inbox_selected)
+    }
+
+    /// Open the highlighted inbox entry in the task detail view.
+    fn open_selected_inbox_task(&mut self) {
+        let task_id = match self.selected_inbox_task() {
+            Some(task) => task.id.clone(),
+            None => {
+                self.status = "No inbox item selected".to_string();
+                return;
+            }
+        };
+        // Opening counts as reading, so the badge clears as the user works
+        // through the list.
+        self.mark_inbox_entry_read(&task_id);
+        self.task_origin_screen = Screen::Inbox;
+        let team_id = self.current_team_id.clone();
+        self.navigate_to_task(team_id, task_id);
+    }
+
+    /// Record an inbox entry as read (locally).
+    fn mark_inbox_entry_read(&mut self, task_id: &str) {
+        if self.inbox_read_ids.contains(task_id) {
+            return;
+        }
+        self.inbox_read_ids.insert(task_id.to_string());
+        if let Some(team_id) = self.current_team_id.clone() {
+            let ids = vec![task_id.to_string()];
+            if let Err(e) = self.cache.mark_inbox_read(&team_id, &ids, false) {
+                tracing::warn!("Failed to persist inbox read state: {}", e);
+            }
+        }
+        // The badge lives in the sidebar; refresh it.
+        *self.sidebar.items_mut() = self.root_sidebar_items();
+        self.sync_sidebar_selection_to_screen();
+    }
+
+    /// Dismiss the highlighted inbox entry (locally).
+    ///
+    /// The inbox endpoint is read-only — every dismiss route returns 404 — so
+    /// dismissal is remembered in the cache and the entry is filtered out of
+    /// future loads. It does not mark anything read in ClickUp itself.
+    fn dismiss_selected_inbox_task(&mut self) {
+        let task_id = match self.selected_inbox_task() {
+            Some(task) => task.id.clone(),
+            None => {
+                self.status = "No inbox item selected".to_string();
+                return;
+            }
+        };
+
+        self.inbox_dismissed_ids.insert(task_id.clone());
+        if let Some(team_id) = self.current_team_id.clone() {
+            let ids = vec![task_id.clone()];
+            if let Err(e) = self.cache.mark_inbox_read(&team_id, &ids, true) {
+                tracing::warn!("Failed to persist inbox dismissal: {}", e);
+            }
+        }
+
+        self.inbox_tasks.retain(|task| task.id != task_id);
+        if self.inbox_selected >= self.inbox_tasks.len() {
+            self.inbox_selected = self.inbox_tasks.len().saturating_sub(1);
+        }
+
+        *self.sidebar.items_mut() = self.root_sidebar_items();
+        self.sync_sidebar_selection_to_screen();
+        self.status = format!(
+            "Dismissed ({} left)",
+            self.inbox_tasks.len()
+        );
+    }
+
+    /// Keep the sidebar cursor on the entry for the current screen.
+    fn sync_sidebar_selection_to_screen(&mut self) {
+        let wanted = match self.screen {
+            Screen::Inbox => "inbox",
+            Screen::Assigned => "assigned-to-me",
+            Screen::Workspaces => "inbox",
+            _ => return,
+        };
+        if self.screen == Screen::Workspaces {
+            return; // selection belongs to the user while browsing the root
+        }
+        self.sidebar.select_by_id(wanted);
+    }
+
+    /// Enter the inbox view from the navigation root.
+    fn open_inbox_view(&mut self) {
+        self.screen = Screen::Inbox;
+        self.screen_title = generate_screen_title("Inbox");
+        self.current_list_id = None;
+        // Restore locally tracked state for this workspace, then fetch.
+        if let Some(team_id) = self.current_team_id.clone() {
+            match self.cache.load_inbox_state(&team_id) {
+                Ok((read, dismissed)) => {
+                    self.inbox_read_ids = read;
+                    self.inbox_dismissed_ids = dismissed;
+                }
+                Err(e) => tracing::warn!("Failed to load inbox state: {}", e),
+            }
+        }
+        self.inbox_loading = true;
+        self.status = "Loading inbox...".to_string();
+        self.load_inbox();
     }
 
     /// Start (or restart) the workspace-wide assigned-tasks fetch from page 0.
@@ -4930,6 +5233,10 @@ impl TuiApp {
                 self.load_workspaces();
                 self.status = "Refreshing workspaces...".to_string();
             }
+            Screen::Inbox => {
+                self.load_inbox();
+                self.status = "Refreshing inbox...".to_string();
+            }
             Screen::Assigned => {
                 self.load_assigned_tasks();
                 self.status = "Refreshing assigned tasks...".to_string();
@@ -5274,6 +5581,14 @@ impl TuiApp {
     fn update_screen_title(&mut self) {
         self.screen_title = match &self.screen {
             Screen::Auth => generate_screen_title("Authentication"),
+            Screen::Inbox => {
+                let unread = self.inbox_unread_count();
+                if unread > 0 {
+                    generate_screen_title(&format!("Inbox ({})", unread))
+                } else {
+                    generate_screen_title("Inbox")
+                }
+            }
             Screen::Assigned => {
                 if self.assigned_tasks.is_empty() {
                     generate_screen_title("Assigned to Me")
@@ -5481,6 +5796,17 @@ impl TuiApp {
     fn render_main_content(&mut self, frame: &mut Frame, area: Rect) {
         match self.screen {
             Screen::Auth => render_auth(frame, &self.auth_state, area),
+            Screen::Inbox => {
+                let read_ids = self.inbox_read_ids.clone();
+                render_inbox(
+                    frame,
+                    &self.inbox_tasks,
+                    self.inbox_selected,
+                    &read_ids,
+                    self.inbox_loading,
+                    area,
+                )
+            }
             Screen::Tasks | Screen::Assigned => {
                 self.task_list.set_viewport_height(area.height.saturating_sub(2) as usize);
                 // While pages are still arriving the list stays interactive;
@@ -6229,8 +6555,9 @@ impl TuiApp {
         // Helper to get ID from sidebar item
         fn get_sidebar_id(item: &SidebarItem) -> &str {
             match item {
-                // The Assigned entry has no upstream object of its own; the
-                // URL comes from the selected task instead.
+                // The Inbox and Assigned entries have no upstream object of
+                // their own; the URL comes from the selected item instead.
+                SidebarItem::Inbox { .. } => "",
                 SidebarItem::AssignedToMe => "",
                 SidebarItem::Workspace { id, .. } => id,
                 SidebarItem::Space { id, .. } => id,
@@ -6291,6 +6618,15 @@ impl TuiApp {
                     }
                 } else {
                     self.url_copy_status = Some("No list selected".to_string());
+                    return;
+                }
+            }
+            Screen::Inbox => {
+                // Inbox entries are tasks; use the highlighted one.
+                if let Some(task) = self.selected_inbox_task() {
+                    ClickUpUrlGenerator::task_url("", "", &task.id)
+                } else {
+                    self.url_copy_status = Some("No inbox item selected".to_string());
                     return;
                 }
             }
@@ -6462,6 +6798,10 @@ impl TuiApp {
     ) -> (Screen, Option<String>) {
         // Check if we have valid context for the target screen
         match target_screen {
+            Screen::Inbox => {
+                // A query, not a location: restore the root instead.
+                (Screen::Workspaces, None)
+            }
             Screen::Assigned => {
                 // The assigned view is a query, not a location; restore the
                 // root instead and let the user reopen it.
@@ -6552,6 +6892,18 @@ impl TuiApp {
     #[allow(dead_code)]
     pub fn task_origin_for_test(&self) -> Screen {
         self.task_origin_screen.clone()
+    }
+
+    /// Inbox entries currently listed (for testing)
+    #[allow(dead_code)]
+    pub fn inbox_names_for_test(&self) -> &[crate::models::InboxTask] {
+        &self.inbox_tasks
+    }
+
+    /// Number of items in the inbox list (for testing)
+    #[allow(dead_code)]
+    pub fn inbox_len_for_test(&self) -> usize {
+        self.inbox_tasks.len()
     }
 
     /// Assigned-view task count (for testing)

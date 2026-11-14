@@ -2,6 +2,7 @@
 
 pub mod comment;
 pub mod document;
+pub mod inbox;
 pub mod session;
 pub mod task;
 pub mod user;
@@ -12,6 +13,7 @@ pub use comment::{Comment, CommentsResponse, CreateCommentRequest, UpdateComment
 pub use document::{
     Document, DocumentFilters, DocumentPagesResponse, DocumentsResponse, Page, PageResponse,
 };
+pub use inbox::{Inbox, InboxLocation, InboxResponse, InboxStatus, InboxTask};
 pub use session::SessionState;
 pub use task::*;
 pub use user::MembersResponse;

@@ -1,0 +1,430 @@
+//! Tests for the root-level Inbox section.
+//!
+//! The inbox is driven by the undocumented `GET /team/{id}/inbox`. The API is
+//! read-only, so read/dismiss state is tracked locally; these tests cover the
+//! badge, dismissal, ordering, and navigation into the task view.
+
+mod fixtures;
+
+use std::sync::Arc;
+
+use clickdown::api::mock_client::MockClickUpClient;
+use clickdown::models::{Inbox, InboxLocation, InboxStatus, InboxTask, Task, Workspace};
+use clickdown::tui::app::{Screen, TuiApp};
+use clickdown::tui::input::InputEvent;
+use clickdown::tui::widgets::SidebarItem;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use tokio::runtime::Runtime;
+
+fn key(c: char) -> InputEvent {
+    InputEvent::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
+}
+
+fn esc() -> InputEvent {
+    InputEvent::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+}
+
+fn enter() -> InputEvent {
+    InputEvent::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+}
+
+fn workspace(id: &str, name: &str) -> Workspace {
+    serde_json::from_value(serde_json::json!({ "id": id, "name": name }))
+        .expect("workspace fixture should deserialize")
+}
+
+fn inbox_task(id: &str, name: &str, updated_at: Option<i64>) -> InboxTask {
+    InboxTask {
+        id: id.to_string(),
+        name: name.to_string(),
+        updated_at,
+        created_at: None,
+        comments_count: Some(1),
+        assigned_comments_count: Some(0),
+        unresolved_comments_count: Some(0),
+        subcategory: Some(InboxLocation {
+            id: "list-1".to_string(),
+            name: "V1.5 Single Login".to_string(),
+            color: None,
+        }),
+        project: Some(InboxLocation {
+            id: "folder-1".to_string(),
+            name: "Future Improvement".to_string(),
+            color: None,
+        }),
+        status: Some(InboxStatus {
+            status: "in progress".to_string(),
+            color: None,
+            status_type: Some("custom".to_string()),
+        }),
+    }
+}
+
+fn inbox_of(tasks: Vec<InboxTask>) -> Inbox {
+    Inbox {
+        ids: tasks.iter().map(|task| task.id.clone()).collect(),
+        reminders: vec![],
+        tasks,
+    }
+}
+
+/// App at the navigation root with a workspace and a prepared inbox.
+fn root_app(rt: &Runtime, client: MockClickUpClient) -> TuiApp {
+    // Test cache, not the real user database: inbox read/dismiss state is
+    // persisted, and sharing one file across tests makes them order-dependent.
+    let mut app =
+        rt.block_on(async { TuiApp::with_client_and_test_cache(Arc::new(client)).unwrap() });
+    let _guard = rt.enter();
+    app.load_workspaces();
+    rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(30)).await });
+    app.process_async_messages();
+    app.set_current_user_id(Some(42));
+    app
+}
+
+fn open_inbox(rt: &Runtime, app: &mut TuiApp) {
+    let _guard = rt.enter();
+    app.sidebar().select_by_id("inbox");
+    app.navigate_into();
+    for _ in 0..2 {
+        rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(40)).await });
+        app.process_async_messages();
+    }
+}
+
+/// Inbox sits above Assigned at the navigation root.
+#[test]
+fn test_inbox_is_above_assigned_at_root() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![]));
+
+    let mut app = root_app(&rt, client);
+    let items = app.sidebar().items().to_vec();
+
+    assert!(
+        matches!(items.first(), Some(SidebarItem::Inbox { .. })),
+        "Inbox must be the first root entry, got: {:?}",
+        items
+    );
+    assert!(
+        matches!(items.get(1), Some(SidebarItem::AssignedToMe)),
+        "Assigned must follow Inbox, got: {:?}",
+        items
+    );
+}
+
+/// Selecting the entry opens the inbox and lists its items.
+#[test]
+fn test_entering_inbox_lists_items() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![
+            inbox_task("t1", "Button colour", Some(1000)),
+            inbox_task("t2", "Email recipient", Some(2000)),
+        ]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+
+    assert_eq!(app.screen(), Screen::Inbox);
+    assert_eq!(app.inbox_len_for_test(), 2);
+}
+
+/// Items are ordered most-recent-activity first, regardless of API order.
+#[test]
+fn test_inbox_ordered_by_most_recent_activity() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        // Deliberately unordered, including a timestamp-less entry.
+        .with_inbox(inbox_of(vec![
+            inbox_task("old", "Oldest", Some(1_000)),
+            inbox_task("none", "No timestamp", None),
+            inbox_task("new", "Newest", Some(9_000)),
+            inbox_task("mid", "Middle", Some(5_000)),
+        ]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+
+    let names: Vec<String> = app
+        .inbox_names_for_test()
+        .iter()
+        .map(|task| task.name.clone())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["Newest", "Middle", "Oldest", "No timestamp"],
+        "most recent first, missing timestamps last"
+    );
+}
+
+/// The sidebar badge shows the number of unread items.
+#[test]
+fn test_sidebar_badge_shows_unread_count() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![
+            inbox_task("t1", "One", Some(1000)),
+            inbox_task("t2", "Two", Some(2000)),
+            inbox_task("t3", "Three", Some(3000)),
+        ]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+
+    // All three start unread.
+    let badge = app
+        .sidebar()
+        .items()
+        .iter()
+        .find_map(|item| match item {
+            SidebarItem::Inbox { unread } => Some(*unread),
+            _ => None,
+        })
+        .expect("inbox entry present");
+    assert_eq!(badge, 3, "all three should count as unread initially");
+}
+
+/// Moving through the list marks items read, so the badge decreases.
+#[test]
+fn test_moving_marks_read_and_lowers_badge() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![
+            inbox_task("t1", "One", Some(3000)),
+            inbox_task("t2", "Two", Some(2000)),
+        ]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+    assert_eq!(app.inbox_unread_count(), 2);
+
+    app.update(key('j')); // move to the second entry
+    assert_eq!(
+        app.inbox_unread_count(),
+        1,
+        "moving onto an item counts as reading it"
+    );
+}
+
+/// `d` dismisses the highlighted item and removes it from the list.
+#[test]
+fn test_dismiss_removes_item() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![
+            inbox_task("t1", "Keep me", Some(3000)),
+            inbox_task("t2", "Dismiss me", Some(2000)),
+        ]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+    assert_eq!(app.inbox_len_for_test(), 2);
+
+    app.update(key('j')); // select "Dismiss me"
+    app.update(key('d'));
+
+    assert_eq!(app.inbox_len_for_test(), 1, "dismissed item is removed");
+    assert_eq!(
+        app.inbox_names_for_test()[0].name,
+        "Keep me",
+        "the other item stays"
+    );
+}
+
+/// Dismissed items must not come back on a reload — this is what makes
+/// "inbox zero" stick, since the API cannot be told about dismissals.
+#[test]
+fn test_dismissed_items_stay_dismissed_after_reload() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![
+            inbox_task("t1", "One", Some(3000)),
+            inbox_task("t2", "Two", Some(2000)),
+        ]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+
+    app.update(key('d')); // dismiss the first
+    assert_eq!(app.inbox_len_for_test(), 1);
+
+    // Reload returns the same two items from the "server".
+    let _guard = rt.enter();
+    app.update(key('r'));
+    rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(60)).await });
+    app.process_async_messages();
+
+    assert_eq!(
+        app.inbox_len_for_test(),
+        1,
+        "the dismissed item must stay hidden after a reload"
+    );
+}
+
+/// Enter opens the highlighted entry in the task detail view.
+#[test]
+fn test_enter_opens_task_detail_for_inbox_item() {
+    let rt = Runtime::new().unwrap();
+    let opened = Task {
+        id: "t1".to_string(),
+        name: "Button colour".to_string(),
+        ..Default::default()
+    };
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![inbox_task(
+            "t1",
+            "Button colour",
+            Some(1000),
+        )]))
+        .with_task(opened)
+        .with_task_comments(vec![]);
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+    assert_eq!(app.inbox_len_for_test(), 1);
+
+    let _guard = rt.enter();
+    app.update(enter());
+    for _ in 0..2 {
+        rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(50)).await });
+        app.process_async_messages();
+    }
+
+    assert_eq!(
+        app.screen(),
+        Screen::TaskDetail,
+        "Enter must lead to the individual task view"
+    );
+    assert_eq!(
+        app.task_detail().task.as_ref().map(|task| task.id.clone()),
+        Some("t1".to_string())
+    );
+}
+
+/// Esc from a task opened in the inbox returns to the inbox, not to a list.
+#[test]
+fn test_task_from_inbox_returns_to_inbox() {
+    let rt = Runtime::new().unwrap();
+    let opened = Task {
+        id: "t1".to_string(),
+        name: "Button colour".to_string(),
+        ..Default::default()
+    };
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![inbox_task(
+            "t1",
+            "Button colour",
+            Some(1000),
+        )]))
+        .with_task(opened)
+        .with_task_comments(vec![]);
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+
+    let _guard = rt.enter();
+    app.update(enter());
+    for _ in 0..2 {
+        rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(50)).await });
+        app.process_async_messages();
+    }
+    assert_eq!(app.screen(), Screen::TaskDetail);
+
+    app.update(esc());
+    assert_eq!(
+        app.screen(),
+        Screen::Inbox,
+        "Esc must return to the inbox the task came from"
+    );
+}
+
+/// Esc from the inbox itself returns to the navigation root.
+#[test]
+fn test_esc_from_inbox_returns_to_root() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![inbox_task("t1", "One", Some(1000))]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+    assert_eq!(app.screen(), Screen::Inbox);
+
+    app.update(esc());
+
+    assert_eq!(app.screen(), Screen::Workspaces);
+    assert!(
+        matches!(
+            app.sidebar().selected_item(),
+            Some(SidebarItem::Inbox { .. })
+        ),
+        "the inbox entry stays selected at the root"
+    );
+}
+
+/// The endpoint being unavailable is reported as such, not as a crash.
+#[test]
+fn test_inbox_unavailable_is_graceful() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox_error("API error (404): not found");
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+
+    assert_eq!(app.screen(), Screen::Inbox);
+    assert_eq!(app.status(), "Inbox unavailable");
+    assert_eq!(app.inbox_len_for_test(), 0);
+}
+
+/// An empty inbox reads as "inbox zero", not as an error.
+#[test]
+fn test_empty_inbox_reports_clear() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+
+    assert_eq!(app.status(), "Inbox clear");
+    assert_eq!(app.inbox_unread_count(), 0);
+}
+
+/// The inbox entry never appears below the navigation root.
+#[test]
+fn test_inbox_absent_below_root() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_spaces(vec![])
+        .with_inbox(inbox_of(vec![]));
+
+    let mut app = root_app(&rt, client);
+    let _guard = rt.enter();
+    assert!(app.sidebar().select_by_id("inbox"), "present at root");
+
+    app.sidebar().select_by_id("ws-1");
+    app.navigate_into();
+    rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(30)).await });
+    app.process_async_messages();
+
+    assert_eq!(app.screen(), Screen::Spaces);
+    assert!(
+        !app.sidebar().select_by_id("inbox"),
+        "the inbox entry must not appear below the root"
+    );
+}

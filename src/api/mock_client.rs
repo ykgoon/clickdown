@@ -97,6 +97,8 @@ pub struct MockClickUpClient {
     pub current_user_response: Option<Result<User>>,
     /// Override for get_list_members response
     pub list_members_response: Option<Result<Vec<User>>>,
+    /// Override for get_inbox response
+    pub inbox_response: Option<Result<crate::models::Inbox>>,
     /// Override for add/remove comment reaction (shared: both return no body)
     pub comment_reaction_response: Option<Result<()>>,
     /// Reaction calls recorded as (comment_id, reaction, added).
@@ -135,6 +137,7 @@ impl MockClickUpClient {
             assigned_page_log: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             current_user_response: None,
             list_members_response: None,
+            inbox_response: None,
             comment_reaction_response: None,
             reaction_calls: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }
@@ -321,6 +324,18 @@ impl MockClickUpClient {
     /// Set one page of workspace-wide assigned tasks
     pub fn with_team_tasks_page(mut self, page: u32, tasks: Vec<Task>) -> Self {
         self.team_tasks_pages.insert(page, tasks);
+        self
+    }
+
+    /// Set the inbox response
+    pub fn with_inbox(mut self, inbox: crate::models::Inbox) -> Self {
+        self.inbox_response = Some(Ok(inbox));
+        self
+    }
+
+    /// Set an inbox error (e.g. the endpoint being unavailable)
+    pub fn with_inbox_error(mut self, msg: &str) -> Self {
+        self.inbox_response = Some(Err(anyhow!("{}", msg)));
         self
     }
 
@@ -560,6 +575,14 @@ impl ClickUpApi for MockClickUpClient {
                 .unwrap_or_default());
         }
         return_vec_response(&self.team_tasks_response)
+    }
+
+    async fn get_inbox(&self, _team_id: &str) -> Result<crate::models::Inbox> {
+        match &self.inbox_response {
+            Some(Ok(inbox)) => Ok(inbox.clone()),
+            Some(Err(e)) => Err(anyhow!(e.to_string())),
+            None => Ok(crate::models::Inbox::default()),
+        }
     }
 
     async fn get_list_members(&self, _list_id: &str) -> Result<Vec<User>> {

@@ -231,6 +231,9 @@ impl clickdown::api::ClickUpApi for CustomIdOnlyClient {
         }
     }
 
+    async fn get_inbox(&self, team_id: &str) -> anyhow::Result<clickdown::models::Inbox> {
+        self.inner.get_inbox(team_id).await
+    }
     async fn get_team_tasks_with_assignee(
         &self,
         team_id: &str,

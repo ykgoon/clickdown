@@ -77,6 +77,20 @@ CREATE INDEX IF NOT EXISTS idx_task_comments_task ON task_comments(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_comments_fetched ON task_comments(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_task_comments_parent ON task_comments(parent_id);
 
+-- Locally tracked inbox read state.
+--
+-- The inbox endpoint is GET-only and exposes no read/unread or dismiss state
+-- (every dismiss route 404s), so inbox zero is maintained client-side: an
+-- entry is remembered here once the user has seen or dismissed it. Rows are
+-- keyed by task id and scoped by workspace.
+CREATE TABLE IF NOT EXISTS inbox_read (
+    team_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    read_at INTEGER NOT NULL,
+    dismissed INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (team_id, task_id)
+);
+
 -- Session state table for persisting navigation state across sessions
 CREATE TABLE IF NOT EXISTS session_state (
     key TEXT PRIMARY KEY,
@@ -88,5 +102,7 @@ DROP TABLE IF EXISTS assigned_tasks;
 DROP TABLE IF EXISTS assigned_comments;
 DROP TABLE IF EXISTS inbox_activity;
 DROP TABLE IF EXISTS inbox_metadata;
+-- Replaced by `inbox_read`: the old notifications endpoint 404s and no longer
+-- feeds anything.
 DROP TABLE IF EXISTS notifications;
 ";

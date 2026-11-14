@@ -141,6 +141,15 @@ pub trait ClickUpApi: Send + Sync {
     /// Remove a reaction from a comment
     async fn remove_comment_reaction(&self, comment_id: &str, reaction: &str) -> Result<()>;
 
+    // ==================== Inbox ====================
+
+    /// The workspace inbox: items needing the current user's attention.
+    ///
+    /// Backed by the undocumented `GET /team/{id}/inbox`. Callers must treat
+    /// an error as "inbox unavailable" rather than fatal, since the endpoint
+    /// is not part of the published API.
+    async fn get_inbox(&self, team_id: &str) -> Result<crate::models::Inbox>;
+
     // ==================== Assigned Tasks ====================
 
     /// Tasks assigned to a user across the whole Workspace.
