@@ -5,8 +5,8 @@ expression: combined_snapshot
 ---
 === Level 1: Workspaces (Down) ===
 ┌ Navigation ──────────────────────────┐
-│▸ IN Inbox                            │
-│  @ Assigned to Me                    │
+│▸    Inbox                            │
+│   @ Assigned to Me                   │
 │  WS Engineering                      │
 │  WS Marketing                        │
 │  WS Design                           │

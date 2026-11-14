@@ -134,14 +134,15 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
         .items()
         .iter()
         .map(|item| {
-            let (type_label, name, name_style) = match item {
-                // Unread entries are emphasised: bold plus the count, so the
-                // badge reads as "work waiting" at a glance.
+            let (type_label, name, name_style): (String, String, Style) = match item {
+                // The unread count takes the shared badge slot (where the
+                // hierarchy rows show WS/SP/FL/LI), so the name stays plain
+                // "Inbox" and costs no extra width.
                 SidebarItem::Inbox { unread } => {
-                    let label = if *unread > 0 {
-                        format!("Inbox ({})", unread)
+                    let badge = if *unread > 0 {
+                        unread.to_string()
                     } else {
-                        "Inbox".to_string()
+                        String::new()
                     };
                     let style = if *unread > 0 {
                         Style::default()
@@ -150,31 +151,40 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
                     } else {
                         Style::default().fg(Theme::TEXT_DIM)
                     };
-                    ("IN", label, style)
+                    (badge, "Inbox".to_string(), style)
                 }
                 SidebarItem::AssignedToMe => (
-                    "@",
+                    "@".to_string(),
                     "Assigned to Me".to_string(),
                     Style::default()
                         .fg(Theme::WARNING)
                         .add_modifier(Modifier::BOLD),
                 ),
                 SidebarItem::Workspace { name, .. } => (
-                    "WS",
+                    "WS".to_string(),
                     format!("{}", name),
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
-                SidebarItem::Space { name, .. } => ("SP", format!("{}", name), Style::default()),
-                SidebarItem::Folder { name, .. } => ("FL", format!("{}", name), Style::default()),
+                SidebarItem::Space { name, .. } => {
+                    ("SP".to_string(), format!("{}", name), Style::default())
+                }
+                SidebarItem::Folder { name, .. } => {
+                    ("FL".to_string(), format!("{}", name), Style::default())
+                }
                 SidebarItem::List { name, .. } => (
-                    "LI",
+                    "LI".to_string(),
                     format!("{}", name),
                     Style::default().fg(Theme::PRIMARY),
                 ),
             };
 
             let line = Line::from(vec![
-                Span::styled(type_label, Style::default().fg(Theme::SECONDARY)),
+                // Right-align the badge in its slot so the names line up and
+                // a two-digit unread count does not shift the label.
+                Span::styled(
+                    format!("{:>2}", type_label),
+                    Style::default().fg(Theme::SECONDARY),
+                ),
                 Span::raw(" "),
                 Span::styled(name, name_style),
             ]);
