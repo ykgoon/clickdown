@@ -1,12 +1,13 @@
 ---
 source: tests/snapshot_test.rs
+assertion_line: 59
 expression: snapshot
 ---
 ┌ Navigation ──────────────────────────┐
-│WS Engineering                        │
-│SP Backend                            │
-│FL API                                │
-│LI Sprint Tasks                       │
+│Engineering                           │
+│Backend                               │
+│API                                   │
+│Sprint Tasks                          │
 │                                      │
 │                                      │
 │                                      │

@@ -134,16 +134,12 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
         .items()
         .iter()
         .map(|item| {
-            let (type_label, name, name_style): (String, String, Style) = match item {
-                // The unread count takes the shared badge slot (where the
-                // hierarchy rows show WS/SP/FL/LI), so the name stays plain
-                // "Inbox" and costs no extra width.
+            // Each level of the sidebar lists exactly one kind of thing, so a
+            // type prefix (WS/SP/FL/LI) only repeats what the screen already
+            // says. Rows therefore start at the left edge; the sole exception
+            // is the inbox, which appends its unread count when non-zero.
+            let (name, name_style): (String, Style) = match item {
                 SidebarItem::Inbox { unread } => {
-                    let badge = if *unread > 0 {
-                        unread.to_string()
-                    } else {
-                        String::new()
-                    };
                     let style = if *unread > 0 {
                         Style::default()
                             .fg(Theme::PRIMARY)
@@ -151,43 +147,41 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
                     } else {
                         Style::default().fg(Theme::TEXT_DIM)
                     };
-                    (badge, "Inbox".to_string(), style)
+                    ("Inbox".to_string(), style)
                 }
+                // No marker: the label says what it is. Style alone sets the
+                // two pinned entries apart from the hierarchy.
                 SidebarItem::AssignedToMe => (
-                    "@".to_string(),
                     "Assigned to Me".to_string(),
                     Style::default()
                         .fg(Theme::WARNING)
                         .add_modifier(Modifier::BOLD),
                 ),
                 SidebarItem::Workspace { name, .. } => (
-                    "WS".to_string(),
-                    format!("{}", name),
+                    name.clone(),
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
-                SidebarItem::Space { name, .. } => {
-                    ("SP".to_string(), format!("{}", name), Style::default())
+                SidebarItem::Space { name, .. } => (name.clone(), Style::default()),
+                SidebarItem::Folder { name, .. } => (name.clone(), Style::default()),
+                SidebarItem::List { name, .. } => {
+                    (name.clone(), Style::default().fg(Theme::PRIMARY))
                 }
-                SidebarItem::Folder { name, .. } => {
-                    ("FL".to_string(), format!("{}", name), Style::default())
-                }
-                SidebarItem::List { name, .. } => (
-                    "LI".to_string(),
-                    format!("{}", name),
-                    Style::default().fg(Theme::PRIMARY),
-                ),
             };
 
-            let line = Line::from(vec![
-                // Right-align the badge in its slot so the names line up and
-                // a two-digit unread count does not shift the label.
-                Span::styled(
-                    format!("{:>2}", type_label),
-                    Style::default().fg(Theme::SECONDARY),
-                ),
-                Span::raw(" "),
-                Span::styled(name, name_style),
-            ]);
+            let mut spans = vec![Span::styled(name, name_style)];
+
+            // Unread count trails the label so the name stays first and no
+            // leading column is reserved for it.
+            if let SidebarItem::Inbox { unread } = item {
+                if *unread > 0 {
+                    spans.push(Span::styled(
+                        format!(" {}", unread),
+                        Style::default().fg(Theme::PRIMARY),
+                    ));
+                }
+            }
+
+            let line = Line::from(spans);
 
             ListItem::new(line)
         })

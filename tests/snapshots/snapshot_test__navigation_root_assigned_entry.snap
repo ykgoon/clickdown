@@ -4,9 +4,9 @@ assertion_line: 59
 expression: snapshot
 ---
 ┌ Navigation ──────────────────────────┐
-│▸  @ Assigned to Me                   │
-│  WS Engineering                      │
-│  WS Marketing                        │
+│▸ Assigned to Me                      │
+│  Engineering                         │
+│  Marketing                           │
 │                                      │
 │                                      │
 │                                      │
