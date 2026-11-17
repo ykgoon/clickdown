@@ -15,7 +15,8 @@
 //! The ClickUp API may return:
 //! - Timestamps as integers (`1234567890000`) or strings (`"1234567890000"`)
 //! - User objects as full objects, null, or omitted entirely
-//! - `reactions` as an array (ignored until needed)
+//! - `reactions` as an array of objects (`{"reaction": "thumbs_up", ...}`) or, in older
+//!   payloads, as a flat array of names
 //! - `parent_id` for threaded replies (optional)
 //!
 //! # Debugging Parse Errors
@@ -29,9 +30,81 @@
 //! identify which field caused the failure.
 
 use crate::utils::deserializers::{
-    flexible_string, flexible_timestamp, null_to_empty_string, null_to_empty_vec, null_to_false,
+    flexible_string, flexible_timestamp, null_to_empty_string, null_to_false,
 };
 use serde::{Deserialize, Serialize};
+
+/// Canonical wire name for a thumbs-up reaction.
+///
+/// The live API accepts CLDR short names on write (`thumbs_up`), but replies
+/// echo whatever spelling the reacting client used: modern short names for
+/// recent reactions, and legacy hex code points (`1F44D`) for older ones. Both
+/// map to this one value so the UI and the wire never disagree.
+pub const THUMBS_UP: &str = "thumbs_up";
+
+/// Normalise a reaction name to the form this client compares and sends.
+///
+/// Every observed thumbs-up spelling collapses to [`THUMBS_UP`]; anything else
+/// is returned trimmed and otherwise untouched.
+pub fn canonical_reaction_name(name: &str) -> String {
+    let trimmed = name.trim();
+    let lowered = trimmed.to_ascii_lowercase();
+    let is_thumbs_up = trimmed == "\u{1f44d}"
+        || matches!(
+            lowered.as_str(),
+            "thumbs_up" | "thumbsup" | "thumbup" | "1f44d" | "+1"
+        );
+    if is_thumbs_up {
+        THUMBS_UP.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// One entry of the API's `reactions` array.
+///
+/// The live shape is an object carrying the reaction name, a timestamp and the
+/// reacting user; older payloads carry a bare string instead, so both are
+/// accepted.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ReactionValue {
+    Name(String),
+    Object(ReactionObject),
+}
+
+#[derive(Debug, Deserialize)]
+struct ReactionObject {
+    #[serde(default, deserialize_with = "null_to_empty_string")]
+    reaction: String,
+}
+
+/// Deserialize `reactions` into canonical names.
+///
+/// Accepts an object array (`[{"reaction": "1F44D", ...}]`), a string array,
+/// `null`, or a missing field. Entries without a name are dropped, and repeats
+/// of the same canonical name collapse to one so membership tests stay simple.
+fn deserialize_reactions<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Option::<Vec<ReactionValue>>::deserialize(deserializer)?;
+    let mut names: Vec<String> = Vec::new();
+    for value in raw.unwrap_or_default() {
+        let name = match value {
+            ReactionValue::Name(name) => name,
+            ReactionValue::Object(object) => object.reaction,
+        };
+        let name = canonical_reaction_name(&name);
+        if name.is_empty() {
+            continue;
+        }
+        if !names.iter().any(|seen| seen.eq_ignore_ascii_case(&name)) {
+            names.push(name);
+        }
+    }
+    Ok(names)
+}
 
 /// A ClickUp Comment
 ///
@@ -103,12 +176,13 @@ pub struct Comment {
     /// Note: API may also return `reactions` array (ignored until needed)
     #[serde(default, deserialize_with = "null_to_empty_string")]
     pub reaction: String,
-    /// Reactions added to this comment, as emoji names (`thumbsup`, ...).
+    /// Reactions added to this comment, as canonical emoji names.
     ///
-    /// The API returns these as a flat array of reaction names. A comment
-    /// without reactions has an empty array, so callers can test membership
-    /// directly without worrying about null.
-    #[serde(default, deserialize_with = "null_to_empty_vec")]
+    /// The API returns `reactions` as an array of `{reaction, date, user}`
+    /// objects; the name is normalised on read, so a legacy code point such as
+    /// `1F44D` becomes `thumbs_up`. A comment without reactions has an empty
+    /// array, so callers can test membership without worrying about null.
+    #[serde(default, deserialize_with = "deserialize_reactions")]
     pub reactions: Vec<String>,
     /// Parent comment ID for threaded replies (None for top-level comments)
     #[serde(default, rename = "parent_id", skip_serializing_if = "Option::is_none")]
@@ -116,14 +190,15 @@ pub struct Comment {
 }
 
 impl Comment {
-    /// True when this comment carries the given reaction (e.g. `thumbsup`).
+    /// True when this comment carries the given reaction (e.g. `thumbs_up`).
     ///
-    /// Reaction names are compared case-insensitively because the API has
-    /// returned both `thumbsup` and `THUMBSUP` shapes over time.
+    /// Both sides are canonicalised first, so `thumbs_up`, `thumbsup` and the
+    /// legacy `1F44D` all match, and comparison stays case-insensitive.
     pub fn has_reaction(&self, name: &str) -> bool {
+        let wanted = canonical_reaction_name(name);
         self.reactions
             .iter()
-            .any(|reaction| reaction.eq_ignore_ascii_case(name))
+            .any(|reaction| canonical_reaction_name(reaction).eq_ignore_ascii_case(&wanted))
     }
 }
 
@@ -324,8 +399,7 @@ mod tests {
 
     #[test]
     fn test_comment_reactions_array() {
-        // Note: reactions array deserialization not yet implemented
-        // This test documents expected behavior for future implementation
+        // Bare string entries appear in older payloads and in fixtures.
         let json = r#"{
             "id": "123",
             "comment_text": "Test",
@@ -335,8 +409,62 @@ mod tests {
             "reactions": ["thumbsup", "heart", "laugh"]
         }"#;
         let comment: Comment = serde_json::from_str(json).unwrap();
-        // Currently reactions are not deserialized - future enhancement
         assert_eq!(comment.reaction, "");
+        assert_eq!(comment.reactions, vec!["thumbs_up", "heart", "laugh"]);
+        assert!(comment.has_reaction("thumbs_up"));
+    }
+
+    /// Regression: task 14zrc6qa6q3 failed to load with
+    /// `comments[1].reactions[0]: invalid type: map, expected a string`
+    /// because the live API returns objects here, not strings.
+    #[test]
+    fn test_comment_reactions_objects_from_live_api() {
+        let json = r#"{
+            "id": "1301560000082889",
+            "comment_text": "Hi, is the HLB payment inquiry endpoint working?",
+            "user": {"id": 38650140, "username": "Y.K. Goon"},
+            "date": "1794542570766",
+            "resolved": false,
+            "reactions": [
+                {
+                    "reaction": "1F44D",
+                    "date": "1794542570766",
+                    "user": {"id": 38650140, "username": "Y.K. Goon"}
+                }
+            ]
+        }"#;
+        let comment: Comment = serde_json::from_str(json).expect("live API shape must parse");
+        assert_eq!(comment.reactions, vec!["thumbs_up"]);
+        assert!(comment.has_reaction("thumbs_up"));
+    }
+
+    /// Several people reacting with the same emoji must not duplicate it, and
+    /// the legacy code point and the short name are the same reaction.
+    #[test]
+    fn test_comment_reactions_are_deduplicated_after_canonicalising() {
+        let json = r#"{
+            "id": "1",
+            "comment_text": "x",
+            "reactions": [
+                {"reaction": "thumbs_up", "user": {"id": 1}},
+                {"reaction": "1F44D", "user": {"id": 2}},
+                {"reaction": "eyes", "user": {"id": 3}}
+            ]
+        }"#;
+        let comment: Comment = serde_json::from_str(json).unwrap();
+        assert_eq!(comment.reactions, vec!["thumbs_up", "eyes"]);
+    }
+
+    /// A reaction object with no usable name is dropped, not fatal.
+    #[test]
+    fn test_comment_reaction_object_without_name_is_dropped() {
+        let json = r#"{
+            "id": "1",
+            "comment_text": "x",
+            "reactions": [{"date": "1"}, {"reaction": null}, {"reaction": "fire"}]
+        }"#;
+        let comment: Comment = serde_json::from_str(json).unwrap();
+        assert_eq!(comment.reactions, vec!["fire"]);
     }
 
     #[test]
@@ -556,7 +684,10 @@ mod tests {
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("plain comment"));
-        assert!(!json.contains("\"comment\""), "blocks must be omitted: {json}");
+        assert!(
+            !json.contains("\"comment\""),
+            "blocks must be omitted: {json}"
+        );
     }
 
     #[test]
@@ -591,5 +722,4 @@ mod tests {
         assert!(json.contains("\"id\":38650140"), "{json}");
         assert!(json.contains("please review"), "{json}");
     }
-
 }

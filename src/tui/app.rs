@@ -69,10 +69,10 @@ pub enum TaskCreationField {
 
 /// The single reaction this client exposes: a thumbs-up on a comment.
 ///
-/// ClickUp uses short emoji names (`thumbsup`) in the API, while the UI shows
-/// the 👍 glyph; keeping both here avoids drift between the wire value and
-/// what the comment rows render.
-pub const THUMBS_UP_REACTION: &str = "thumbsup";
+/// ClickUp takes CLDR short names on the wire (`thumbs_up`) while the UI shows
+/// the 👍 glyph; keeping both here avoids drift between the value we send and
+/// the value comment rows look for.
+pub const THUMBS_UP_REACTION: &str = crate::models::comment::THUMBS_UP;
 
 /// Which comment-compose action a `SPC c` command requested.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6440,17 +6440,16 @@ impl TuiApp {
 
     /// Add or remove a reaction in the loaded comment, without an API call
     fn apply_reaction_locally(&mut self, comment_id: &str, reaction: &str, adding: bool) {
+        let reaction = crate::models::comment::canonical_reaction_name(reaction);
         if let Some(comment) = self.comments.iter_mut().find(|c| c.id == comment_id) {
-            let present = comment
-                .reactions
-                .iter()
-                .any(|r| r.eq_ignore_ascii_case(reaction));
+            let present = comment.has_reaction(&reaction);
             if adding && !present {
-                comment.reactions.push(reaction.to_string());
+                comment.reactions.push(reaction.clone());
             } else if !adding && present {
                 comment
                     .reactions
-                    .retain(|r| !r.eq_ignore_ascii_case(reaction));
+                    .retain(|r| !crate::models::comment::canonical_reaction_name(r)
+                        .eq_ignore_ascii_case(&reaction));
             }
         }
     }

@@ -21,6 +21,18 @@ use async_trait::async_trait;
 use reqwest::{Client, Response};
 use serde::de::DeserializeOwned;
 
+/// Build the JSON body the reaction endpoint expects.
+///
+/// Verified against the live API: both POST and DELETE require
+/// `{"reactions": ["<name>"]}`. The singular `{"reaction": ...}` shape is
+/// rejected with 400 "Reactions must be a non-empty array", and names must be
+/// CLDR short names (`thumbs_up`) — hex code points such as `1F44D` are
+/// rejected with 400 "Emoji reactions do not exist".
+pub fn reaction_body(reaction: &str) -> serde_json::Value {
+    let name = crate::models::comment::canonical_reaction_name(reaction);
+    serde_json::json!({ "reactions": [name] })
+}
+
 /// ClickUp API client
 pub struct ClickUpClient {
     client: Client,
@@ -423,7 +435,7 @@ impl ClickUpClient {
     /// instead of parsing JSON.
     pub async fn add_comment_reaction(&self, comment_id: &str, reaction: &str) -> Result<()> {
         let url = ApiEndpoints::comment_reaction(comment_id);
-        let body = serde_json::json!({ "reaction": reaction });
+        let body = reaction_body(reaction);
         self.execute_empty(self.request(reqwest::Method::POST, url).json(&body))
             .await
     }
@@ -431,7 +443,7 @@ impl ClickUpClient {
     /// Remove a reaction from a comment
     pub async fn remove_comment_reaction(&self, comment_id: &str, reaction: &str) -> Result<()> {
         let url = ApiEndpoints::comment_reaction(comment_id);
-        let body = serde_json::json!({ "reaction": reaction });
+        let body = reaction_body(reaction);
         self.execute_empty(self.request(reqwest::Method::DELETE, url).json(&body))
             .await
     }

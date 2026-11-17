@@ -39,12 +39,12 @@ fn app_with_comment(rt: &Runtime, client: MockClickUpClient, reactions: &[&str])
     app
 }
 
-/// The API returns reactions as a flat array of emoji names.
+/// Reactions deserialize from the API object shape into canonical names.
 #[test]
 fn test_comment_deserializes_reactions_array() {
-    let parsed = comment("c1", "hi", &["thumbsup", "eyes"]);
-    assert_eq!(parsed.reactions, vec!["thumbsup", "eyes"]);
-    assert!(parsed.has_reaction("thumbsup"));
+    let parsed = comment("c1", "hi", &["thumbs_up", "eyes"]);
+    assert_eq!(parsed.reactions, vec!["thumbs_up", "eyes"]);
+    assert!(parsed.has_reaction("thumbs_up"));
     assert!(!parsed.has_reaction("heart"));
 }
 
@@ -57,7 +57,7 @@ fn test_comment_without_reactions_defaults_to_empty() {
     }))
     .expect("should deserialize");
     assert!(parsed.reactions.is_empty());
-    assert!(!parsed.has_reaction("thumbsup"));
+    assert!(!parsed.has_reaction("thumbs_up"));
 
     // Explicit null is also tolerated.
     let nulled: Comment = serde_json::from_value(serde_json::json!({
@@ -82,7 +82,7 @@ fn test_spc_c_u_adds_thumbs_up() {
 
     assert_eq!(
         app.reactions_for_test("c1"),
-        vec!["thumbsup"],
+        vec!["thumbs_up"],
         "the comment must show a thumbs-up immediately"
     );
 }
@@ -94,7 +94,7 @@ fn test_spc_c_u_toggles_off_when_already_reacted() {
     let mut app = app_with_comment(
         &rt,
         MockClickUpClient::new().with_comment_reaction(),
-        &["thumbsup"],
+        &["thumbs_up"],
     );
 
     let _guard = rt.enter();
@@ -123,7 +123,11 @@ fn test_failed_reaction_rolls_back_and_reports() {
     for c in [' ', 'c', 'u'] {
         app.update(key(c));
     }
-    assert_eq!(app.reactions_for_test("c1"), vec!["thumbsup"], "optimistic");
+    assert_eq!(
+        app.reactions_for_test("c1"),
+        vec!["thumbs_up"],
+        "optimistic"
+    );
 
     rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(50)).await });
     app.process_async_messages();
@@ -149,7 +153,7 @@ fn test_successful_reaction_is_kept_after_response() {
     rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(50)).await });
     app.process_async_messages();
 
-    assert_eq!(app.reactions_for_test("c1"), vec!["thumbsup"]);
+    assert_eq!(app.reactions_for_test("c1"), vec!["thumbs_up"]);
     assert!(
         app.status().contains("Reacted"),
         "expected a confirmation status, got: {}",
@@ -203,7 +207,7 @@ fn test_reaction_message_round_trip() {
         tx.send(AppMessage::CommentReactionUpdated(
             Ok(()),
             "c1".to_string(),
-            "thumbsup".to_string(),
+            "thumbs_up".to_string(),
             true,
         ))
         .await
@@ -220,7 +224,7 @@ fn test_reaction_message_round_trip() {
     );
 }
 
-/// The wire call must carry the comment id, the `thumbsup` name, and the
+/// The wire call must carry the comment id, the `thumbs_up` name, and the
 /// right direction, since the API decides add vs remove by HTTP method.
 #[test]
 fn test_reaction_call_uses_expected_api_arguments() {
@@ -244,9 +248,95 @@ fn test_reaction_call_uses_expected_api_arguments() {
     assert_eq!(
         recorded,
         vec![
-            ("c1".to_string(), "thumbsup".to_string(), true),
-            ("c1".to_string(), "thumbsup".to_string(), false),
+            ("c1".to_string(), "thumbs_up".to_string(), true),
+            ("c1".to_string(), "thumbs_up".to_string(), false),
         ],
         "add then remove must be recorded against the selected comment"
+    );
+}
+
+/// The live API returns `reactions` as objects, not bare strings.
+#[test]
+fn test_comment_deserializes_reaction_objects() {
+    let parsed: Comment = serde_json::from_value(serde_json::json!({
+        "id": "c1",
+        "comment_text": "hi",
+        "reactions": [
+            {
+                "reaction": "thumbs_up",
+                "date": "1794919011595",
+                "user": {"id": 38650140, "username": "Y.K. Goon"}
+            }
+        ]
+    }))
+    .expect("object reactions must deserialize");
+    assert_eq!(parsed.reactions, vec!["thumbs_up"]);
+    assert!(parsed.has_reaction("thumbs_up"));
+}
+
+/// Older payloads store the emoji code point; it must read as a thumbs-up.
+#[test]
+fn test_legacy_codepoint_reaction_reads_as_thumbs_up() {
+    let parsed: Comment = serde_json::from_value(serde_json::json!({
+        "id": "c1",
+        "comment_text": "hi",
+        "reactions": [{"reaction": "1F44D", "date": "1794542570766"}]
+    }))
+    .expect("legacy codepoint reactions must deserialize");
+    assert_eq!(parsed.reactions, vec!["thumbs_up"]);
+    assert!(
+        parsed.has_reaction("thumbs_up"),
+        "a legacy 1F44D reaction must present as a thumbs-up"
+    );
+}
+
+/// A user reacting with two different emoji keeps both, deduplicated.
+#[test]
+fn test_multiple_reactions_are_kept_and_deduplicated() {
+    let parsed: Comment = serde_json::from_value(serde_json::json!({
+        "id": "c1",
+        "comment_text": "hi",
+        "reactions": [
+            {"reaction": "thumbs_up"},
+            {"reaction": "1F44D"},
+            {"reaction": "eyes"}
+        ]
+    }))
+    .expect("must deserialize");
+    assert_eq!(parsed.reactions, vec!["thumbs_up", "eyes"]);
+}
+
+/// `SPC c u` on a comment whose stored reaction uses the legacy code point
+/// must remove it rather than adding a second one.
+#[test]
+fn test_toggle_off_legacy_codepoint_reaction() {
+    let rt = Runtime::new().unwrap();
+    let mut app = app_with_comment(
+        &rt,
+        MockClickUpClient::new().with_comment_reaction(),
+        &["1F44D"],
+    );
+
+    let _guard = rt.enter();
+    app.toggle_comment_thumbs_up();
+    rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(50)).await });
+    app.process_async_messages();
+
+    assert!(
+        app.reactions_for_test("c1").is_empty(),
+        "an existing legacy thumbs-up must be toggled off, got: {:?}",
+        app.reactions_for_test("c1")
+    );
+}
+
+/// The wire payload the API accepts is `{"reactions": ["thumbs_up"]}`; the
+/// singular `{"reaction": ...}` shape is rejected by ClickUp.
+#[test]
+fn test_reaction_request_body_shape() {
+    let body = clickdown::api::client::reaction_body("thumbsup");
+    assert_eq!(
+        body,
+        serde_json::json!({"reactions": ["thumbs_up"]}),
+        "the API rejects the singular reaction shape and the legacy shortcode"
     );
 }
