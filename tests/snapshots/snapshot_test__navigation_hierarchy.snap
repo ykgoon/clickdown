@@ -141,11 +141,11 @@ expression: combined_snapshot
 
 === Level 9: Workspaces (Up) ===
 ┌ Navigation ──────────────────────────┐
+│  Inbox                               │
+│  Assigned to Me                      │
 │▸ Engineering                         │
 │  Marketing                           │
 │  Design                              │
-│                                      │
-│                                      │
 │                                      │
 │                                      │
 │                                      │

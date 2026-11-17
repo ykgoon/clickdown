@@ -4251,13 +4251,10 @@ impl TuiApp {
                 self.current_folder_id = None;
                 self.current_list_id = None;
 
-                // Repopulate sidebar with workspaces
-                let mut items = Vec::new();
-                items.extend(self.workspaces.iter().map(|w| SidebarItem::Workspace {
-                    name: w.name.clone(),
-                    id: w.id.clone(),
-                }));
-                *self.sidebar.items_mut() = items;
+                // Repopulate with the full root sidebar (pinned Inbox and
+                // Assigned entries included). Building this from the
+                // workspace list alone silently dropped both shortcuts.
+                *self.sidebar.items_mut() = self.root_sidebar_items();
 
                 // Restore selection using current_workspace_id
                 if let Some(ref workspace_id) = self.current_workspace_id {
@@ -6144,12 +6141,16 @@ impl TuiApp {
         self.current_space_id = None;
         self.current_folder_id = None;
         self.current_list_id = None;
+        // The root sidebar is not the bare workspace list: it starts with the
+        // pinned Inbox and Assigned entries, so the root has to be rebuilt and
+        // the target selected by ID rather than by workspace index.
+        *self.sidebar.items_mut() = self.root_sidebar_items();
         self.sidebar.select_first();
 
         // Find and select the target workspace in the list
-        for (i, ws) in self.workspaces.iter().enumerate() {
+        for ws in self.workspaces.iter() {
             if ws.id == workspace_id {
-                self.sidebar.select(Some(i));
+                self.sidebar.select_by_id(&workspace_id);
                 self.current_workspace_id = Some(workspace_id);
                 self.navigating = false;
                 self.navigating_level.clear();

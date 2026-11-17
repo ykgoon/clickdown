@@ -428,3 +428,78 @@ fn test_inbox_absent_below_root() {
         "the inbox entry must not appear below the root"
     );
 }
+
+fn space(id: &str, name: &str) -> clickdown::models::ClickUpSpace {
+    serde_json::from_value(serde_json::json!({
+        "id": id, "name": name, "private": false
+    }))
+    .expect("space fixture should deserialize")
+}
+
+/// Walking into a workspace and back out with Esc must land on the full root
+/// sidebar: the pinned Inbox and Assigned entries plus the workspaces.
+///
+/// Regression: the Spaces -> Workspaces back path rebuilt the sidebar from
+/// the workspace list alone, so the two pinned entries silently vanished once
+/// the user came back from a workspace.
+#[test]
+fn test_esc_from_spaces_restores_pinned_root_entries() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Kakitangan")])
+        .with_spaces(vec![space("sp-1", "Product")])
+        .with_inbox(inbox_of(vec![inbox_task("t1", "One", Some(1000))]));
+
+    let mut app = root_app(&rt, client);
+
+    // Enter the workspace.
+    let _guard = rt.enter();
+    app.sidebar().select_by_id("ws-1");
+    app.navigate_into();
+    rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(60)).await });
+    app.process_async_messages();
+    assert_eq!(app.screen(), Screen::Spaces);
+
+    // Back to the root.
+    app.update(esc());
+    assert_eq!(app.screen(), Screen::Workspaces);
+
+    let items = app.sidebar().items().to_vec();
+    assert!(
+        matches!(items.first(), Some(SidebarItem::Inbox { .. })),
+        "Inbox must still be pinned after Esc from Spaces, got: {:?}",
+        items
+    );
+    assert!(
+        matches!(items.get(1), Some(SidebarItem::AssignedToMe)),
+        "Assigned must still be pinned after Esc from Spaces, got: {:?}",
+        items
+    );
+    assert!(
+        items
+            .iter()
+            .any(|i| matches!(i, SidebarItem::Workspace { id, .. } if id == "ws-1")),
+        "the workspace must still be listed, got: {:?}",
+        items
+    );
+}
+
+/// Opening the inbox and pressing Esc twice must return to a root sidebar that
+/// still shows both pinned entries, with the inbox entry selected.
+#[test]
+fn test_double_esc_from_inbox_keeps_pinned_entries() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Kakitangan")])
+        .with_inbox(inbox_of(vec![inbox_task("t1", "One", Some(1000))]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+
+    app.update(esc());
+    assert_eq!(app.screen(), Screen::Workspaces);
+
+    let items = app.sidebar().items().to_vec();
+    assert!(matches!(items.first(), Some(SidebarItem::Inbox { .. })));
+    assert!(matches!(items.get(1), Some(SidebarItem::AssignedToMe)));
+}
