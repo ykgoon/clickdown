@@ -106,6 +106,7 @@ impl InboxTask {
     }
 
     /// True when the task is closed/done according to its status type.
+    #[allow(dead_code)]
     pub fn is_closed(&self) -> bool {
         self.status
             .as_ref()

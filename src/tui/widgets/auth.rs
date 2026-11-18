@@ -28,11 +28,13 @@ impl AuthState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn add_char(&mut self, c: char) {
         self.token_input.insert(self.cursor_pos, c);
         self.cursor_pos += 1;
     }
 
+    #[allow(dead_code)]
     pub fn remove_char(&mut self) {
         if self.cursor_pos > 0 {
             self.cursor_pos -= 1;

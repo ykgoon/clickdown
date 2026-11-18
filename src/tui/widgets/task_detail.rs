@@ -39,6 +39,7 @@ impl Default for TaskDetailState {
     }
 }
 
+#[allow(dead_code)]
 pub fn render_task_detail(
     frame: &mut Frame,
     state: &TaskDetailState,
@@ -65,6 +66,7 @@ pub fn render_task_detail(
 /// Extended variant: renders the detail view with an optional full-screen
 /// expanded description panel (issue 5), a focus highlight for the
 /// description, and a manual scroll offset (clamped in place to the content).
+#[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 pub fn render_task_detail_expanded(
     frame: &mut Frame,

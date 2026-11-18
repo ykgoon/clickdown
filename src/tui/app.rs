@@ -95,8 +95,6 @@ pub enum InsertTarget {
     /// New comment, reply, or edit of an existing comment
     /// (the exact mode is tracked by `comment_editing_index`)
     Comment,
-    /// Mention picker opened from an insert-mode buffer (issue 6)
-    Mention,
 }
 
 /// Command menu (SPACEmenu) state: which command group is shown.
@@ -459,7 +457,6 @@ impl TuiApp {
         match self.insert_mode_target.as_ref() {
             Some(InsertTarget::Description) => self.description_edit_buffer.clone(),
             Some(InsertTarget::Comment) => self.comment_new_text.clone(),
-            Some(InsertTarget::Mention) => String::new(),
             None => String::new(),
         }
     }
@@ -468,7 +465,6 @@ impl TuiApp {
         match self.insert_mode_target.as_ref() {
             Some(InsertTarget::Description) => self.description_edit_buffer = value,
             Some(InsertTarget::Comment) => self.comment_new_text = value,
-            Some(InsertTarget::Mention) => {}
             None => {}
         }
     }
@@ -593,7 +589,6 @@ impl TuiApp {
                 // Reuse the existing comment save path
                 self.save_comment_from_buffer();
             }
-            Some(InsertTarget::Mention) => {}
             None => {}
         }
     }
@@ -1530,6 +1525,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
 
     /// Test-only: set the auth token input as if typed on the auth screen.
     #[doc(hidden)]
+    #[allow(dead_code)]
     pub fn set_auth_token_for_test(&mut self, token: &str) {
         self.auth_state.token_input = token.to_string();
         self.auth_state.cursor_pos = token.chars().count();
@@ -1537,12 +1533,14 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
 
     /// Test-only: whether the last API failure flagged the token as invalid.
     #[doc(hidden)]
+    #[allow(dead_code)]
     pub fn auth_invalid_for_test(&self) -> bool {
         self.auth_invalid
     }
 
     /// Test-only: current auth-screen error text, if any.
     #[doc(hidden)]
+    #[allow(dead_code)]
     pub fn auth_error_for_test(&self) -> Option<&str> {
         self.auth_state.error.as_deref()
     }
@@ -1553,18 +1551,22 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
         self.expanded_panel
     }
 
+    #[allow(dead_code)]
     pub fn mention_picker_open_for_test(&self) -> bool {
         self.mention_picker_open
     }
 
+    #[allow(dead_code)]
     pub fn set_mention_members_for_test(&mut self, members: Vec<User>) {
         self.mention_members = members;
     }
 
+    #[allow(dead_code)]
     pub fn status_picker_statuses_for_test(&self) -> &[crate::models::TaskStatus] {
         &self.status_picker_statuses
     }
 
+    #[allow(dead_code)]
     pub fn set_cached_list_statuses_for_test(&mut self, list_id: &str, statuses: Vec<crate::models::TaskStatus>) {
         self.cached_list_statuses
             .insert(list_id.to_string(), statuses);
@@ -7224,7 +7226,7 @@ mod tests {
 
         // Simulate loading tasks into the app cache and rebuild grouped list
         app.tasks = vec![task.clone()];
-        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.task_list = GroupedTaskList::from_tasks_with_folds(app.tasks.clone(), std::collections::HashSet::new());
 
         // Select the task in the task list
         app.task_list.select_first();
@@ -7360,7 +7362,7 @@ mod tests {
         let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
 
         app.tasks = vec![first.clone(), second.clone()];
-        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.task_list = GroupedTaskList::from_tasks_with_folds(app.tasks.clone(), std::collections::HashSet::new());
         app.task_list.select_first();
         app.open_delete_confirmation(Some(first.id.clone()));
         let second_index = app
@@ -7405,7 +7407,7 @@ mod tests {
         let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
 
         app.tasks = vec![first.clone(), second.clone()];
-        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.task_list = GroupedTaskList::from_tasks_with_folds(app.tasks.clone(), std::collections::HashSet::new());
         app.screen = Screen::TaskDetail;
         app.task_detail.task = Some(first.clone());
 
@@ -7670,7 +7672,7 @@ mod tests {
         let mock_client = MockClickUpClient::new().with_tasks(vec![task.clone()]);
         let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
         app.tasks = vec![task.clone()];
-        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.task_list = GroupedTaskList::from_tasks_with_folds(app.tasks.clone(), std::collections::HashSet::new());
         app.task_list.select_first();
         app.screen = Screen::Tasks;
         app.current_list_id = Some("list-1".to_string());
@@ -7713,7 +7715,7 @@ mod tests {
         let mock_client = MockClickUpClient::new().with_tasks(tasks.clone());
         let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
         app.tasks = tasks;
-        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.task_list = GroupedTaskList::from_tasks_with_folds(app.tasks.clone(), std::collections::HashSet::new());
         app.task_list.select_first();
         app.screen = Screen::Tasks;
         // Simulate a 20-row viewport (render records height - 2 border rows)
@@ -7748,7 +7750,7 @@ mod tests {
         let mock_client = MockClickUpClient::new().with_tasks(tasks.clone());
         let mut app = TuiApp::with_client(Arc::new(mock_client)).unwrap();
         app.tasks = tasks;
-        app.task_list = GroupedTaskList::from_tasks(app.tasks.clone());
+        app.task_list = GroupedTaskList::from_tasks_with_folds(app.tasks.clone(), std::collections::HashSet::new());
         app.task_list.select_first();
         app.screen = Screen::Tasks;
         app.current_list_id = Some("list-1".to_string());

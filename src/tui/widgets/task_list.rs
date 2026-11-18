@@ -57,16 +57,6 @@ impl GroupedTaskList {
         }
     }
 
-    /// Build a grouped task list from a flat vector of sorted tasks.
-    ///
-    /// Tasks are grouped by their resolved status group name (falling back to
-    /// `status.status` when `status_group` is `None`), sorted within groups by
-    /// `updated_at` descending. Known status groups (in_progress, todo, done)
-    /// appear first in priority order; unknown groups appear after.
-    pub fn from_tasks(tasks: Vec<Task>) -> Self {
-        Self::from_tasks_with_folds(tasks, HashSet::new())
-    }
-
     /// Build a grouped task list, preserving fold state across rebuilds.
     ///
     /// Groups whose name appears in `folded` start folded (their tasks hidden).
@@ -479,7 +469,7 @@ mod tests {
             make_task("t4", Some("in_progress"), Some(1000)),
         ];
 
-        let grouped = GroupedTaskList::from_tasks(tasks);
+        let grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         let rows = grouped.rows();
 
         // Expect: IN_PROGRESS header, t2, t4, TODO header, t1, DONE header, t3
@@ -507,7 +497,7 @@ mod tests {
             make_task("t2", Some("todo"), Some(1000)),
         ];
 
-        let grouped = GroupedTaskList::from_tasks(tasks);
+        let grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         let rows = grouped.rows();
 
         // Only Todo and Done groups (no In Progress or Other)
@@ -519,7 +509,7 @@ mod tests {
     #[test]
     fn test_from_tasks_empty_list() {
         let tasks: Vec<Task> = vec![];
-        let grouped = GroupedTaskList::from_tasks(tasks);
+        let grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         assert!(grouped.rows().is_empty());
         assert!(grouped.selected_task().is_none());
     }
@@ -532,7 +522,7 @@ mod tests {
             make_task("t2", Some("todo"), Some(1000)),
         ];
 
-        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        let mut grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
 
         // t1 is selected (first task in In Progress group)
         assert!(matches!(grouped.selected_task(), Some(t) if t.id == "t1"));
@@ -550,7 +540,7 @@ mod tests {
             make_task("t2", Some("todo"), Some(1000)),
         ];
 
-        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        let mut grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
 
         // Move next to t2
         grouped.select_next();
@@ -570,7 +560,7 @@ mod tests {
     #[test]
     fn test_selected_task_none_on_header() {
         let tasks = vec![make_task("t1", Some("todo"), Some(1000))];
-        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        let mut grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
 
         // t1 is selected
         assert!(grouped.selected_task().is_some());
@@ -595,7 +585,7 @@ mod tests {
         // Start with no selection
         assert!(grouped.selected_task().is_none());
 
-        grouped = GroupedTaskList::from_tasks(tasks);
+        grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         // from_tasks calls select_first internally, so t1 should be selected
         assert!(matches!(grouped.selected_task(), Some(t) if t.id == "t1"));
     }
@@ -607,7 +597,7 @@ mod tests {
             make_task("t2", Some("todo"), Some(1000)),
         ];
 
-        let grouped = GroupedTaskList::from_tasks(tasks);
+        let grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         let rows = grouped.rows();
 
         // One header + two tasks
@@ -626,7 +616,7 @@ mod tests {
             make_task("t2", Some("todo"), Some(1000)),
         ];
 
-        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        let mut grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         // t1 selected
         grouped.select_next(); // t2 selected
 
@@ -642,7 +632,7 @@ mod tests {
             make_task("t2", None, Some(1000)),
         ];
 
-        let grouped = GroupedTaskList::from_tasks(tasks);
+        let grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         let rows = grouped.rows();
 
         // Each unknown status gets its own header (no longer collapsed into "OTHER")
@@ -688,7 +678,7 @@ mod tests {
             make_task_with_status("t5", "blocked", 900),
         ];
 
-        let grouped = GroupedTaskList::from_tasks(tasks);
+        let grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         let rows = grouped.rows();
 
         // Should have 5 distinct status headers, NOT collapsed into one "OTHER"
@@ -759,7 +749,7 @@ mod tests {
             make_task("t3", Some("todo"), Some(1500)),
         ];
 
-        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        let mut grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         assert!(matches!(grouped.selected_task(), Some(t) if t.id == "t1"));
 
         // Focus the status header of the selected task
@@ -790,7 +780,7 @@ mod tests {
     #[test]
     fn test_toggle_fold_ignores_task_selection() {
         let tasks = vec![make_task("t1", Some("todo"), Some(1000))];
-        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        let mut grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         assert!(grouped.selected_task().is_some());
         assert!(grouped.toggle_fold_of_selected_header().is_none());
         assert!(grouped.folded_groups().is_empty());
@@ -806,7 +796,7 @@ mod tests {
             make_task("t2", Some("todo"), Some(1000)),
         ];
 
-        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        let mut grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         grouped.select_group_header_of_selected_task();
         grouped.toggle_fold_of_selected_header();
         assert_eq!(grouped.rows().len(), 3, "two headers + the remaining visible task");
@@ -844,7 +834,7 @@ mod tests {
             make_task("t1", Some("in_progress"), Some(2000)),
             make_task("t2", Some("todo"), Some(1000)),
         ];
-        let mut grouped = GroupedTaskList::from_tasks(tasks);
+        let mut grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         grouped.select(Some(0)); // header row
         assert!(grouped.selected_task().is_none());
         grouped.select_next();

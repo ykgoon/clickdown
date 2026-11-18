@@ -323,9 +323,10 @@ fn test_task_list_state() {
         time_spent: None,
     }];
 
-    let mut task_list = GroupedTaskList::from_tasks(tasks);
+    let mut task_list =
+        GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
 
-    // from_tasks selects first task automatically
+    // from_tasks_with_folds with no folds selects first task automatically
     assert!(
         task_list.selected_task().is_some(),
         "Should have a task selected"

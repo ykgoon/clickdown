@@ -118,17 +118,3 @@ pub fn render_inbox(
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-/// Footer hint for the inbox view.
-pub fn get_inbox_hints() -> &'static str {
-    "j/k: Move | Enter: Open task | SPC i d: Dismiss | r: Reload | Esc: Back"
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hints_mention_the_dismiss_key() {
-        assert!(get_inbox_hints().contains("SPC i d: Dismiss"));
-    }
-}

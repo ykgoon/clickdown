@@ -241,7 +241,8 @@ fn test_task_list_empty() {
 #[test]
 fn test_task_list_with_tasks() {
     let tasks = create_test_tasks();
-    let mut task_list = GroupedTaskList::from_tasks(tasks);
+    let mut task_list =
+        GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
     task_list.select_first();
 
     assert_widget_snapshot("task_list_with_tasks", 60, 15, |frame| {
@@ -253,7 +254,8 @@ fn test_task_list_with_tasks() {
 #[test]
 fn test_task_list_with_selection() {
     let tasks = create_test_tasks();
-    let mut task_list = GroupedTaskList::from_tasks(tasks);
+    let mut task_list =
+        GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
     task_list.select_first();
 
     assert_widget_snapshot("task_list_with_selection", 60, 15, |frame| {
@@ -265,7 +267,8 @@ fn test_task_list_with_selection() {
 #[test]
 fn test_task_list_header_focused() {
     let tasks = create_test_tasks();
-    let mut task_list = GroupedTaskList::from_tasks(tasks);
+    let mut task_list =
+        GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
     // Tab focus: move selection from the first task to its status group header
     task_list.select_group_header_of_selected_task();
 

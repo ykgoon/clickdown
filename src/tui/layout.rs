@@ -13,10 +13,8 @@ use ratatui::{
 pub const MIN_WIDTH: u16 = 80;
 pub const MIN_HEIGHT: u16 = 24;
 
-/// Height ratio for task detail view: description panel gets 30%, comments get 70%
-pub const TASK_DETAIL_DESCRIPTION_RATIO: u16 = 30;
-pub const TASK_DETAIL_COMMENTS_RATIO: u16 = 70;
-/// Pane share of the task screen given to the TAB-focused element (issue: focus traversal)
+/// Height ratio constants for the focused task detail splits (65/35 variants
+/// below); the old unfocused 30/70 split was removed as dead code.
 pub const TASK_DETAIL_FOCUSED_RATIO: u16 = 65;
 
 /// Create a standard titled block with the given title
@@ -142,20 +140,6 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
-}
-
-/// Split task detail area into description and comments panels with 3:7 ratio
-/// Returns (description_area, comments_area)
-pub fn split_task_detail(area: Rect) -> (Rect, Rect) {
-    let chunks = ratatui::layout::Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(TASK_DETAIL_DESCRIPTION_RATIO),
-            Constraint::Percentage(TASK_DETAIL_COMMENTS_RATIO),
-        ])
-        .split(area);
-
-    (chunks[0], chunks[1])
 }
 
 /// Split with the DESCRIPTION focused: it grows to 65% of the area so more
@@ -415,23 +399,6 @@ mod tests {
         let area = Rect::new(0, 0, 50, 2); // Too small
         let result = calculate_scroll_indicator(area, 100, 0);
         assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_split_task_detail_ratio() {
-        let area = Rect::new(0, 0, 100, 100);
-        let (desc_area, comments_area) = split_task_detail(area);
-
-        // Check heights are approximately 30% and 70%
-        let total_height = desc_area.height + comments_area.height;
-        let desc_ratio = desc_area.height as f64 / total_height as f64;
-
-        // Allow some tolerance for rounding
-        assert!(
-            desc_ratio >= 0.25 && desc_ratio <= 0.35,
-            "Description ratio should be ~30%, got {}",
-            desc_ratio
-        );
     }
 }
 

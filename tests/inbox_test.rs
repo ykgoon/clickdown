@@ -9,7 +9,8 @@ mod fixtures;
 use std::sync::Arc;
 
 use clickdown::api::mock_client::MockClickUpClient;
-use clickdown::models::{Inbox, InboxLocation, InboxStatus, InboxTask, Task, Workspace};
+use clickdown::models::inbox::{Inbox, InboxLocation, InboxStatus, InboxTask};
+use clickdown::models::{Task, Workspace};
 use clickdown::tui::app::{Screen, TuiApp};
 use clickdown::tui::input::InputEvent;
 use clickdown::tui::widgets::SidebarItem;
