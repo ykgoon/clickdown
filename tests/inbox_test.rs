@@ -20,6 +20,20 @@ fn key(c: char) -> InputEvent {
     InputEvent::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
 }
 
+/// `SPC i d` — dismiss the highlighted inbox item.
+///
+/// Dismissing is not a bare key: it lives in the contextual Inbox group of the
+/// SPACEmenu, which only exists while the inbox screen is open.
+fn dismiss_chord() -> Vec<InputEvent> {
+    vec![key(' '), key('i'), key('d')]
+}
+
+fn press(app: &mut TuiApp, events: Vec<InputEvent>) {
+    for event in events {
+        app.update(event);
+    }
+}
+
 fn esc() -> InputEvent {
     InputEvent::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
 }
@@ -213,7 +227,7 @@ fn test_moving_marks_read_and_lowers_badge() {
     );
 }
 
-/// `d` dismisses the highlighted item and removes it from the list.
+/// `SPC i d` dismisses the highlighted item and removes it from the list.
 #[test]
 fn test_dismiss_removes_item() {
     let rt = Runtime::new().unwrap();
@@ -229,7 +243,7 @@ fn test_dismiss_removes_item() {
     assert_eq!(app.inbox_len_for_test(), 2);
 
     app.update(key('j')); // select "Dismiss me"
-    app.update(key('d'));
+    press(&mut app, dismiss_chord());
 
     assert_eq!(app.inbox_len_for_test(), 1, "dismissed item is removed");
     assert_eq!(
@@ -254,7 +268,7 @@ fn test_dismissed_items_stay_dismissed_after_reload() {
     let mut app = root_app(&rt, client);
     open_inbox(&rt, &mut app);
 
-    app.update(key('d')); // dismiss the first
+    press(&mut app, dismiss_chord()); // dismiss the first
     assert_eq!(app.inbox_len_for_test(), 1);
 
     // Reload returns the same two items from the "server".
@@ -502,4 +516,108 @@ fn test_double_esc_from_inbox_keeps_pinned_entries() {
     let items = app.sidebar().items().to_vec();
     assert!(matches!(items.first(), Some(SidebarItem::Inbox { .. })));
     assert!(matches!(items.get(1), Some(SidebarItem::AssignedToMe)));
+}
+
+/// The dismiss action is only reachable through the SPACEmenu, and only on the
+/// inbox screen: a contextual Inbox group, not a bare key.
+#[test]
+fn test_dismiss_lives_in_contextual_inbox_group() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![inbox_task("t1", "Only item", Some(3000))]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+    assert_eq!(app.screen_for_test(), Screen::Inbox);
+
+    // `SPC i` opens the Inbox group (exists only here).
+    press(&mut app, vec![key(' '), key('i')]);
+    assert_eq!(
+        app.command_menu_level_for_test(),
+        Some(clickdown::tui::app::CommandMenuLevel::Group('i')),
+        "SPC i must enter the contextual Inbox group"
+    );
+
+    // `d` alone at the group level is what performs the dismissal.
+    press(&mut app, vec![key('d')]);
+    assert_eq!(
+        app.inbox_len_for_test(),
+        0,
+        "SPC i d must dismiss the highlighted item"
+    );
+}
+
+/// A bare `d` on the inbox screen must not dismiss anything — dismissal is
+/// deliberately behind the menu so a stray keypress cannot hide an item.
+#[test]
+fn test_bare_d_does_not_dismiss() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![inbox_task("t1", "Stays", Some(3000))]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+
+    app.update(key('d'));
+
+    assert_eq!(
+        app.inbox_len_for_test(),
+        1,
+        "a bare 'd' must not dismiss; dismiss is SPC i d"
+    );
+    assert!(!app.command_menu_open_for_test(), "'d' is not a menu key");
+}
+
+/// Outside the inbox the contextual group must not exist: pressing `SPC i`
+/// closes the menu with feedback rather than offering a dead command.
+#[test]
+fn test_inbox_group_absent_outside_inbox() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new().with_workspaces(vec![workspace("ws-1", "Engineering")]);
+    let mut app = root_app(&rt, client);
+    assert_eq!(app.screen_for_test(), Screen::Workspaces);
+
+    press(&mut app, vec![key(' '), key('i')]);
+
+    assert!(
+        !app.command_menu_open_for_test(),
+        "SPC i must not open a group outside the inbox"
+    );
+    assert_eq!(
+        app.command_menu_level_for_test(),
+        None,
+        "no group should be entered"
+    );
+}
+
+/// Dismissing must remain persisted (still filtered after reload) when driven
+/// through the menu path rather than the old bare key.
+#[test]
+fn test_menu_dismiss_persists_across_reload() {
+    let rt = Runtime::new().unwrap();
+    let client = MockClickUpClient::new()
+        .with_workspaces(vec![workspace("ws-1", "Engineering")])
+        .with_inbox(inbox_of(vec![
+            inbox_task("t1", "One", Some(3000)),
+            inbox_task("t2", "Two", Some(2000)),
+        ]));
+
+    let mut app = root_app(&rt, client);
+    open_inbox(&rt, &mut app);
+
+    press(&mut app, dismiss_chord());
+    assert_eq!(app.inbox_len_for_test(), 1);
+
+    let _guard = rt.enter();
+    app.update(key('r'));
+    rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(60)).await });
+    app.process_async_messages();
+
+    assert_eq!(
+        app.inbox_len_for_test(),
+        1,
+        "menu-dismissed entry must stay hidden after reload"
+    );
 }

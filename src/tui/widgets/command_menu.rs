@@ -26,16 +26,34 @@ struct GroupEntry {
     key: char,
 }
 
-/// Root minibuffer entries, in display order (matches the key handler in app.rs).
-const ROOT_GROUPS: [GroupEntry; 7] = [
-    GroupEntry { label: "Go", key: 'g' },
-    GroupEntry { label: "Task", key: 't' },
-    GroupEntry { label: "Comments", key: 'c' },
-    GroupEntry { label: "Copy", key: 'y' },
-    GroupEntry { label: "Window", key: 'w' },
-    GroupEntry { label: "Refresh", key: 'r' },
-    GroupEntry { label: "Quit", key: 'q' },
-];
+/// Root minibuffer entries for the given screen, in display order (matches the
+/// key handler in app.rs).
+///
+/// The root is contextual: `Inbox` only exists while the inbox screen is open,
+/// because dismissing an item only means something there. Transient actions
+/// (`r`, `q`) sit after the groups so the group keys stay left-aligned and
+/// stable between screens.
+fn root_groups(screen: &crate::tui::app::Screen) -> Vec<GroupEntry> {
+    let mut groups = vec![
+        GroupEntry { label: "Go", key: 'g' },
+        GroupEntry { label: "Task", key: 't' },
+        GroupEntry { label: "Comments", key: 'c' },
+        GroupEntry { label: "Copy", key: 'y' },
+        GroupEntry { label: "Window", key: 'w' },
+    ];
+    if *screen == crate::tui::app::Screen::Inbox {
+        groups.push(GroupEntry {
+            label: "Inbox",
+            key: 'i',
+        });
+    }
+    groups.push(GroupEntry {
+        label: "Refresh",
+        key: 'r',
+    });
+    groups.push(GroupEntry { label: "Quit", key: 'q' });
+    groups
+}
 
 /// Color coding per group key (consistent across root and group levels).
 fn group_color(key: char) -> Color {
@@ -45,6 +63,7 @@ fn group_color(key: char) -> Color {
         'c' => Theme::SUCCESS,
         'y' => Color::LightBlue,
         'w' => Color::Blue,
+        'i' => Theme::PRIMARY,
         'r' => Color::Magenta,
         'q' => Theme::ERROR,
         _ => Theme::TEXT,
@@ -86,6 +105,7 @@ fn group_actions(group: char) -> Option<(&'static str, Vec<(&'static str, char)>
             ],
         )),
         'w' => Some(("Window", vec![("Toggle sidebar", 's')])),
+        'i' => Some(("Inbox", vec![("Dismiss selected item", 'd')])),
         _ => None,
     }
 }
@@ -148,13 +168,15 @@ fn minibuffer_hint(group: Option<(&'static str, char)>, esc_verb: &str) -> Line<
 ///
 /// Each level shows exactly the key(s) the user can press at that level:
 /// Root lists group keys; a group level lists that group's action keys.
+/// `screen` makes the root contextual — see [`root_groups`].
 pub fn render_command_menu(
     frame: &mut Frame,
     area: Rect,
     level: &crate::tui::app::CommandMenuLevel,
+    screen: &crate::tui::app::Screen,
 ) {
     match level {
-        crate::tui::app::CommandMenuLevel::Root => render_minibuffer_root(frame, area),
+        crate::tui::app::CommandMenuLevel::Root => render_minibuffer_root(frame, area, screen),
         crate::tui::app::CommandMenuLevel::Group(group) => {
             render_minibuffer_group(frame, area, *group)
         }
@@ -163,7 +185,8 @@ pub fn render_command_menu(
 
 /// Root level: one row of color-coded group columns (label over key),
 /// a separator, then the hint line.
-fn render_minibuffer_root(frame: &mut Frame, area: Rect) {
+fn render_minibuffer_root(frame: &mut Frame, area: Rect, screen: &crate::tui::app::Screen) {
+    let groups = root_groups(screen);
     let rect = minibuffer_rect(area, 4); // labels + keys, separator, hint
     let inner = minibuffer_frame(frame, rect);
 
@@ -176,13 +199,13 @@ fn render_minibuffer_root(frame: &mut Frame, area: Rect) {
         ])
         .split(inner);
 
-    let n = ROOT_GROUPS.len() as u32;
+    let n = groups.len() as u32;
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints((0..n).map(|_| Constraint::Ratio(1, n)))
         .split(rows[0]);
 
-    for (i, entry) in ROOT_GROUPS.iter().enumerate() {
+    for (i, entry) in groups.iter().enumerate() {
         let widget = Paragraph::new(vec![
             Line::from(Span::styled(
                 entry.label.to_string(),

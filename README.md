@@ -17,7 +17,7 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Fast & Native**: Built with Rust and ratatui TUI framework for native terminal performance
 - **Workspace Navigation**: Browse workspaces, spaces, folders, and lists
 - **Task Management**: View, create, edit, and delete tasks
-- **Inbox**: Workspace inbox at the navigation root, showing items that need your attention with an unread count in the sidebar; `Enter` opens the task, `d` dismisses (inbox zero)
+- **Inbox**: Workspace inbox at the navigation root, showing items that need your attention with an unread count in the sidebar; `Enter` opens the task and `SPC i d` dismisses it (inbox zero, local only)
 - **Assigned to Me**: Workspace-wide section at the navigation root listing every task assigned to you, most recently active first
 - **Assigned to Me Filter**: Per-list filter showing tasks assigned to you (press `SPC t f` in task list)
 - **URL Navigation**: Paste any ClickUp URL to jump directly to a workspace, space, folder, list, task, comment, or document (press `g` then `u`)
@@ -235,6 +235,20 @@ ClickDown automatically saves your navigation state when you exit and restores i
 | `Enter` | Select/open item |
 | `Esc` | Go back / Close |
 
+### Inbox
+
+The Inbox entry lives at the navigation root. Dismissing is a menu command, not
+a bare key, so a stray keypress cannot hide an item (dismissal is local and has
+no undo).
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Move between inbox items (moving marks an item read) |
+| `Enter` | Open the task |
+| `SPC i d` | Dismiss the selected item (only offered on this screen) |
+| `r` | Reload the inbox |
+| `Esc` | Back to the navigation root |
+
 ### Task List
 
 | Key | Action |
@@ -260,6 +274,18 @@ ClickDown automatically saves your navigation state when you exit and restores i
 | `n` | Create new item |
 | `e` | Edit selected item |
 | `d` | Delete selected item |
+
+### SPACEmenu Groups
+
+`SPC` opens the command menu. Groups are contextual: `Inbox` only appears while
+the inbox screen is open.
+
+| Chord | Action |
+|-------|--------|
+| `SPC g u` | Open a ClickUp URL |
+| `SPC t n/e/s/d/a/f/v` | Task: new, edit, status, delete, assign, filter, expand description |
+| `SPC c n/e/r/u/v` | Comments: new, edit, reply, thumbs-up, expand |
+| `SPC i d` | Inbox: dismiss the selected item (inbox screen only) |
 
 ### Comments (Task Detail View)
 

@@ -1588,6 +1588,7 @@ fn snapshot_spc_menu_minibuffer_root() {
             frame,
             area,
             &clickdown::tui::app::CommandMenuLevel::Root,
+            &clickdown::tui::app::Screen::Tasks,
         );
     });
 }
@@ -1601,6 +1602,37 @@ fn snapshot_spc_menu_minibuffer_task_group() {
             frame,
             area,
             &clickdown::tui::app::CommandMenuLevel::Group('t'),
+            &clickdown::tui::app::Screen::Tasks,
+        );
+    });
+}
+
+/// Root minibuffer on the inbox screen: the contextual "Inbox" group appears
+/// between Window and Refresh, so dismissal is discoverable but only offered
+/// where it applies.
+#[test]
+fn snapshot_spc_menu_minibuffer_root_on_inbox() {
+    assert_widget_snapshot("spc_menu_minibuffer_root_on_inbox", 100, 24, |frame| {
+        let area = frame.area();
+        clickdown::tui::widgets::render_command_menu(
+            frame,
+            area,
+            &clickdown::tui::app::CommandMenuLevel::Root,
+            &clickdown::tui::app::Screen::Inbox,
+        );
+    });
+}
+
+/// The contextual Inbox group level: exactly one action, `d` to dismiss.
+#[test]
+fn snapshot_spc_menu_minibuffer_inbox_group() {
+    assert_widget_snapshot("spc_menu_minibuffer_inbox_group", 100, 24, |frame| {
+        let area = frame.area();
+        clickdown::tui::widgets::render_command_menu(
+            frame,
+            area,
+            &clickdown::tui::app::CommandMenuLevel::Group('i'),
+            &clickdown::tui::app::Screen::Inbox,
         );
     });
 }
@@ -1614,6 +1646,7 @@ fn snapshot_spc_menu_minibuffer_window_group() {
             frame,
             area,
             &clickdown::tui::app::CommandMenuLevel::Group('w'),
+            &clickdown::tui::app::Screen::Tasks,
         );
     });
 }

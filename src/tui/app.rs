@@ -912,6 +912,12 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         'c' => self.command_menu = Some(CommandMenuLevel::Group('c')),
                         'y' => self.command_menu = Some(CommandMenuLevel::Group('y')),
                         'w' => self.command_menu = Some(CommandMenuLevel::Group('w')),
+                        // The Inbox group only exists on the inbox screen; the
+                        // menu is contextual, so guard the key as well as the
+                        // rendered entries.
+                        'i' if self.screen == Screen::Inbox => {
+                            self.command_menu = Some(CommandMenuLevel::Group('i'))
+                        }
                         'r' => {
                             // `SPC r` -- re-query ClickUp for what is on screen
                             self.command_menu = None;
@@ -1043,6 +1049,16 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         // Expand/collapse the description panel
                         if self.screen == Screen::TaskDetail {
                             self.toggle_expanded_panel(ExpandedPanel::Description);
+                        }
+                    }
+                    // `SPC i d` -- dismiss the highlighted inbox item. This is
+                    // the only way to dismiss: there is no bare `d` binding, so
+                    // a stray keypress cannot hide an item by accident.
+                    ('i', KeyCode::Char('d')) => {
+                        if self.screen == Screen::Inbox {
+                            self.dismiss_selected_inbox_task();
+                        } else {
+                            self.status = "Dismiss works in the inbox".to_string();
                         }
                     }
                     ('c', KeyCode::Char('n')) => self.start_comment_compose(ComposeKind::New),
@@ -1751,6 +1767,12 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     #[allow(dead_code)]
     pub fn set_screen_for_test(&mut self, screen: Screen) {
         self.screen = screen;
+    }
+
+    /// Current screen (for testing)
+    #[allow(dead_code)]
+    pub fn screen_for_test(&self) -> Screen {
+        self.screen.clone()
     }
 
     /// Check if dialog is visible (for testing)
@@ -3613,8 +3635,9 @@ impl TuiApp {
 
     /// Key handling for the inbox view.
     ///
-    /// j/k move, Enter opens the task, and there is a dedicated dismiss key so
-    /// "inbox zero" is one keystroke per item.
+    /// j/k move and Enter opens the task. Dismissing is deliberately *not* a
+    /// bare key: it is `SPC i d`, so a stray keypress cannot hide an item from
+    /// the inbox with no undo.
     fn update_inbox(&mut self, event: InputEvent) {
         if let InputEvent::Key(key) = event {
             match key.code {
@@ -3631,7 +3654,6 @@ impl TuiApp {
                     }
                 }
                 KeyCode::Enter => self.open_selected_inbox_task(),
-                KeyCode::Char('d') => self.dismiss_selected_inbox_task(),
                 KeyCode::Esc => self.navigate_back(),
                 KeyCode::Char('r') => self.load_inbox(),
                 _ => {}
@@ -5776,7 +5798,7 @@ impl TuiApp {
         // Each level displays only the single key to press at that level.
         if self.command_menu.is_some() {
             let level = self.command_menu.clone().unwrap();
-            render_command_menu(frame, area, &level);
+            render_command_menu(frame, area, &level, &self.screen);
         }
     }
 
