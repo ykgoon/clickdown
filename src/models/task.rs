@@ -6,6 +6,40 @@ use crate::utils::deserializers::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Deserialize a task reference that the API may send as a bare ID string.
+///
+/// Verified against the live API: `parent` and `top_level_parent` come back as
+/// plain ID strings (`"parent": "862kb0dqp"`) on `GET /team/{id}/task` (with
+/// `subtasks=true`), on `GET /list/{id}/task`, and on `GET /task/{id}`. Only
+/// some older payloads carry the object form (`{"id": ..., "name": ...}`), so
+/// both are accepted and normalised to a [`TaskReference`]; `null` or a
+/// missing field stays `None`.
+fn task_reference<'de, D>(deserializer: D) -> Result<Option<TaskReference>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ReferenceValue {
+        Id(String),
+        Object(TaskReference),
+    }
+
+    let opt = Option::<ReferenceValue>::deserialize(deserializer)?;
+    Ok(match opt {
+        None => None,
+        Some(ReferenceValue::Id(id)) => {
+            let id = id.trim().to_string();
+            if id.is_empty() {
+                None
+            } else {
+                Some(TaskReference { id, name: None })
+            }
+        }
+        Some(ReferenceValue::Object(reference)) => Some(reference),
+    })
+}
+
 /// Flexible description type that can be either a plain string or an object
 /// with HTML/markdown content (ClickUp API can return both formats)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -116,9 +150,9 @@ pub struct Task {
     pub checklists: Vec<Checklist>,
     #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub tags: Vec<Tag>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "task_reference")]
     pub parent: Option<TaskReference>,
-    #[serde(default, rename = "top_level_parent")]
+    #[serde(default, rename = "top_level_parent", deserialize_with = "task_reference")]
     pub top_level_parent: Option<TaskReference>,
     #[serde(default)]
     pub priority: Option<Priority>,
@@ -301,9 +335,15 @@ pub struct LinkedTask {
 }
 
 /// Task reference (for parent tasks)
+///
+/// The API sends this as a bare ID string, so `name` is only present when a
+/// payload happens to include the object form. Treat `id` as the source of
+/// truth and never rely on `name`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskReference {
+    #[serde(default, deserialize_with = "crate::utils::deserializers::flexible_string")]
     pub id: String,
+    #[serde(default)]
     pub name: Option<String>,
 }
 
@@ -854,6 +894,88 @@ mod tests {
         assert_eq!(sorted[0].id, "b");
         assert_eq!(sorted[1].id, "c");
         assert_eq!(sorted[2].id, "a");
+    }
+
+    /// Regression: "Assigned to Me" failed with "Failed to parse team tasks"
+    /// because `GET /team/{id}/task?subtasks=true` returns subtasks whose
+    /// `parent` is a bare ID string, not the object the model expected.
+    #[test]
+    fn test_task_accepts_parent_as_bare_id_string() {
+        let json = r#"{
+            "id": "862kbvqdr",
+            "name": "Run FusionAuth container",
+            "parent": "862kb0dqp",
+            "top_level_parent": "862kb0dqp"
+        }"#;
+        let task: Task = serde_json::from_str(json).expect("string parent must parse");
+        let parent = task.parent.expect("parent must be present");
+        assert_eq!(parent.id, "862kb0dqp");
+        assert_eq!(parent.name, None, "the string form carries no name");
+        assert_eq!(
+            task.top_level_parent.map(|p| p.id),
+            Some("862kb0dqp".to_string())
+        );
+    }
+
+    /// The object form still parses, so older payloads keep working.
+    #[test]
+    fn test_task_accepts_parent_as_object() {
+        let json = r#"{
+            "id": "1",
+            "name": "Child",
+            "parent": {"id": "9", "name": "Parent"},
+            "top_level_parent": {"id": "9", "name": "Parent"}
+        }"#;
+        let task: Task = serde_json::from_str(json).expect("object parent must parse");
+        let parent = task.parent.expect("parent must be present");
+        assert_eq!(parent.id, "9");
+        assert_eq!(parent.name, Some("Parent".to_string()));
+    }
+
+    /// Null and missing parents stay `None` rather than becoming empty refs.
+    #[test]
+    fn test_task_parent_null_and_missing_are_none() {
+        let nulled: Task = serde_json::from_str(
+            r#"{"id": "1", "name": "x", "parent": null, "top_level_parent": null}"#,
+        )
+        .expect("null parent must parse");
+        assert!(nulled.parent.is_none());
+        assert!(nulled.top_level_parent.is_none());
+
+        let missing: Task =
+            serde_json::from_str(r#"{"id": "1", "name": "x"}"#).expect("missing parent must parse");
+        assert!(missing.parent.is_none());
+        assert!(missing.top_level_parent.is_none());
+
+        // An empty string is not a usable reference.
+        let empty: Task = serde_json::from_str(r#"{"id": "1", "name": "x", "parent": ""}"#)
+            .expect("empty parent must parse");
+        assert!(empty.parent.is_none());
+    }
+
+    /// The real failure came from a list of tasks: one subtask poisoned the
+    /// whole page. Structurally the page is a `Vec<Task>`, so prove a mixed
+    /// page parses.
+    #[test]
+    fn test_team_task_page_with_mixed_parents_parses() {
+        let json = r#"{
+            "tasks": [
+                {"id": "86cvd1p4n", "name": "Top level", "parent": null},
+                {"id": "862kbvqdr", "name": "Subtask", "parent": "862kb0dqp",
+                 "top_level_parent": "862kb0dqp"}
+            ]
+        }"#;
+        #[derive(serde::Deserialize)]
+        struct Page {
+            tasks: Vec<Task>,
+        }
+        let page: Page = serde_json::from_str(json).expect("mixed page must parse");
+        assert_eq!(page.tasks.len(), 2);
+        assert!(page.tasks[0].parent.is_none());
+        assert_eq!(
+            page.tasks[1].parent.as_ref().map(|p| p.id.as_str()),
+            Some("862kb0dqp")
+        );
     }
 
     #[test]
