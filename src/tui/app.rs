@@ -954,6 +954,17 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         self.task_detail.task = None;
                         self.task_detail.creating = true;
                         self.task_detail.editing = false;
+                        // The comments pane below the form renders
+                        // `self.comments`; without this reset it would show
+                        // the comments of the task the user just left.
+                        self.comments.clear();
+                        self.comment_selected_index = 0;
+                        self.comment_editing_index = None;
+                        self.comment_new_text.clear();
+                        self.comment_cursor = 0;
+                        self.comment_focus = false;
+                        self.comment_view_mode = CommentViewMode::TopLevel;
+                        self.comment_pane_scroll = 0;
                         self.screen = Screen::TaskDetail;
                         self.screen_title = generate_screen_title("New Task");
                         self.status = "Enter task name (Ctrl+S to create, Esc to cancel)".to_string();
@@ -1607,6 +1618,12 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     #[allow(dead_code)]
     pub fn is_task_creating(&self) -> bool {
         self.task_creating
+    }
+
+    /// Check if the comments pane is in thread view (for testing)
+    #[allow(dead_code)]
+    pub fn is_in_thread_view_for_test(&self) -> bool {
+        matches!(self.comment_view_mode, CommentViewMode::InThread { .. })
     }
 
     /// Get the comment new text (for testing)

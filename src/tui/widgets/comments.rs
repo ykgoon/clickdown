@@ -242,8 +242,12 @@ fn render_comment_list(
     if filtered_comments.is_empty() {
         if area.height >= 1 && area.width >= 15 {
             let empty_msg = match view_mode {
-                CommentViewMode::TopLevel => "No comments yet. Press 'n' to add one.",
-                CommentViewMode::InThread { .. } => "No replies yet. Press 'r' to reply.",
+                CommentViewMode::TopLevel => {
+                    "No comments yet. Add one with SPACEmenu, then 'c n'."
+                }
+                CommentViewMode::InThread { .. } => {
+                    "No replies yet. Open the menu, then 'c r'."
+                }
             };
             let paragraph =
                 Paragraph::new(empty_msg).style(Style::default().fg(Theme::SECONDARY));
@@ -418,11 +422,21 @@ fn render_comment_list(
     // For simplicity, we scroll by line index.
     let mut scroll_offset = pane_scroll;
 
-    // Find the line index where the selected comment starts
+    // The selected comment occupies [start, end) in the rendered lines; a
+    // comment is every row tagged with its index up to (but excluding) the
+    // next comment's first row. Blank separator rows belong to the comment
+    // above them, so a long parent can no longer push the selected reply's
+    // body below the fold.
     let selected_line_start = all_comment_lines
         .iter()
         .position(|(idx, _)| *idx == selected_index)
         .unwrap_or(0);
+    let selected_line_end = all_comment_lines
+        .iter()
+        .skip(selected_line_start + 1)
+        .position(|(idx, _)| *idx != selected_index)
+        .map(|next_rel| selected_line_start + 1 + next_rel)
+        .unwrap_or(total_lines);
 
     // Clamp manual offset so it cannot scroll past the content
     let max_offset = total_lines.saturating_sub(available_height);
@@ -432,11 +446,18 @@ fn render_comment_list(
     let visible_start = scroll_offset;
     let visible_end = (scroll_offset + available_height).min(total_lines);
 
-    // Auto-scroll: adjust scroll_offset if selected comment is outside visible range
+    // Auto-scroll: adjust scroll_offset if the selected comment is not fully
+    // inside the visible range. Scroll to show the comment's TAIL first
+    // (the old single-line formula cut everything after the first row),
+    // then pull back up so the start is visible when the whole comment
+    // fits in the pane.
     if selected_line_start < visible_start {
         scroll_offset = selected_line_start;
-    } else if selected_line_start >= visible_end {
-        scroll_offset = (selected_line_start + 1).saturating_sub(available_height);
+    } else if selected_line_end > visible_end {
+        let tail_offset = selected_line_end.saturating_sub(available_height);
+        // Never scroll the start of the comment out of view when it alone
+        // fits on screen; a comment taller than the pane shows its tail.
+        scroll_offset = tail_offset.max(selected_line_start.min(max_offset));
     }
 
     // Get visible lines
