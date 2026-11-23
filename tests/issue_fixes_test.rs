@@ -4,7 +4,6 @@ mod fixtures;
 
 use clickdown::api::mock_client::MockClickUpClient;
 use clickdown::models::task::TaskStatus;
-use clickdown::models::List;
 use clickdown::tui::app::{Screen, TuiApp};
 use clickdown::tui::input::InputEvent;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

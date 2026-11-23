@@ -8,7 +8,7 @@
 mod fixtures;
 
 use clickdown::api::mock_client::MockClickUpClient;
-use clickdown::models::task::ListReference;
+use clickdown::models::EntityRef;
 use clickdown::models::Task;
 use clickdown::tui::app::{Screen, TuiApp};
 use clickdown::tui::input::InputEvent;
@@ -24,10 +24,10 @@ fn task_in_list(id: &str, list_id: Option<&str>) -> Task {
     let mut task = fixtures::test_task();
     task.id = id.to_string();
     task.name = "Assigned task".to_string();
-    task.list = list_id.map(|id| ListReference {
+    task.list = list_id.map(|id| EntityRef {
         id: id.to_string(),
         name: Some("L".to_string()),
-        access: None,
+        ..Default::default()
     });
     task
 }

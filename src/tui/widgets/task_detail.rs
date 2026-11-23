@@ -39,7 +39,6 @@ impl Default for TaskDetailState {
     }
 }
 
-#[allow(dead_code)]
 pub fn render_task_detail(
     frame: &mut Frame,
     state: &TaskDetailState,
@@ -66,7 +65,6 @@ pub fn render_task_detail(
 /// Extended variant: renders the detail view with an optional full-screen
 /// expanded description panel (issue 5), a focus highlight for the
 /// description, and a manual scroll offset (clamped in place to the content).
-#[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 pub fn render_task_detail_expanded(
     frame: &mut Frame,
@@ -455,14 +453,8 @@ fn estimate_wrapped_lines(text: &str, available_width: usize) -> usize {
             lines += 1;
         } else {
             // Estimate wrapped lines for this line
-            let wrapped = (line.len() + available_width - 1) / available_width;
-            lines += wrapped.max(1);
+            lines += line.len().div_ceil(available_width).max(1);
         }
     }
     lines.max(1)
-}
-
-#[allow(dead_code)]
-pub fn get_task_detail_hints() -> &'static str {
-    "e: Edit | d: Delete | Ctrl+S: Save | Esc: Close"
 }

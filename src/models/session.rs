@@ -30,33 +30,6 @@ pub struct SessionState {
     pub user_id: Option<i32>,
 }
 
-impl SessionState {
-    /// Create a new SessionState from the current TuiApp state
-    ///
-    /// This captures the current navigation context for later restoration.
-    pub fn from_app(
-        screen: &crate::tui::app::Screen,
-        workspace_id: Option<String>,
-        space_id: Option<String>,
-        folder_id: Option<String>,
-        list_id: Option<String>,
-        task_id: Option<String>,
-        document_id: Option<String>,
-        user_id: Option<i32>,
-    ) -> Self {
-        Self {
-            screen: format!("{:?}", screen),
-            workspace_id,
-            space_id,
-            folder_id,
-            list_id,
-            task_id,
-            document_id,
-            user_id,
-        }
-    }
-}
-
 impl Default for SessionState {
     fn default() -> Self {
         Self {

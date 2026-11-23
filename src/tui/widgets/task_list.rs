@@ -2,14 +2,12 @@
 
 use std::collections::HashSet;
 
-use crate::models::task::{
-    get_status_group_priority, resolve_status_group, sort_tasks, StatusGroupPriority,
-};
+use crate::models::task::{recency_key, resolve_status_group, sort_tasks_by_recency};
 use crate::models::Task;
 use crate::tui::theme::Theme;
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{List, ListItem, ListState},
     Frame,
@@ -24,7 +22,9 @@ pub enum ListRow {
         /// Number of tasks in the group (including folded/hidden ones).
         count: usize,
     },
-    Task(Task),
+    /// A task row. Boxed because a `Task` is large and most rows in a long
+    /// list are tasks; an inline variant makes every row pay the full size.
+    Task(Box<Task>),
 }
 
 /// Grouped task list state, replacing the flat `TaskListState`
@@ -59,41 +59,52 @@ impl GroupedTaskList {
 
     /// Build a grouped task list, preserving fold state across rebuilds.
     ///
+    /// Ordering is newest-first, "across the board": tasks within a group are
+    /// sorted by recency, and groups themselves are ordered by their most
+    /// recently touched task. A status group is a grouping, not a priority
+    /// ranking, so fresh work in a later status still surfaces at the top.
+    ///
     /// Groups whose name appears in `folded` start folded (their tasks hidden).
     pub fn from_tasks_with_folds(mut tasks: Vec<Task>, folded: HashSet<String>) -> Self {
-        // Ensure tasks are sorted by status priority and recency
-        tasks = sort_tasks(tasks);
+        sort_tasks_by_recency(&mut tasks);
 
-        // Group tasks by resolved status group name (String key)
-        // Each group tracks its priority (for ordering) and the task list
-        let mut groups: Vec<(String, StatusGroupPriority, Vec<Task>)> = Vec::new();
+        // Group tasks by resolved status group name, remembering the newest
+        // task's recency key so the groups themselves can be ordered.
+        let mut groups: Vec<(String, (i64, i64), Vec<Task>)> = Vec::new();
         for task in tasks {
             let group_name = resolve_status_group(task.status.as_ref());
-            let priority = get_status_group_priority(&group_name);
-            // Find existing group or create new one
+            let (updated, created, _) = recency_key(&task);
             if let Some((_, _, group_tasks)) =
                 groups.iter_mut().find(|(name, _, _)| *name == group_name)
             {
                 group_tasks.push(task);
             } else {
-                groups.push((group_name, priority, vec![task]));
+                groups.push((group_name, (updated, created), vec![task]));
             }
         }
 
-        // Sort groups: known priorities first (InProgress < ToDo < Done), then unknown groups alphabetically
-        groups.sort_by(|(name_a, prio_a, _), (name_b, prio_b, _)| {
-            prio_a.cmp(prio_b).then_with(|| name_a.cmp(name_b))
+        // Newest group first. Task order inside a group is already newest-first
+        // from the sort above, so the first task carries the group's key.
+        //
+        // `sort_by` is stable, so groups with equal recency keep the order they
+        // were first seen in. That matters for undated payloads: every key ties
+        // there, and a name tie-break would reshuffle the list alphabetically
+        // instead of leaving the server's order alone.
+        groups.sort_by(|(_, (updated_a, created_a), _), (_, (updated_b, created_b), _)| {
+            updated_b
+                .cmp(updated_a)
+                .then_with(|| created_b.cmp(created_a))
         });
 
         // Build rows: header + tasks for each non-empty group
         let mut all_rows: Vec<ListRow> = Vec::new();
-        for (group_name, _priority, group_tasks) in &groups {
+        for (group_name, _recency, group_tasks) in &groups {
             all_rows.push(ListRow::Header {
                 group_name: group_name.clone(),
                 count: group_tasks.len(),
             });
             for task in group_tasks {
-                all_rows.push(ListRow::Task(task.clone()));
+                all_rows.push(ListRow::Task(Box::new(task.clone())));
             }
         }
 
@@ -244,7 +255,7 @@ impl GroupedTaskList {
             .selected()
             .and_then(|i| self.rows.get(i))
             .and_then(|row| match row {
-                ListRow::Task(task) => Some(task),
+                ListRow::Task(task) => Some(task.as_ref()),
                 ListRow::Header { .. } => None,
             })
     }
@@ -314,22 +325,11 @@ impl GroupedTaskList {
         &self.rows
     }
 
-    /// Get all rows (mutable, for rendering)
-    #[allow(dead_code)]
-    pub fn rows_mut(&mut self) -> &mut Vec<ListRow> {
-        &mut self.rows
-    }
-
     /// Get the internal ListState for rendering
     pub fn state(&self) -> &ListState {
         &self.list
     }
 
-    /// Get mutable access to the list state for rendering
-    #[allow(dead_code)]
-    pub fn state_mut(&mut self) -> &mut ListState {
-        &mut self.list
-    }
 }
 
 impl Default for GroupedTaskList {
@@ -344,25 +344,6 @@ impl Default for GroupedTaskList {
 fn format_group_label(group_name: &str, count: usize, folded: bool) -> String {
     let arrow = if folded { "▸" } else { "▾" };
     format!("{} {} ({})", arrow, group_name.to_uppercase(), count)
-}
-
-/// Type alias for backwards compatibility — use `GroupedTaskList` directly.
-#[allow(dead_code)]
-#[deprecated(note = "Use GroupedTaskList instead")]
-pub type TaskListState = GroupedTaskList;
-
-/// Get status color
-#[allow(dead_code)]
-fn get_status_color(status: &Option<crate::models::TaskStatus>) -> Color {
-    match status {
-        Some(s) => match s.status.to_lowercase().as_str() {
-            "complete" | "done" => Theme::TASK_STATUS_COMPLETE,
-            "in progress" => Theme::TASK_STATUS_IN_PROGRESS,
-            "todo" => Theme::TASK_STATUS_TODO,
-            _ => Theme::TASK_STATUS_OTHER,
-        },
-        None => Theme::TASK_STATUS_OTHER,
-    }
 }
 
 /// Get priority indicator
@@ -518,11 +499,6 @@ pub fn render_task_list(
     frame.render_stateful_widget(list, list_area, &mut state.state().clone());
 }
 
-#[allow(dead_code)]
-pub fn get_task_list_hints() -> &'static str {
-    "j/k: Navigate | Enter: View | n: New | e: Edit | d: Delete"
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,9 +521,10 @@ mod tests {
         }
     }
 
-    /// Test 5.1: from_tasks groups tasks correctly by status_group with proper order
+    /// Groups are ordered by their newest task, and tasks inside a group are
+    /// newest-first. Status name is a grouping key, not a priority ranking.
     #[test]
-    fn test_from_tasks_groups_correctly() {
+    fn test_from_tasks_orders_groups_and_tasks_by_recency() {
         let tasks = vec![
             make_task("t1", Some("todo"), Some(1000)),
             make_task("t2", Some("in_progress"), Some(2000)),
@@ -558,24 +535,22 @@ mod tests {
         let grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         let rows = grouped.rows();
 
-        // Expect: IN_PROGRESS header, t2, t4, TODO header, t1, DONE header, t3
+        // Newest task overall is t2 (in_progress, 2000); then t3 (done, 1500);
+        // then t1 (todo, 1000). t4 trails inside its own group by recency.
         assert_eq!(rows.len(), 7);
 
-        // First group: In Progress (highest priority)
         assert!(matches!(&rows[0], ListRow::Header { group_name, .. } if group_name == "in_progress"));
         assert!(matches!(&rows[1], ListRow::Task(t) if t.id == "t2"));
         assert!(matches!(&rows[2], ListRow::Task(t) if t.id == "t4"));
 
-        // Second group: Todo
-        assert!(matches!(&rows[3], ListRow::Header { group_name, .. } if group_name == "todo"));
-        assert!(matches!(&rows[4], ListRow::Task(t) if t.id == "t1"));
+        assert!(matches!(&rows[3], ListRow::Header { group_name, .. } if group_name == "done"));
+        assert!(matches!(&rows[4], ListRow::Task(t) if t.id == "t3"));
 
-        // Third group: Done
-        assert!(matches!(&rows[5], ListRow::Header { group_name, .. } if group_name == "done"));
-        assert!(matches!(&rows[6], ListRow::Task(t) if t.id == "t3"));
+        assert!(matches!(&rows[5], ListRow::Header { group_name, .. } if group_name == "todo"));
+        assert!(matches!(&rows[6], ListRow::Task(t) if t.id == "t1"));
     }
 
-    /// Test 5.2: empty groups are not rendered
+    /// Empty groups are not rendered; ties fall back to the group name.
     #[test]
     fn test_from_tasks_skips_empty_groups() {
         let tasks = vec![
@@ -586,10 +561,11 @@ mod tests {
         let grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         let rows = grouped.rows();
 
-        // Only Todo and Done groups (no In Progress or Other)
+        // Only Todo and Done groups (no In Progress or Other). Equal recency,
+        // so the name decides: "done" before "todo".
         assert_eq!(rows.len(), 4);
-        assert!(matches!(&rows[0], ListRow::Header { group_name, .. } if group_name == "todo"));
-        assert!(matches!(&rows[2], ListRow::Header { group_name, .. } if group_name == "done"));
+        assert!(matches!(&rows[0], ListRow::Header { group_name, .. } if group_name == "done"));
+        assert!(matches!(&rows[2], ListRow::Header { group_name, .. } if group_name == "todo"));
     }
 
     #[test]
@@ -721,14 +697,14 @@ mod tests {
         let grouped = GroupedTaskList::from_tasks_with_folds(tasks, std::collections::HashSet::new());
         let rows = grouped.rows();
 
-        // Each unknown status gets its own header (no longer collapsed into "OTHER")
-        // t1 has status_group="unknown_status", t2 has status_group=None → resolves to "test"
-        // Both have Fallback priority so they sort alphabetically: "test" < "unknown_status"
+        // Each unknown status gets its own header (no longer collapsed into "OTHER").
+        // t1 resolves to "unknown_status", t2 to "test". Both carry the same
+        // timestamp, so the stable sort keeps first-seen order.
         assert_eq!(rows.len(), 4); // 2 headers + 2 tasks
-        assert!(matches!(&rows[0], ListRow::Header { group_name, .. } if group_name == "test"));
         assert!(
-            matches!(&rows[2], ListRow::Header { group_name, .. } if group_name == "unknown_status")
+            matches!(&rows[0], ListRow::Header { group_name, .. } if group_name == "unknown_status")
         );
+        assert!(matches!(&rows[2], ListRow::Header { group_name, .. } if group_name == "test"));
     }
 
     /// Test that tasks with `status_group: None` but different `status.status` values
@@ -786,8 +762,10 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        // Verify known-status headers appear in priority order before unknown ones
-        // In Progress (priority 1) should come before Todo (priority 2), before Done (priority 3)
+        // Groups are ordered by their newest task, so the fixtures'
+        // timestamps decide: in progress (2000), review (1800), done (1500),
+        // todo (1000), blocked (900). Known-status priority plays no part;
+        // a status name is a grouping key, not a ranking.
         let headers: Vec<&str> = rows
             .iter()
             .filter_map(|r| match r {
@@ -796,31 +774,10 @@ mod tests {
             })
             .collect();
 
-        // Known groups should be in priority order: in progress < todo < done
-        let in_progress_idx = headers
-            .iter()
-            .position(|h| h.contains("in progress"))
-            .unwrap();
-        let todo_idx = headers.iter().position(|h| h.contains("todo")).unwrap();
-        let done_idx = headers.iter().position(|h| h.contains("done")).unwrap();
-
-        assert!(
-            in_progress_idx < todo_idx,
-            "IN PROGRESS should appear before TODO"
-        );
-        assert!(todo_idx < done_idx, "TODO should appear before DONE");
-
-        // Unknown groups (REVIEW, BLOCKED) should appear after known groups
-        let review_idx = headers.iter().position(|h| h.contains("review")).unwrap();
-        let blocked_idx = headers.iter().position(|h| h.contains("blocked")).unwrap();
-        let last_known = done_idx.max(todo_idx.max(in_progress_idx));
-        assert!(
-            review_idx > last_known,
-            "REVIEW should appear after known status groups"
-        );
-        assert!(
-            blocked_idx > last_known,
-            "BLOCKED should appear after known status groups"
+        assert_eq!(
+            headers,
+            vec!["in progress", "review", "done", "todo", "blocked"],
+            "groups must be newest-first by their most recent task"
         );
     }
 

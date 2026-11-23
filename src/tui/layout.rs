@@ -197,32 +197,6 @@ impl ScrollState {
             self.offset = self.max_offset;
         }
     }
-
-    /// Scroll up by one line
-    #[allow(dead_code)]
-    pub fn scroll_up(&mut self) {
-        if self.offset > 0 {
-            self.offset = self.offset.saturating_sub(1);
-        }
-    }
-
-    /// Scroll down by one line
-    #[allow(dead_code)]
-    pub fn scroll_down(&mut self) {
-        self.offset = (self.offset + 1).min(self.max_offset);
-    }
-
-    /// Scroll to a specific position
-    #[allow(dead_code)]
-    pub fn scroll_to(&mut self, position: usize) {
-        self.offset = position.min(self.max_offset);
-    }
-
-    /// Reset scroll position to top
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.offset = 0;
-    }
 }
 
 /// Calculate scroll indicator position and size
@@ -313,58 +287,6 @@ mod tests {
         state.update(30, 50); // 30 lines of content, 50 visible
         assert!(!state.scrollable);
         assert_eq!(state.max_offset, 0);
-    }
-
-    #[test]
-    fn test_scroll_state_scroll_up() {
-        let mut state = ScrollState::new();
-        state.update(100, 50);
-        state.offset = 25;
-
-        state.scroll_up();
-        assert_eq!(state.offset, 24);
-
-        // Scroll to top
-        state.offset = 0;
-        state.scroll_up();
-        assert_eq!(state.offset, 0); // Should not go negative
-    }
-
-    #[test]
-    fn test_scroll_state_scroll_down() {
-        let mut state = ScrollState::new();
-        state.update(100, 50); // max_offset = 50
-
-        state.scroll_down();
-        assert_eq!(state.offset, 1);
-
-        // Scroll to bottom
-        state.offset = 50;
-        state.scroll_down();
-        assert_eq!(state.offset, 50); // Should not exceed max
-    }
-
-    #[test]
-    fn test_scroll_state_scroll_to() {
-        let mut state = ScrollState::new();
-        state.update(100, 50); // max_offset = 50
-
-        state.scroll_to(25);
-        assert_eq!(state.offset, 25);
-
-        // Clamp to max
-        state.scroll_to(100);
-        assert_eq!(state.offset, 50);
-    }
-
-    #[test]
-    fn test_scroll_state_reset() {
-        let mut state = ScrollState::new();
-        state.update(100, 50);
-        state.offset = 25;
-
-        state.reset();
-        assert_eq!(state.offset, 0);
     }
 
     #[test]

@@ -11,10 +11,9 @@ use crate::api::endpoints::ApiEndpoints;
 use crate::models::TaskFilters;
 use crate::models::{
     ClickUpSpace as Space, Comment, CommentsResponse, CreateCommentRequest, CreateTaskRequest,
-    Document, DocumentFilters, DocumentPagesResponse, DocumentsResponse, Folder, FoldersResponse,
-    Inbox, List, ListsResponse, MembersResponse, Page, PageResponse, SpacesResponse, Task,
-    TasksResponse, UpdateCommentRequest, UpdateTaskRequest, User, UserResponse, Workspace,
-    WorkspacesResponse,
+    Document, DocumentFilters, DocumentsResponse, Folder, FoldersResponse, Inbox, List,
+    ListsResponse, MembersResponse, SpacesResponse, Task, TasksResponse, UpdateCommentRequest,
+    UpdateTaskRequest, User, UserResponse, Workspace, WorkspacesResponse,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -64,23 +63,27 @@ impl ClickUpClient {
         self.parse_response(response).await
     }
 
+    /// Turn a non-success response into the error the UI should show.
+    ///
+    /// A 401 whose body says the OAuth token is unknown means the stored
+    /// credential is dead or garbage, not that a resource is missing; it is
+    /// labelled distinctly so the TUI can offer re-authentication instead of a
+    /// misleading not-found message.
+    async fn error_for_status(response: Response) -> anyhow::Error {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        if status == reqwest::StatusCode::UNAUTHORIZED
+            && (error_text.contains("Oauth token not found") || error_text.contains("OAUTH_019"))
+        {
+            return anyhow::anyhow!("Token invalid or expired: re-authentication required");
+        }
+        anyhow::anyhow!("API error ({}): {}", status, error_text)
+    }
+
     /// Parse an API response, handling errors
     async fn parse_response<T: DeserializeOwned>(&self, response: Response) -> Result<T> {
-        let status = response.status();
-
-        if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            // 401 with the Oauth-token-not-found body means the stored
-            // credential is dead or garbage, not that a resource is missing.
-            // Label it distinctly so the TUI can offer re-authentication
-            // instead of a misleading not-found message.
-            if status == reqwest::StatusCode::UNAUTHORIZED
-                && (error_text.contains("Oauth token not found")
-                    || error_text.contains("OAUTH_019"))
-            {
-                anyhow::bail!("Token invalid or expired: re-authentication required");
-            }
-            anyhow::bail!("API error ({}): {}", status, error_text);
+        if !response.status().is_success() {
+            return Err(Self::error_for_status(response).await);
         }
 
         // Get response body as text first for better error messages
@@ -132,14 +135,6 @@ impl ClickUpClient {
             .execute::<SpacesResponse>(self.request(reqwest::Method::GET, url))
             .await?;
         Ok(response.spaces)
-    }
-
-    /// Get a single space
-    #[allow(dead_code)]
-    pub async fn get_space(&self, space_id: &str) -> Result<Space> {
-        let url = ApiEndpoints::space(space_id);
-        self.execute::<Space>(self.request(reqwest::Method::GET, url))
-            .await
     }
 
     // ==================== Folders ====================
@@ -275,9 +270,11 @@ impl ClickUpClient {
             Err(original) => match team_id {
                 Some(team_id) => {
                     let url = ApiEndpoints::task_with_custom_ids(task_id, team_id);
+                    // The retry may fail differently; the plain-lookup error is
+                    // the more useful one to report.
                     self.execute::<Task>(self.request(reqwest::Method::GET, url))
                         .await
-                        .or_else(|_retry| Err(original))
+                        .map_err(|_retry| original)
                 }
                 None => Err(original),
             },
@@ -285,7 +282,6 @@ impl ClickUpClient {
     }
 
     /// Create a new task
-    #[allow(dead_code)]
     pub async fn create_task(&self, list_id: &str, task: &CreateTaskRequest) -> Result<Task> {
         let url = ApiEndpoints::tasks_in_list(list_id, "");
         self.execute::<Task>(self.request(reqwest::Method::POST, url).json(task))
@@ -293,7 +289,6 @@ impl ClickUpClient {
     }
 
     /// Update a task
-    #[allow(dead_code)]
     pub async fn update_task(&self, task_id: &str, task: &UpdateTaskRequest) -> Result<Task> {
         // A markdown description only round-trips when the API is told so;
         // without the flag ClickUp stores the raw markdown as plain text.
@@ -307,7 +302,6 @@ impl ClickUpClient {
     }
 
     /// Delete a task
-    #[allow(dead_code)]
     pub async fn delete_task(&self, task_id: &str) -> Result<()> {
         let url = ApiEndpoints::task(task_id);
         let response = self
@@ -329,7 +323,6 @@ impl ClickUpClient {
     // ==================== Members ====================
 
     /// Get all members who can access a list
-    #[allow(dead_code)]
     pub async fn get_list_members(&self, list_id: &str) -> Result<Vec<User>> {
         let url = ApiEndpoints::list_members(list_id);
         let response = self
@@ -348,26 +341,6 @@ impl ClickUpClient {
             .execute::<DocumentsResponse>(self.request(reqwest::Method::GET, url))
             .await?;
         Ok(response.docs)
-    }
-
-    /// Get all pages in a document
-    #[allow(dead_code)]
-    pub async fn get_doc_pages(&self, doc_id: &str) -> Result<Vec<Page>> {
-        let url = ApiEndpoints::doc_pages(doc_id);
-        let response = self
-            .execute::<DocumentPagesResponse>(self.request(reqwest::Method::GET, url))
-            .await?;
-        Ok(response.pages)
-    }
-
-    /// Get a single page
-    #[allow(dead_code)]
-    pub async fn get_page(&self, page_id: &str) -> Result<Page> {
-        let url = ApiEndpoints::page(page_id);
-        let response = self
-            .execute::<PageResponse>(self.request(reqwest::Method::GET, url))
-            .await?;
-        Ok(response.page)
     }
 
     // ==================== Comments ====================
@@ -452,17 +425,10 @@ impl ClickUpClient {
     /// the same way `parse_response` does so the UI reports them consistently.
     async fn execute_empty(&self, request: reqwest::RequestBuilder) -> Result<()> {
         let response = request.send().await.context("Request failed")?;
-        let status = response.status();
-        if status.is_success() {
+        if response.status().is_success() {
             return Ok(());
         }
-        let error_text = response.text().await.unwrap_or_default();
-        if status == reqwest::StatusCode::UNAUTHORIZED
-            && (error_text.contains("Oauth token not found") || error_text.contains("OAUTH_019"))
-        {
-            anyhow::bail!("Token invalid or expired: re-authentication required");
-        }
-        anyhow::bail!("API error ({}): {}", status, error_text);
+        Err(Self::error_for_status(response).await)
     }
 
     // ==================== Assigned Tasks ====
@@ -491,20 +457,20 @@ impl ClickUpClient {
         page: u32,
         statuses: Option<Vec<String>>,
     ) -> Result<Vec<Task>> {
-        let mut filters = TaskFilters::default();
-        filters.assignees = vec![user_id as i64];
-        if let Some(statuses) = statuses {
-            filters.statuses = statuses;
-        }
-        // Assigned work is mostly finished work; without this the view would
-        // silently hide everything already completed.
-        filters.include_closed = Some(true);
-        // Subtask assignments are still assignments.
-        filters.subtasks = Some(true);
-        // Most recently touched first, so the caller does not need to sort.
-        filters.order_by = Some("updated".to_string());
-        filters.reverse = Some(true);
-        filters.page = Some(page);
+        let filters = TaskFilters {
+            assignees: vec![user_id as i64],
+            statuses: statuses.unwrap_or_default(),
+            // Assigned work is mostly finished work; without this the view
+            // would silently hide everything already completed. Subtask
+            // assignments are still assignments.
+            include_closed: Some(true),
+            subtasks: Some(true),
+            // Most recently touched first, so the caller does not need to sort.
+            order_by: Some("updated".to_string()),
+            reverse: Some(true),
+            page: Some(page),
+            ..Default::default()
+        };
 
         let query = filters.to_query_string();
         let url = ApiEndpoints::tasks_in_team(team_id, &query);
@@ -533,42 +499,16 @@ impl ClickUpClient {
         user_id: i32,
         limit: Option<i32>,
     ) -> Result<Vec<Task>> {
-        // Use ClickUp API's assignees filter parameter
-        let mut filters = TaskFilters::default();
-        filters.assignees = vec![user_id as i64];
-        // Include closed tasks so users can see all their assigned work
-        filters.include_closed = Some(true);
-        // ClickUp API uses 'limit' parameter to control how many tasks to return (default: 100)
-        // 'page' is for pagination page number
-        if let Some(l) = limit {
-            filters.limit = Some(l as u32);
-        }
+        // `assignees[]` is the API's per-user filter. Closed tasks are included
+        // because "assigned to me" is meant to show all of a user's work.
+        let filters = TaskFilters {
+            assignees: vec![user_id as i64],
+            include_closed: Some(true),
+            limit: limit.map(|l| l as u32),
+            ..Default::default()
+        };
 
-        let query = filters.to_query_string();
-        tracing::info!(
-            "Fetching tasks for user {} from list {} with query: {}",
-            user_id,
-            list_id,
-            query
-        );
-        tracing::debug!(
-            "Filters: assignees={:?}, include_closed={:?}, limit={:?}",
-            filters.assignees,
-            filters.include_closed,
-            filters.limit
-        );
-
-        let tasks = self.get_tasks(list_id, &filters).await?;
-        tracing::info!(
-            "API returned {} tasks for user {} in list {} (query: {})",
-            tasks.len(),
-            user_id,
-            list_id,
-            query
-        );
-        // API returns only tasks assigned to the specified user
-
-        Ok(tasks)
+        self.get_tasks(list_id, &filters).await
     }
 }
 
@@ -587,10 +527,6 @@ macro_rules! impl_clickup_api {
 
             async fn get_spaces(&self, team_id: &str) -> Result<Vec<Space>> {
                 self.get_spaces(team_id).await
-            }
-
-            async fn get_space(&self, space_id: &str) -> Result<Space> {
-                self.get_space(space_id).await
             }
 
             async fn get_folders(&self, space_id: &str) -> Result<Vec<Folder>> {
@@ -651,14 +587,6 @@ macro_rules! impl_clickup_api {
 
             async fn search_docs(&self, filters: &DocumentFilters) -> Result<Vec<Document>> {
                 self.search_docs(filters).await
-            }
-
-            async fn get_doc_pages(&self, doc_id: &str) -> Result<Vec<Page>> {
-                self.get_doc_pages(doc_id).await
-            }
-
-            async fn get_page(&self, page_id: &str) -> Result<Page> {
-                self.get_page(page_id).await
             }
 
             async fn get_task_comments(&self, task_id: &str) -> Result<Vec<Comment>> {

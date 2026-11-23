@@ -101,7 +101,6 @@ impl SidebarState {
     }
 
     /// Select item by index (public for testing)
-    #[allow(dead_code)]
     pub fn select(&mut self, index: Option<usize>) {
         self.list.select(index);
     }
@@ -197,12 +196,6 @@ pub fn render_sidebar(frame: &mut Frame, state: &SidebarState, area: Rect) {
         .highlight_symbol("▸ ");
 
     frame.render_stateful_widget(sidebar, area, &mut state.state().clone());
-}
-
-/// Get help hints for sidebar
-#[allow(dead_code)]
-pub fn get_sidebar_hints() -> &'static str {
-    "j/k: Navigate | Enter: Select | Tab: Toggle | SPACE: Menu | SPC q: Quit"
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use crossterm::{
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
-use ratatui::{backend::CrosstermBackend, Frame, Terminal};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
 /// Initialize the terminal for TUI rendering
@@ -37,15 +37,5 @@ pub fn restore() -> Result<()> {
     // Clear the screen
     io::stdout().execute(Clear(ClearType::All))?;
 
-    Ok(())
-}
-
-/// Draw a frame on the terminal
-#[allow(dead_code)]
-pub fn draw<F>(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, f: F) -> Result<()>
-where
-    F: FnOnce(&mut Frame),
-{
-    terminal.draw(f)?;
     Ok(())
 }

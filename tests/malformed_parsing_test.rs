@@ -4,7 +4,6 @@
 //! and that errors are properly reported when parsing fails.
 
 use clickdown::models::{Task, TasksResponse};
-use serde_json;
 
 // ============================================================================
 // Malformed Data Tests - Should Still Parse (Graceful Degradation)

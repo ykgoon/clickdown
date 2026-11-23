@@ -310,7 +310,7 @@ fn render_comment_list(
 
         let date_str = comment
             .created_at
-            .map(|ts| format_timestamp(ts))
+            .map(format_timestamp)
             .unwrap_or_else(|| "Unknown date".to_string());
 
         let edited = if comment.updated_at.is_some() && comment.updated_at != comment.created_at {

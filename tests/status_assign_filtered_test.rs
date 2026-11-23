@@ -8,7 +8,8 @@
 mod fixtures;
 
 use clickdown::api::mock_client::MockClickUpClient;
-use clickdown::models::task::{ListReference, TaskStatus};
+use clickdown::models::task::TaskStatus;
+use clickdown::models::EntityRef;
 use clickdown::models::{Task, User};
 use clickdown::tui::app::{Screen, StatusPickerMode, TuiApp};
 use std::sync::Arc;
@@ -32,10 +33,10 @@ fn task_with(id: &str, name: &str, st: TaskStatus, list_id: Option<&str>) -> Tas
     task.id = id.to_string();
     task.name = name.to_string();
     task.status = Some(st);
-    task.list = list_id.map(|id| ListReference {
+    task.list = list_id.map(|id| EntityRef {
         id: id.to_string(),
         name: Some("L".to_string()),
-        access: None,
+        ..Default::default()
     });
     task
 }

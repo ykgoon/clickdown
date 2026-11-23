@@ -178,9 +178,6 @@ impl clickdown::api::ClickUpApi for CustomIdOnlyClient {
     ) -> anyhow::Result<Vec<clickdown::models::ClickUpSpace>> {
         self.inner.get_spaces(team_id).await
     }
-    async fn get_space(&self, space_id: &str) -> anyhow::Result<clickdown::models::ClickUpSpace> {
-        self.inner.get_space(space_id).await
-    }
     async fn get_folders(&self, space_id: &str) -> anyhow::Result<Vec<clickdown::models::Folder>> {
         self.inner.get_folders(space_id).await
     }
@@ -286,12 +283,6 @@ impl clickdown::api::ClickUpApi for CustomIdOnlyClient {
         filters: &clickdown::models::DocumentFilters,
     ) -> anyhow::Result<Vec<clickdown::models::Document>> {
         self.inner.search_docs(filters).await
-    }
-    async fn get_doc_pages(&self, doc_id: &str) -> anyhow::Result<Vec<clickdown::models::Page>> {
-        self.inner.get_doc_pages(doc_id).await
-    }
-    async fn get_page(&self, page_id: &str) -> anyhow::Result<clickdown::models::Page> {
-        self.inner.get_page(page_id).await
     }
     async fn get_task_comments(&self, task_id: &str) -> anyhow::Result<Vec<Comment>> {
         self.inner.get_task_comments(task_id).await

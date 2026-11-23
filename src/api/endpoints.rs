@@ -3,20 +3,10 @@
 /// Base URL for ClickUp API v2
 pub const BASE_URL: &str = "https://api.clickup.com/api/v2";
 
-/// Base URL for ClickUp OAuth
-#[allow(dead_code)]
-pub const OAUTH_BASE_URL: &str = "https://app.clickup.com/api";
-
 /// API endpoint paths
 pub struct ApiEndpoints;
 
-#[allow(dead_code)]
 impl ApiEndpoints {
-    // Authentication endpoints
-    pub fn oauth_token() -> String {
-        format!("{}/oauth/token", OAUTH_BASE_URL)
-    }
-
     // Workspace/Team endpoints
     pub fn teams() -> String {
         format!("{}/team", BASE_URL)
@@ -27,17 +17,9 @@ impl ApiEndpoints {
         format!("{}/team/{}/space", BASE_URL, team_id)
     }
 
-    pub fn space(space_id: &str) -> String {
-        format!("{}/space/{}", BASE_URL, space_id)
-    }
-
     // Folder endpoints
     pub fn folders(space_id: &str) -> String {
         format!("{}/space/{}/folder", BASE_URL, space_id)
-    }
-
-    pub fn folder(folder_id: &str) -> String {
-        format!("{}/folder/{}", BASE_URL, folder_id)
     }
 
     // List endpoints
@@ -90,14 +72,6 @@ impl ApiEndpoints {
         format!("{}/docs{}", BASE_URL, query)
     }
 
-    pub fn doc_pages(doc_id: &str) -> String {
-        format!("{}/doc/{}/pages", BASE_URL, doc_id)
-    }
-
-    pub fn page(page_id: &str) -> String {
-        format!("{}/page/{}", BASE_URL, page_id)
-    }
-
     // Comment endpoints
     pub fn task_comments(task_id: &str) -> String {
         format!("{}/task/{}/comment", BASE_URL, task_id)
@@ -132,10 +106,5 @@ impl ApiEndpoints {
     // Replaces the previous `/team/{id}/notifications` helper, which 404s.
     pub fn inbox(workspace_id: &str) -> String {
         format!("{}/team/{}/inbox", BASE_URL, workspace_id)
-    }
-
-    // Smart Inbox / Activity Feed endpoints
-    pub fn tasks_in_team_with_filters(team_id: &str, query: &str) -> String {
-        format!("{}/team/{}/task{}", BASE_URL, team_id, query)
     }
 }

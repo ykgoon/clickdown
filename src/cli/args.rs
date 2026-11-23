@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn test_parse_debug_workspaces() {
-        let _args = vec!["debug".to_string(), "workspaces".to_string()];
+        let _args = ["debug".to_string(), "workspaces".to_string()];
         // Would need to mock env::args for full test
     }
 }

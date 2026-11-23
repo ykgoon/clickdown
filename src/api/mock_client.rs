@@ -3,13 +3,12 @@
 use crate::api::client_trait::ClickUpApi;
 use crate::models::{
     ClickUpSpace, Comment, CreateCommentRequest, CreateTaskRequest, Document, DocumentFilters,
-    Folder, List, Page, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest, User,
+    Folder, List, Task, TaskFilters, UpdateCommentRequest, UpdateTaskRequest, User,
     Workspace,
 };
 use anyhow::{anyhow, Result};
 
 /// Helper function to return configured response or default empty vec
-#[allow(dead_code)]
 fn return_vec_response<T: Clone>(configured: &Option<Result<Vec<T>>>) -> Result<Vec<T>> {
     match configured {
         Some(Ok(items)) => Ok(items.clone()),
@@ -19,22 +18,11 @@ fn return_vec_response<T: Clone>(configured: &Option<Result<Vec<T>>>) -> Result<
 }
 
 /// Helper function to return configured response or default single item
-#[allow(dead_code)]
 fn return_response<T: Clone>(configured: &Option<Result<T>>, not_found_msg: &str) -> Result<T> {
     match configured {
         Some(Ok(item)) => Ok(item.clone()),
         Some(Err(e)) => Err(anyhow!(e.to_string())),
         None => Err(anyhow!("{}", not_found_msg)),
-    }
-}
-
-/// Helper function to return configured response for unit result
-#[allow(dead_code)]
-fn return_unit_response(configured: &Option<Result<()>>, not_configured_msg: &str) -> Result<()> {
-    match configured {
-        Some(Ok(())) => Ok(()),
-        Some(Err(e)) => Err(anyhow!(e.to_string())),
-        None => Err(anyhow!("{}", not_configured_msg)),
     }
 }
 
@@ -44,7 +32,6 @@ fn return_unit_response(configured: &Option<Result<()>>, not_configured_msg: &st
 /// to return predefined responses for testing without making actual
 /// network calls.
 #[derive(Default)]
-#[allow(dead_code)]
 pub struct MockClickUpClient {
     /// Override for get_workspaces response
     pub workspaces_response: Option<Result<Vec<Workspace>>>,
@@ -70,10 +57,6 @@ pub struct MockClickUpClient {
     pub delete_task_response: Option<Result<String>>,
     /// Override for search_docs response
     pub search_docs_response: Option<Result<Vec<Document>>>,
-    /// Override for get_doc_pages response
-    pub doc_pages_response: Option<Result<Vec<Page>>>,
-    /// Override for get_page response
-    pub page_response: Option<Result<Page>>,
     /// Override for get_task_comments response
     pub task_comments_response: Option<Result<Vec<Comment>>>,
     /// Override for get_comment_replies response (maps comment_id -> replies)
@@ -111,7 +94,6 @@ pub struct MockClickUpClient {
     pub team_tasks_call_log: TeamTasksCallLog,
 }
 
-#[allow(dead_code)]
 impl MockClickUpClient {
     /// Create a new mock client with default (empty) responses
     pub fn new() -> Self {
@@ -128,8 +110,6 @@ impl MockClickUpClient {
             update_task_response: None,
             delete_task_response: None,
             search_docs_response: None,
-            doc_pages_response: None,
-            page_response: None,
             task_comments_response: None,
             comment_replies_response: None,
             create_comment_response: None,
@@ -290,12 +270,6 @@ impl MockClickUpClient {
         self
     }
 
-    /// Set the pages response
-    pub fn with_pages(mut self, pages: Vec<Page>) -> Self {
-        self.doc_pages_response = Some(Ok(pages));
-        self
-    }
-
     /// Set the task comments response
     pub fn with_task_comments(mut self, comments: Vec<Comment>) -> Self {
         self.task_comments_response = Some(Ok(comments));
@@ -404,17 +378,6 @@ impl ClickUpApi for MockClickUpClient {
         return_vec_response(&self.spaces_response)
     }
 
-    async fn get_space(&self, _space_id: &str) -> Result<ClickUpSpace> {
-        match &self.spaces_response {
-            Some(Ok(spaces)) => spaces
-                .first()
-                .cloned()
-                .ok_or_else(|| anyhow!("Space not found")),
-            Some(Err(e)) => Err(anyhow!(e.to_string())),
-            None => Err(anyhow!("No spaces configured")),
-        }
-    }
-
     async fn get_folders(&self, _space_id: &str) -> Result<Vec<Folder>> {
         return_vec_response(&self.folders_response)
     }
@@ -514,14 +477,6 @@ impl ClickUpApi for MockClickUpClient {
 
     async fn search_docs(&self, _filters: &DocumentFilters) -> Result<Vec<Document>> {
         return_vec_response(&self.search_docs_response)
-    }
-
-    async fn get_doc_pages(&self, _doc_id: &str) -> Result<Vec<Page>> {
-        return_vec_response(&self.doc_pages_response)
-    }
-
-    async fn get_page(&self, _page_id: &str) -> Result<Page> {
-        return_response(&self.page_response, "Page not found")
     }
 
     async fn get_task_comments(&self, _task_id: &str) -> Result<Vec<Comment>> {

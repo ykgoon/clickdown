@@ -34,18 +34,13 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Configuration and directories
 dirs = "5"
-toml = "0.8"
 
 # Error handling
-thiserror = "2"
 anyhow = "1"
 
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# URL handling
-url = "2"
 
 # Markdown rendering for documents
 pulldown-cmark = "0.12"
@@ -59,9 +54,7 @@ urlencoding = "2"
 # Clipboard access
 arboard = "3"
 
-# Testing
 [dev-dependencies]
-mockall = "0.13"
 tempfile = "3"
 insta = "1.39"
 

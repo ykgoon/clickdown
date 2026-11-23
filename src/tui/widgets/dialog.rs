@@ -125,8 +125,3 @@ pub fn render_dialog(frame: &mut Frame, state: &DialogState, area: Rect) {
     let buttons_para = Paragraph::new(buttons);
     frame.render_widget(buttons_para, inner[1]);
 }
-
-#[allow(dead_code)]
-pub fn get_dialog_hints() -> &'static str {
-    "←/→: Select | Enter: Confirm | Esc: Cancel"
-}

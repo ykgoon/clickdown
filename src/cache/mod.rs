@@ -2,8 +2,7 @@
 
 pub mod schema;
 
-#[allow(dead_code)]
-use crate::models::{Comment, SessionState};
+use crate::models::SessionState;
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
 use std::path::PathBuf;
@@ -31,153 +30,6 @@ impl CacheManager {
     /// Initialize the database schema
     fn init_schema(&self) -> Result<()> {
         self.conn.execute_batch(schema::INIT_SQL)?;
-
-        // Migration: Add parent_id column to task_comments if it doesn't exist
-        // SQLite doesn't support ADD COLUMN IF NOT EXISTS, so we catch the error
-        let _ = self
-            .conn
-            .execute("ALTER TABLE task_comments ADD COLUMN parent_id TEXT", []);
-
-        Ok(())
-    }
-
-    // ==================== Workspaces ====================
-
-    // ==================== Spaces ====================
-
-    // ==================== Folders ====================
-
-    // ==================== Lists ====================
-
-    // ==================== Tasks ====================
-
-    // ==================== Comments ====================
-
-    /// Cache comments for a task
-    ///
-    /// Stores comments in the task_comments table with the current timestamp.
-    /// Existing comments for the task are deleted before inserting new ones.
-    #[allow(dead_code)]
-    pub fn cache_comments(&mut self, task_id: &str, comments: &[Comment]) -> Result<()> {
-        let tx = self.conn.transaction()?;
-
-        // Delete existing comments for this task
-        tx.execute("DELETE FROM task_comments WHERE task_id = ?1", [task_id])?;
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-
-        for comment in comments {
-            let commenter_id = comment.commenter.as_ref().map(|c| c.id);
-            let commenter_name = comment.commenter.as_ref().map(|c| c.username.clone());
-
-            tx.execute(
-                "INSERT INTO task_comments (comment_id, task_id, text, commenter_id, commenter_name, created_at, updated_at, fetched_at, parent_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![
-                    comment.id,
-                    task_id,
-                    comment.text,
-                    commenter_id,
-                    commenter_name,
-                    comment.created_at,
-                    comment.updated_at,
-                    now,
-                    comment.parent_id,
-                ],
-            )?;
-        }
-
-        tx.commit()?;
-        Ok(())
-    }
-
-    /// Get cached comments for a task
-    ///
-    /// Retrieves comments from the task_comments table, ordered by created_at DESC.
-    /// Returns an empty vector if no comments are cached.
-    #[allow(dead_code)]
-    pub fn get_comments(&self, task_id: &str) -> Result<Vec<Comment>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT comment_id, text, commenter_id, commenter_name, created_at, updated_at, parent_id FROM task_comments WHERE task_id = ?1 ORDER BY created_at DESC",
-        )?;
-
-        let comments = stmt.query_map((task_id,), |row| {
-            let commenter_id: Option<i64> = row.get(2)?;
-            let commenter_name: Option<String> = row.get(3)?;
-
-            let commenter = match (commenter_id, commenter_name) {
-                (Some(id), Some(name)) => Some(crate::models::User {
-                    id,
-                    username: name,
-                    email: None,
-                    color: None,
-                    profile_picture: None,
-                    initials: None,
-                }),
-                _ => None,
-            };
-
-            Ok(Comment {
-                id: row.get(0)?,
-                text: row.get(1)?,
-                text_preview: String::new(),
-                commenter,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                assigned_commenter: None,
-                assigned_by: None,
-                assigned: false,
-                reaction: String::new(),
-                reactions: Vec::new(),
-                parent_id: row.get(6)?,
-            })
-        })?;
-
-        comments
-            .collect::<Result<Vec<_>, _>>()
-            .context("Failed to read comments")
-    }
-
-    /// Check if cached comments are still valid (not older than TTL)
-    ///
-    /// Returns true if the most recently fetched comment is within the TTL window.
-    /// Returns false if no comments are cached or if the cache has expired.
-    #[allow(dead_code)]
-    pub fn is_cache_valid(&self, task_id: &str, ttl_secs: i64) -> Result<bool> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-
-        let mut stmt = self
-            .conn
-            .prepare("SELECT MAX(fetched_at) FROM task_comments WHERE task_id = ?1")?;
-        let max_fetched: Option<i64> = stmt.query_row([task_id], |row| row.get(0))?;
-
-        match max_fetched {
-            Some(fetched_at) => Ok((now - fetched_at) < ttl_secs),
-            None => Ok(false),
-        }
-    }
-
-    /// Clear cached comments for a task
-    ///
-    /// Removes all comments associated with the given task ID.
-    #[allow(dead_code)]
-    pub fn clear_comments(&mut self, task_id: &str) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM task_comments WHERE task_id = ?1", [task_id])?;
-        Ok(())
-    }
-
-    /// Clear all cached comments
-    ///
-    /// Removes all comments from the cache.
-    #[allow(dead_code)]
-    pub fn clear_all_comments(&mut self) -> Result<()> {
-        self.conn.execute("DELETE FROM task_comments", [])?;
         Ok(())
     }
 
@@ -292,21 +144,10 @@ impl CacheManager {
         Ok((read, dismissed))
     }
 
-    /// Clear locally tracked inbox state for a workspace (e.g. on logout).
-    #[allow(dead_code)]
-    pub fn clear_inbox_state(&mut self, team_id: &str) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM inbox_read WHERE team_id = ?1",
-            params![team_id],
-        )?;
-        Ok(())
-    }
-
     /// Clear session state from the cache
     ///
     /// Removes all session state key-value pairs.
     /// Used when logging out or when restored state is invalid.
-    #[allow(dead_code)]
     pub fn clear_session_state(&mut self) -> Result<()> {
         self.conn.execute("DELETE FROM session_state", [])?;
         Ok(())

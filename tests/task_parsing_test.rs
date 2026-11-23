@@ -4,7 +4,6 @@
 //! that the ClickUp API might return.
 
 use clickdown::models::{Task, TasksResponse};
-use serde_json;
 
 // ============================================================================
 // Description Tests

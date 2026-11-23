@@ -2,45 +2,25 @@
 //!
 //! Implements the actual data-fetching operations for debug commands.
 
-use crate::api::{AuthManager, ClickUpApi};
+use crate::api::ClickUpApi;
 use crate::models::document::DocumentFilters;
 use crate::models::task::TaskFilters;
 use std::sync::Arc;
 
-/// Exit codes for CLI operations
-#[allow(dead_code)]
-pub mod exit_codes {
-    pub const SUCCESS: i32 = 0;
-    pub const GENERAL_ERROR: i32 = 1;
-    pub const INVALID_ARGS: i32 = 2;
-    pub const AUTH_ERROR: i32 = 3;
-    pub const NETWORK_ERROR: i32 = 4;
-}
-
-/// Debug operations handler
+/// Debug operations handler.
+///
+/// Only holds the resolved client: token handling and exit-code mapping live in
+/// `cli::run`, which owns the process boundary.
 pub struct DebugOperations {
     api: Arc<dyn ClickUpApi>,
-    #[allow(dead_code)]
-    auth: AuthManager,
-    #[allow(dead_code)]
-    token_override: Option<String>,
 }
 
 impl DebugOperations {
     /// Create a new DebugOperations instance
-    pub fn new(
-        api: Arc<dyn ClickUpApi>,
-        auth: AuthManager,
-        token_override: Option<String>,
-    ) -> Self {
-        Self {
-            api,
-            auth,
-            token_override,
-        }
+    pub fn new(api: Arc<dyn ClickUpApi>) -> Self {
+        Self { api }
     }
 
-    /// Get the API client, using override token if provided
     fn get_api(&self) -> Arc<dyn ClickUpApi> {
         Arc::clone(&self.api)
     }

@@ -28,13 +28,12 @@ impl AuthState {
         }
     }
 
-    #[allow(dead_code)]
+    /// Used by integration tests that drive the auth screen key by key.
     pub fn add_char(&mut self, c: char) {
         self.token_input.insert(self.cursor_pos, c);
         self.cursor_pos += 1;
     }
 
-    #[allow(dead_code)]
     pub fn remove_char(&mut self) {
         if self.cursor_pos > 0 {
             self.cursor_pos -= 1;
@@ -171,9 +170,4 @@ pub fn render_auth(frame: &mut Frame, state: &AuthState, area: Rect) {
     let instructions = Paragraph::new("Press Enter to connect, Esc to cancel")
         .style(Style::default().fg(Theme::SECONDARY));
     frame.render_widget(instructions, inner[5]);
-}
-
-#[allow(dead_code)]
-pub fn get_auth_hints() -> &'static str {
-    "Enter: Connect | Esc: Cancel"
 }

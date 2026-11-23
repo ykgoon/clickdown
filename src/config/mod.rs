@@ -1,31 +1,23 @@
-//! Configuration management module
+//! Configuration and cache locations.
+//!
+//! These are plain functions: there is no `ConfigManager` state to carry, and
+//! a unit struct with only associated functions was pretending otherwise.
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-/// Configuration manager - provides utility functions for config/cache paths
-pub struct ConfigManager;
+/// Directory holding the cache database, created if missing.
+pub fn cache_dir() -> Result<PathBuf> {
+    let cache_dir = dirs::cache_dir()
+        .context("Failed to get cache directory")?
+        .join("clickdown");
 
-impl ConfigManager {
-    /// Get the cache directory path
-    pub fn cache_dir() -> Result<PathBuf> {
-        let cache_dir = dirs::cache_dir()
-            .context("Failed to get cache directory")?
-            .join("clickdown");
+    std::fs::create_dir_all(&cache_dir).context("Failed to create cache directory")?;
 
-        std::fs::create_dir_all(&cache_dir).context("Failed to create cache directory")?;
-
-        Ok(cache_dir)
-    }
-
-    /// Get the database path
-    pub fn database_path() -> Result<PathBuf> {
-        Ok(Self::cache_dir()?.join("cache.db"))
-    }
+    Ok(cache_dir)
 }
 
-impl Default for ConfigManager {
-    fn default() -> Self {
-        ConfigManager
-    }
+/// Path of the SQLite cache database.
+pub fn database_path() -> Result<PathBuf> {
+    Ok(cache_dir()?.join("cache.db"))
 }

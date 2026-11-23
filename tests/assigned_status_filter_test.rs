@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use clickdown::api::mock_client::MockClickUpClient;
-use clickdown::models::{Task, TaskStatus, Workspace};
+use clickdown::models::{Task, TaskStatus};
 use clickdown::tui::app::{Screen, TuiApp};
 use tokio::runtime::Runtime;
 
@@ -32,11 +32,6 @@ fn task_with_status(id: &str, name: &str, status: TaskStatus) -> Task {
     }
 }
 
-fn workspace(id: &str, name: &str) -> Workspace {
-    serde_json::from_value(serde_json::json!({ "id": id, "name": name }))
-    .expect("workspace fixture should deserialize")
-}
-
 fn assigned_app(rt: &Runtime, client: MockClickUpClient) -> TuiApp {
     let mut app = rt.block_on(async { TuiApp::with_client(Arc::new(client)).unwrap() });
     app.set_screen(Screen::Assigned);
@@ -49,12 +44,6 @@ fn assigned_app(rt: &Runtime, client: MockClickUpClient) -> TuiApp {
 fn spawn_and_pump(app: &mut TuiApp, rt: &Runtime, f: impl FnOnce(&mut TuiApp)) {
     let _guard = rt.enter();
     f(app);
-    std::thread::sleep(std::time::Duration::from_millis(30));
-    app.process_async_messages();
-}
-
-fn pump(app: &mut TuiApp, rt: &Runtime) {
-    let _guard = rt.enter();
     std::thread::sleep(std::time::Duration::from_millis(30));
     app.process_async_messages();
 }

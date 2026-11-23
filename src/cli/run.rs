@@ -56,7 +56,7 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
     let api: Arc<dyn ClickUpApi> = Arc::new(client);
 
     // Create debug operations handler
-    let debug_ops = DebugOperations::new(api, auth, command.token_override.clone());
+    let debug_ops = DebugOperations::new(api);
 
     // Execute the operation
     let result = match command.operation {
@@ -201,7 +201,9 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
         Err(e) => {
             let err_msg = e.to_string();
 
-            // Determine exit code based on error type
+            // Classify by message text: the CLI layer only sees boxed errors,
+            // so there is no typed cause to match on. Everything unmatched,
+            // including "not found", is a general error.
             let exit_code = if err_msg.contains("authentication")
                 || err_msg.contains("unauthorized")
                 || err_msg.contains("401")
@@ -213,8 +215,6 @@ pub async fn run_cli(command: DebugCommand) -> i32 {
                 || err_msg.contains("timeout")
             {
                 exit_codes::NETWORK_ERROR
-            } else if err_msg.contains("not found") || err_msg.contains("404") {
-                exit_codes::GENERAL_ERROR
             } else {
                 exit_codes::GENERAL_ERROR
             };

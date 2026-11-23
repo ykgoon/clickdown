@@ -1,5 +1,6 @@
 //! Workspace, Space, Folder, and List models
 
+use crate::models::entity_ref::EntityRef;
 use crate::models::Priority;
 use crate::models::TaskStatus;
 use crate::models::User;
@@ -55,16 +56,9 @@ pub struct Folder {
     #[serde(default)]
     pub private: bool,
     #[serde(default)]
-    pub space: Option<SpaceReference>,
+    pub space: Option<EntityRef>,
     #[serde(default)]
     pub lists: Vec<List>,
-}
-
-/// Reference to a Space
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SpaceReference {
-    pub id: String,
-    pub name: String,
 }
 
 /// A List within a Folder or Space
@@ -83,9 +77,9 @@ pub struct List {
     #[serde(default)]
     pub orderindex: Option<u32>,
     #[serde(default)]
-    pub space: Option<SpaceReference>,
+    pub space: Option<EntityRef>,
     #[serde(default)]
-    pub folder: Option<FolderReference>,
+    pub folder: Option<EntityRef>,
     #[serde(default)]
     pub status: Option<ListStatus>,
     #[serde(default)]
@@ -94,13 +88,6 @@ pub struct List {
     /// custom statuses (i.e. `override_statuses` is set).
     #[serde(default)]
     pub statuses: Vec<TaskStatus>,
-}
-
-/// Reference to a Folder
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FolderReference {
-    pub id: String,
-    pub name: Option<String>,
 }
 
 /// Status of a List

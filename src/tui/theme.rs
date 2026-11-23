@@ -13,9 +13,4 @@ impl Theme {
     pub const TEXT: Color = Color::White;
     pub const TEXT_DIM: Color = Color::Gray;
     pub const BACKGROUND: Color = Color::Black;
-
-    pub const TASK_STATUS_COMPLETE: Color = Color::Green;
-    pub const TASK_STATUS_IN_PROGRESS: Color = Color::Yellow;
-    pub const TASK_STATUS_TODO: Color = Color::White;
-    pub const TASK_STATUS_OTHER: Color = Color::Gray;
 }

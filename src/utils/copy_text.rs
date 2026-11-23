@@ -66,14 +66,20 @@ fn collect_rich_text(value: &Value, out: &mut String) {
             }
 
             // Block-level nodes end a visual line.
-            match node_type {
-                "paragraph" | "heading" | "blockquote" | "codeBlock" | "listItem"
-                | "bulletList" | "orderedList" | "code" | "divider" => {
-                    if !out.ends_with('\n') {
-                        out.push('\n');
-                    }
-                }
-                _ => {}
+            let is_block = matches!(
+                node_type,
+                "paragraph"
+                    | "heading"
+                    | "blockquote"
+                    | "codeBlock"
+                    | "listItem"
+                    | "bulletList"
+                    | "orderedList"
+                    | "code"
+                    | "divider"
+            );
+            if is_block && !out.ends_with('\n') {
+                out.push('\n');
             }
         }
         Value::String(s) => out.push_str(s),

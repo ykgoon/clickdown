@@ -15,7 +15,6 @@ use clickdown::tui::layout::{generate_screen_title, TuiLayout};
 use clickdown::tui::widgets::{
     auth::{render_auth, AuthState},
     comments::render_comments,
-    dialog::{render_dialog, DialogState, DialogType},
     document::{render_document, DocumentState},
     sidebar::{render_sidebar, SidebarItem, SidebarState},
     task_detail::{render_task_detail, TaskDetailState},
@@ -294,86 +293,6 @@ fn test_task_list_folded_group() {
 // ============================================================================
 // Assigned Tasks View Snapshot Tests
 // ============================================================================
-
-/// Create test tasks with assignees for "Assigned to Me" view
-fn create_assigned_test_tasks() -> Vec<Task> {
-    use clickdown::models::task::User;
-
-    vec![
-        Task {
-            id: "assigned-task-1".to_string(),
-            name: "Review Q2 planning doc".to_string(),
-            status: Some(clickdown::models::TaskStatus {
-                id: None,
-                status: "in progress".to_string(),
-                color: Some("#5c7cfa".to_string()),
-                type_field: None,
-                orderindex: None,
-                status_group: None,
-            }),
-            priority: Some(clickdown::models::Priority {
-                priority: "high".to_string(),
-                color: Some("#ff0000".to_string()),
-            }),
-            assignees: vec![User {
-                id: 123,
-                username: "testuser".to_string(),
-                color: None,
-                email: Some("test@example.com".to_string()),
-                profile_picture: None,
-                initials: Some("TU".to_string()),
-            }],
-            ..fixtures::test_task()
-        },
-        Task {
-            id: "assigned-task-2".to_string(),
-            name: "Fix bug in task filtering".to_string(),
-            status: Some(clickdown::models::TaskStatus {
-                id: None,
-                status: "todo".to_string(),
-                color: Some("#87909e".to_string()),
-                type_field: None,
-                orderindex: None,
-                status_group: None,
-            }),
-            priority: Some(clickdown::models::Priority {
-                priority: "urgent".to_string(),
-                color: Some("#ff0000".to_string()),
-            }),
-            assignees: vec![User {
-                id: 123,
-                username: "testuser".to_string(),
-                color: None,
-                email: Some("test@example.com".to_string()),
-                profile_picture: None,
-                initials: Some("TU".to_string()),
-            }],
-            ..fixtures::test_task()
-        },
-        Task {
-            id: "assigned-task-3".to_string(),
-            name: "Update API documentation".to_string(),
-            status: Some(clickdown::models::TaskStatus {
-                id: None,
-                status: "done".to_string(),
-                color: Some("#00ff00".to_string()),
-                type_field: None,
-                orderindex: None,
-                status_group: None,
-            }),
-            priority: None,
-            assignees: vec![User {
-                id: 123,
-                username: "testuser".to_string(),
-                color: None,
-                email: Some("test@example.com".to_string()),
-                profile_picture: None,
-                initials: Some("TU".to_string()),
-            }],
-            ..fixtures::test_task()
-        },
-    ]
-}
 
 // ============================================================================
 // Task Detail Widget Snapshot Tests (Task 3.3)
@@ -789,7 +708,7 @@ fn test_navigation_hierarchy() {
     use clickdown::api::mock_client::MockClickUpClient;
     use clickdown::models::workspace::{Folder, List, Space, Workspace};
     use clickdown::tui::app::{Screen, TuiApp};
-    use clickdown::tui::widgets::{render_sidebar, SidebarItem};
+    use clickdown::tui::widgets::render_sidebar;
     use insta::assert_snapshot;
     use ratatui::{backend::TestBackend, layout::Rect, Terminal};
     use std::sync::Arc;

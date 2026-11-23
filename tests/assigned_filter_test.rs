@@ -104,8 +104,10 @@ fn test_mock_client_with_assigned_tasks() {
 fn test_task_filters_with_assignees() {
     use clickdown::models::task::TaskFilters;
 
-    let mut filters = TaskFilters::default();
-    filters.assignees = vec![123, 456];
+    let filters = TaskFilters {
+        assignees: vec![123, 456],
+        ..Default::default()
+    };
 
     let query_string = filters.to_query_string();
 
@@ -504,7 +506,7 @@ fn test_toggle_on_fetches_only_assigned_tasks() {
                     _ => None,
                 })
                 .collect()
-        };
+        }
 
         // Toggle ON: only the assignee-filtered result set is rendered
         spc_tf(&mut app);

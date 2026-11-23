@@ -16,10 +16,6 @@ use clickdown::tui::widgets::{ListRow, SidebarItem};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tokio::runtime::Runtime;
 
-fn key(c: char) -> InputEvent {
-    InputEvent::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-}
-
 /// Esc as a real key event (a `Char('\u{1b}')` is not the same thing).
 fn esc() -> InputEvent {
     InputEvent::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))

@@ -19,10 +19,6 @@ fn ctrl(c: char) -> InputEvent {
 fn esc() -> InputEvent {
     InputEvent::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
 }
-fn enter() -> InputEvent {
-    InputEvent::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
-}
-
 fn setup_app(rt: &Runtime) -> TuiApp {
     let mut app = rt
         .block_on(async { TuiApp::with_client(Arc::new(MockClickUpClient::new())).unwrap() });

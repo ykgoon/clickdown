@@ -1,11 +1,15 @@
 //! Test fixtures for ClickDown tests
+//!
+//! Every integration test binary declares `mod fixtures;` and uses only the
+//! helpers it needs, so any single binary sees the rest as unused. The allow
+//! is scoped to this module rather than repeated on each helper.
+#![allow(dead_code)]
 
 use clickdown::models::comment::Comment;
 use clickdown::models::document::Document;
 use clickdown::models::task::Task;
 use clickdown::models::workspace::{Folder, List, Space, Workspace};
 
-#[allow(dead_code)]
 /// Create a test workspace
 pub fn test_workspace() -> Workspace {
     Workspace {
@@ -17,7 +21,6 @@ pub fn test_workspace() -> Workspace {
     }
 }
 
-#[allow(dead_code)]
 /// Create a test space
 pub fn test_space() -> Space {
     Space {
@@ -31,7 +34,6 @@ pub fn test_space() -> Space {
     }
 }
 
-#[allow(dead_code)]
 /// Create a test folder
 pub fn test_folder() -> Folder {
     Folder {
@@ -44,7 +46,6 @@ pub fn test_folder() -> Folder {
     }
 }
 
-#[allow(dead_code)]
 /// Create a test list
 pub fn test_list() -> List {
     List {
@@ -111,7 +112,6 @@ pub fn test_task() -> Task {
     }
 }
 
-#[allow(dead_code)]
 /// Create a test document
 pub fn test_document() -> Document {
     Document {
@@ -128,7 +128,6 @@ pub fn test_document() -> Document {
     }
 }
 
-#[allow(dead_code)]
 /// Create a test comment user
 pub fn test_comment_user() -> clickdown::models::User {
     clickdown::models::User {
@@ -141,7 +140,6 @@ pub fn test_comment_user() -> clickdown::models::User {
     }
 }
 
-#[allow(dead_code)]
 /// Create a test comment
 pub fn test_comment() -> Comment {
     Comment {
@@ -160,7 +158,6 @@ pub fn test_comment() -> Comment {
     }
 }
 
-#[allow(dead_code)]
 /// Create a test comment with update timestamp
 pub fn test_comment_edited() -> Comment {
     Comment {
@@ -179,7 +176,6 @@ pub fn test_comment_edited() -> Comment {
     }
 }
 
-#[allow(dead_code)]
 /// Create multiple test comments
 pub fn test_comments() -> Vec<Comment> {
     vec![test_comment(), test_comment_edited()]
@@ -195,15 +191,6 @@ pub fn test_user() -> clickdown::models::User {
         profile_picture: None,
         initials: Some("TU".to_string()),
     }
-}
-
-/// Create a test task with assignees
-pub fn test_task_with_assignee() -> Task {
-    let mut task = test_task();
-    task.id = "test-task-assigned-1".to_string();
-    task.name = "Task assigned to test user".to_string();
-    task.assignees = vec![test_user()];
-    task
 }
 
 /// Create multiple test tasks with assignees

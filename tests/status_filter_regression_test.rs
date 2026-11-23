@@ -202,10 +202,10 @@ fn mention_picker_resolves_members_without_list_context() {
     let rt = Runtime::new().unwrap();
     let mut t = task_with_status("task-1", "From assorted view", status("To Do", 0));
     // The task carries its own list reference; that is the fallback source.
-    t.list = Some(clickdown::models::task::ListReference {
-        id: "list-9".to_string(),
-        name: Some("Backlog".to_string()),
-        access: None,
+    t.list = Some(clickdown::models::EntityRef {
+         id: "list-9".to_string(),
+         name: Some("Backlog".to_string()),
+         ..Default::default()
     });
 
     let mock = MockClickUpClient::new().with_list_members(vec![User {
@@ -270,10 +270,10 @@ fn workspace_fixture_is_valid() {
 fn mention_picker_refetches_members_for_a_different_list() {
     let rt = Runtime::new().unwrap();
     let mut t = task_with_status("task-2", "Elsewhere", status("To Do", 0));
-    t.list = Some(clickdown::models::task::ListReference {
-        id: "list-B".to_string(),
-        name: Some("Other".to_string()),
-        access: None,
+    t.list = Some(clickdown::models::EntityRef {
+         id: "list-B".to_string(),
+         name: Some("Other".to_string()),
+         ..Default::default()
     });
 
     let mock = MockClickUpClient::new()

@@ -1,5 +1,6 @@
 //! Task models
 
+use crate::models::entity_ref::EntityRef;
 use crate::utils::deserializers::{
     flexible_i64, flexible_int, flexible_resolved, flexible_timestamp, null_to_empty_vec,
     null_to_false,
@@ -177,13 +178,13 @@ pub struct Task {
     #[serde(default, deserialize_with = "null_to_empty_vec")]
     pub locations: Vec<serde_json::Value>,
     #[serde(default)]
-    pub list: Option<ListReference>,
+    pub list: Option<EntityRef>,
     #[serde(default)]
-    pub folder: Option<FolderReference>,
+    pub folder: Option<EntityRef>,
     #[serde(default)]
-    pub space: Option<SpaceReference>,
+    pub space: Option<EntityRef>,
     #[serde(default, rename = "project")]
-    pub project: Option<ProjectReference>,
+    pub project: Option<EntityRef>,
     #[serde(default)]
     pub url: Option<String>,
     #[serde(default, rename = "team_id")]
@@ -405,50 +406,6 @@ pub struct Attachment {
     pub thumbnail_large: Option<String>,
 }
 
-/// Reference to a List
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ListReference {
-    pub id: String,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub access: Option<bool>,
-}
-
-/// Reference to a Folder
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FolderReference {
-    pub id: String,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub hidden: Option<bool>,
-    #[serde(default)]
-    pub access: Option<bool>,
-}
-
-/// Reference to a Project (folder in API response)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ProjectReference {
-    pub id: String,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub hidden: Option<bool>,
-    #[serde(default)]
-    pub access: Option<bool>,
-}
-
-/// Reference to a Space
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SpaceReference {
-    pub id: String,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub access: Option<bool>,
-}
-
 /// Task sharing settings
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskSharing {
@@ -582,27 +539,6 @@ pub struct UpdateTaskRequest {
     pub due_date: Option<i64>,
 }
 
-/// Status group priority for sorting
-/// Lower priority value = higher in the list
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum StatusGroupPriority {
-    InProgress = 1,
-    ToDo = 2,
-    Done = 3,
-    Fallback = 4,
-}
-
-/// Get the sort priority for a status group string
-/// Returns the priority value (lower = higher priority in sort order)
-pub fn get_status_group_priority(status_group: &str) -> StatusGroupPriority {
-    match status_group.to_lowercase().as_str() {
-        "in_progress" | "in progress" => StatusGroupPriority::InProgress,
-        "todo" | "to_do" => StatusGroupPriority::ToDo,
-        "done" | "complete" => StatusGroupPriority::Done,
-        _ => StatusGroupPriority::Fallback,
-    }
-}
-
 /// Resolve the canonical status group name from a `TaskStatus`.
 ///
 /// Resolution order:
@@ -629,142 +565,37 @@ pub fn resolve_status_group(status: Option<&TaskStatus>) -> String {
     }
 }
 
-/// Get the sort key for a task
-/// Returns a tuple of (status_priority, updated_at) for sorting
-/// - status_priority: lower value = higher priority (in-progress first)
-/// - updated_at: higher value = more recent (sorted descending within group)
-///   Tasks without updated_at get i64::MIN to sort last within their group
-fn get_task_sort_key(task: &Task) -> (StatusGroupPriority, i64) {
-    let status_group = resolve_status_group(task.status.as_ref());
-    let status_priority = get_status_group_priority(&status_group);
-
-    // Use updated_at for recency sorting within status group
-    // Tasks without updated_at get MIN value to sort last
-    let updated_at = task.updated_at.unwrap_or(i64::MIN);
-
-    (status_priority, updated_at)
+/// Recency key for a task: last touched, then created, then id.
+///
+/// Ties break deterministically so repeated loads do not reshuffle equal rows.
+/// Missing timestamps sort last rather than jumping to the top.
+pub fn recency_key(task: &Task) -> (i64, i64, &str) {
+    (
+        task.updated_at.unwrap_or(i64::MIN),
+        task.created_at.unwrap_or(i64::MIN),
+        task.id.as_str(),
+    )
 }
 
-/// Sort tasks by status priority and recency
+/// Sort tasks newest-first.
 ///
-/// Sorting rules:
-/// 1. Group by status: in-progress → to-do → done → fallback
-/// 2. Within each group, sort by updated_at descending (most recent first)
-/// 3. Tasks without updated_at are placed last within their status group
-///
-/// This function sorts in-place and returns the sorted vector for convenience.
-pub fn sort_tasks(mut tasks: Vec<Task>) -> Vec<Task> {
+/// This is the only ordering the task list uses: the freshest work is at the
+/// top regardless of status, and status groups follow the same rule (see
+/// `GroupedTaskList`).
+pub fn sort_tasks_by_recency(tasks: &mut [Task]) {
     tasks.sort_by(|a, b| {
-        let (priority_a, updated_a) = get_task_sort_key(a);
-        let (priority_b, updated_b) = get_task_sort_key(b);
-
-        // First sort by status group priority (ascending - lower priority value first)
-        match priority_a.cmp(&priority_b) {
-            std::cmp::Ordering::Equal => {
-                // Within same status group, sort by updated_at descending (most recent first)
-                updated_b.cmp(&updated_a)
-            }
-            other => other,
-        }
+        let (updated_a, created_a, id_a) = recency_key(a);
+        let (updated_b, created_b, id_b) = recency_key(b);
+        updated_b
+            .cmp(&updated_a)
+            .then_with(|| created_b.cmp(&created_a))
+            .then_with(|| id_a.cmp(id_b))
     });
-
-    tasks
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn create_task_with_status_and_updated_at(
-        id: &str,
-        status_group: Option<&str>,
-        updated_at: Option<i64>,
-    ) -> Task {
-        Task {
-            id: id.to_string(),
-            custom_id: None,
-            custom_item_id: None,
-            name: format!("Task {}", id),
-            text_content: None,
-            description: None,
-            markdown_description: None,
-            status: Some(TaskStatus {
-                id: None,
-                status: "test".to_string(),
-                color: None,
-                type_field: None,
-                orderindex: None,
-                status_group: status_group.map(|s| s.to_string()),
-            }),
-            orderindex: None,
-            content: None,
-            created_at: None,
-            updated_at,
-            closed_at: None,
-            done_at: None,
-            archived: None,
-            creator: None,
-            assignees: vec![],
-            group_assignees: vec![],
-            watchers: vec![],
-            checklists: vec![],
-            tags: vec![],
-            parent: None,
-            top_level_parent: None,
-            priority: None,
-            due_date: None,
-            start_date: None,
-            points: None,
-            custom_fields: vec![],
-            attachments: vec![],
-            dependencies: vec![],
-            linked_tasks: vec![],
-            locations: vec![],
-            list: None,
-            folder: None,
-            space: None,
-            project: None,
-            url: None,
-            team_id: None,
-            sharing: None,
-            permission_level: None,
-            time_estimate: None,
-            time_spent: None,
-        }
-    }
-
-    #[test]
-    fn test_status_group_priority_mapping() {
-        assert_eq!(
-            get_status_group_priority("in_progress"),
-            StatusGroupPriority::InProgress
-        );
-        assert_eq!(
-            get_status_group_priority("IN_PROGRESS"),
-            StatusGroupPriority::InProgress
-        );
-        assert_eq!(
-            get_status_group_priority("in progress"),
-            StatusGroupPriority::InProgress
-        );
-
-        assert_eq!(get_status_group_priority("todo"), StatusGroupPriority::ToDo);
-        assert_eq!(
-            get_status_group_priority("to_do"),
-            StatusGroupPriority::ToDo
-        );
-
-        assert_eq!(get_status_group_priority("done"), StatusGroupPriority::Done);
-        assert_eq!(
-            get_status_group_priority("complete"),
-            StatusGroupPriority::Done
-        );
-
-        assert_eq!(
-            get_status_group_priority("unknown"),
-            StatusGroupPriority::Fallback
-        );
-    }
 
     #[test]
     fn test_resolve_status_group() {
@@ -806,99 +637,109 @@ mod tests {
         assert_eq!(resolve_status_group(None), "other");
     }
 
-    #[test]
-    fn test_sort_tasks_by_status_priority() {
-        let tasks = vec![
-            create_task_with_status_and_updated_at("done1", Some("done"), Some(1000)),
-            create_task_with_status_and_updated_at("todo1", Some("todo"), Some(1000)),
-            create_task_with_status_and_updated_at("progress1", Some("in_progress"), Some(1000)),
-        ];
-
-        let sorted = sort_tasks(tasks);
-
-        assert_eq!(sorted[0].id, "progress1");
-        assert_eq!(sorted[1].id, "todo1");
-        assert_eq!(sorted[2].id, "done1");
-    }
-
-    #[test]
-    fn test_sort_tasks_by_recency_within_status_group() {
-        let tasks = vec![
-            create_task_with_status_and_updated_at("old", Some("in_progress"), Some(1000)),
-            create_task_with_status_and_updated_at("new", Some("in_progress"), Some(3000)),
-            create_task_with_status_and_updated_at("mid", Some("in_progress"), Some(2000)),
-        ];
-
-        let sorted = sort_tasks(tasks);
-
-        assert_eq!(sorted[0].id, "new");
-        assert_eq!(sorted[1].id, "mid");
-        assert_eq!(sorted[2].id, "old");
-    }
-
-    #[test]
-    fn test_sort_tasks_missing_updated_at() {
-        let tasks = vec![
-            create_task_with_status_and_updated_at("with_date", Some("todo"), Some(1000)),
-            create_task_with_status_and_updated_at("no_date", Some("todo"), None),
-        ];
-
-        let sorted = sort_tasks(tasks);
-
-        assert_eq!(sorted[0].id, "with_date");
-        assert_eq!(sorted[1].id, "no_date");
-    }
-
-    #[test]
-    fn test_sort_tasks_missing_status() {
-        let tasks = vec![
-            create_task_with_status_and_updated_at("with_status", Some("todo"), Some(1000)),
-            create_task_with_status_and_updated_at("no_status", None, Some(1000)),
-        ];
-
-        let sorted = sort_tasks(tasks);
-
-        assert_eq!(sorted[0].id, "with_status");
-        assert_eq!(sorted[1].id, "no_status");
-    }
-
-    #[test]
-    fn test_sort_tasks_empty_list() {
-        let tasks: Vec<Task> = vec![];
-        let sorted = sort_tasks(tasks);
-        assert!(sorted.is_empty());
-    }
-
-    #[test]
-    fn test_sort_tasks_single_task() {
-        let tasks = vec![create_task_with_status_and_updated_at(
-            "single",
-            Some("in_progress"),
-            Some(1000),
-        )];
-        let sorted = sort_tasks(tasks);
-        assert_eq!(sorted.len(), 1);
-        assert_eq!(sorted[0].id, "single");
-    }
-
-    #[test]
-    fn test_sort_tasks_all_same_status() {
-        let tasks = vec![
-            create_task_with_status_and_updated_at("a", Some("done"), Some(1000)),
-            create_task_with_status_and_updated_at("b", Some("done"), Some(3000)),
-            create_task_with_status_and_updated_at("c", Some("done"), Some(2000)),
-        ];
-
-        let sorted = sort_tasks(tasks);
-
-        assert_eq!(sorted[0].id, "b");
-        assert_eq!(sorted[1].id, "c");
-        assert_eq!(sorted[2].id, "a");
-    }
-
     /// Regression: "Assigned to Me" failed with "Failed to parse team tasks"
     /// because `GET /team/{id}/task?subtasks=true` returns subtasks whose
     /// `parent` is a bare ID string, not the object the model expected.
+    fn task_at(id: &str, status_group: Option<&str>, updated_at: Option<i64>) -> Task {
+        Task {
+            id: id.to_string(),
+            name: format!("Task {}", id),
+            status: Some(TaskStatus {
+                id: None,
+                status: "test".to_string(),
+                color: None,
+                type_field: None,
+                orderindex: None,
+                status_group: status_group.map(|s| s.to_string()),
+            }),
+            updated_at,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_sort_tasks_orders_by_recency_regardless_of_status() {
+        // Deliberately interleaved statuses: recency must win over status.
+        let mut tasks = vec![
+            task_at("done", Some("done"), Some(1000)),
+            task_at("todo", Some("todo"), Some(3000)),
+            task_at("progress", Some("in_progress"), Some(2000)),
+        ];
+
+        sort_tasks_by_recency(&mut tasks);
+
+        assert_eq!(
+            tasks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            vec!["todo", "progress", "done"]
+        );
+    }
+
+    #[test]
+    fn test_sort_tasks_missing_timestamp_sorts_last() {
+        let mut tasks = vec![
+            task_at("undated", Some("todo"), None),
+            task_at("dated", Some("todo"), Some(1000)),
+        ];
+
+        sort_tasks_by_recency(&mut tasks);
+
+        assert_eq!(tasks[0].id, "dated");
+        assert_eq!(tasks[1].id, "undated");
+    }
+
+    #[test]
+    fn test_sort_tasks_is_stable_on_equal_timestamps() {
+        let mut tasks = vec![
+            task_at("b", Some("todo"), Some(1000)),
+            task_at("a", Some("done"), Some(1000)),
+        ];
+
+        sort_tasks_by_recency(&mut tasks);
+
+        // Same timestamps: the id breaks the tie, so repeated loads agree.
+        assert_eq!(tasks[0].id, "a");
+        assert_eq!(tasks[1].id, "b");
+    }
+
+    #[test]
+    fn test_sort_tasks_handles_empty_and_single() {
+        let mut empty: Vec<Task> = vec![];
+        sort_tasks_by_recency(&mut empty);
+        assert!(empty.is_empty());
+
+        let mut one = vec![task_at("only", Some("todo"), Some(1000))];
+        sort_tasks_by_recency(&mut one);
+        assert_eq!(one.len(), 1);
+    }
+
+    #[test]
+    fn test_resolve_status_group_prefers_status_group_then_status_then_other() {
+        use super::{resolve_status_group, TaskStatus};
+
+        fn make(status_group: Option<&str>, status: &str) -> TaskStatus {
+            TaskStatus {
+                id: None,
+                status: status.to_string(),
+                color: None,
+                type_field: None,
+                orderindex: None,
+                status_group: status_group.map(|s| s.to_string()),
+            }
+        }
+
+        assert_eq!(
+            resolve_status_group(Some(&make(Some("in_progress"), "In Progress"))),
+            "in_progress"
+        );
+        assert_eq!(
+            resolve_status_group(Some(&make(None, "In Progress"))),
+            "In Progress"
+        );
+        assert_eq!(resolve_status_group(Some(&make(Some(""), "Review"))), "Review");
+        assert_eq!(resolve_status_group(Some(&make(None, ""))), "other");
+        assert_eq!(resolve_status_group(None), "other");
+    }
+
     #[test]
     fn test_task_accepts_parent_as_bare_id_string() {
         let json = r#"{
@@ -981,8 +822,10 @@ mod tests {
     #[test]
     fn test_task_filters_assignees_format() {
         // Test that assignees are formatted as array values (assignees[]=123&assignees[]=456)
-        let mut filters = TaskFilters::default();
-        filters.assignees = vec![123, 456, 789];
+        let filters = TaskFilters {
+            assignees: vec![123, 456, 789],
+            ..Default::default()
+        };
 
         let query = filters.to_query_string();
 
@@ -995,8 +838,10 @@ mod tests {
 
     #[test]
     fn test_task_filters_single_assignee() {
-        let mut filters = TaskFilters::default();
-        filters.assignees = vec![123];
+        let filters = TaskFilters {
+            assignees: vec![123],
+            ..Default::default()
+        };
 
         let query = filters.to_query_string();
 
@@ -1014,9 +859,11 @@ mod tests {
 
     #[test]
     fn test_task_filters_with_limit() {
-        let mut filters = TaskFilters::default();
-        filters.assignees = vec![123];
-        filters.limit = Some(100);
+        let filters = TaskFilters {
+            assignees: vec![123],
+            limit: Some(100),
+            ..Default::default()
+        };
 
         let query = filters.to_query_string();
 
@@ -1027,10 +874,12 @@ mod tests {
 
     #[test]
     fn test_task_filters_mixed_with_assignees() {
-        let mut filters = TaskFilters::default();
-        filters.archived = Some(false);
-        filters.assignees = vec![123, 456];
-        filters.statuses = vec!["todo".to_string(), "in progress".to_string()];
+        let filters = TaskFilters {
+            archived: Some(false),
+            assignees: vec![123, 456],
+            statuses: vec!["todo".to_string(), "in progress".to_string()],
+            ..Default::default()
+        };
 
         let query = filters.to_query_string();
 
@@ -1043,9 +892,11 @@ mod tests {
 
     #[test]
     fn test_task_filters_assigned_with_include_closed() {
-        let mut filters = TaskFilters::default();
-        filters.assignees = vec![42];
-        filters.include_closed = Some(true);
+        let filters = TaskFilters {
+            assignees: vec![42],
+            include_closed: Some(true),
+            ..Default::default()
+        };
 
         let query = filters.to_query_string();
 

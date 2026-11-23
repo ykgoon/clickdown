@@ -1,15 +1,12 @@
 //! ClickDown - A TUI ClickUp client
-
-mod api;
-mod cache;
-mod cli;
-mod commands;
-mod config;
-mod models;
-mod tui;
-mod utils;
+//!
+//! The binary is a thin shell around the `clickdown` library: all module
+//! declarations live in `lib.rs`, so the crate is compiled once instead of a
+//! second time as a separate `mod` tree.
 
 use anyhow::Result;
+use clickdown::cli;
+use clickdown::tui;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 fn init_logging() {

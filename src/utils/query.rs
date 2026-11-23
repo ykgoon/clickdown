@@ -57,25 +57,7 @@ impl QueryParams {
         self
     }
 
-    /// Add all values from a slice of integers as comma-separated parameter (e.g., assignees=123,456)
-    ///
-    /// This is used for ClickUp API parameters that expect comma-separated values
-    /// instead of repeated array parameters.
-    #[allow(dead_code)]
-    pub fn add_comma_separated_ints(&mut self, key: &str, values: &[i64]) -> &mut Self {
-        if !values.is_empty() {
-            let comma_separated = values
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            self.params.push(format!("{}={}", key, comma_separated));
-        }
-        self
-    }
-
     /// Check if there are any parameters
-    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.params.is_empty()
     }
@@ -168,44 +150,19 @@ mod tests {
     }
 
     #[test]
-    fn test_add_comma_separated_ints() {
-        let mut params = QueryParams::new();
-        params.add_comma_separated_ints("assignees", &[123, 456, 789]);
-
-        assert_eq!(params.to_query_string(), "?assignees=123,456,789");
-    }
-
-    #[test]
-    fn test_add_comma_separated_ints_single() {
-        let mut params = QueryParams::new();
-        params.add_comma_separated_ints("assignees", &[123]);
-
-        assert_eq!(params.to_query_string(), "?assignees=123");
-    }
-
-    #[test]
-    fn test_add_comma_separated_ints_empty() {
-        let mut params = QueryParams::new();
-        params.add_comma_separated_ints("assignees", &[]);
-
-        assert!(params.is_empty());
-        assert_eq!(params.to_query_string(), "");
-    }
-
-    #[test]
     fn test_mixed_params() {
         let mut params = QueryParams::new();
         params.add_opt("archived", Some(false));
         params.add_opt("page", Some(1));
         params.add_opt_encoded("query", Some("test search"));
         params.add_all("statuses", &["todo"]);
-        params.add_comma_separated_ints("assignees", &[789]);
+        params.add_all("assignees", &[789]);
 
         let query = params.to_query_string();
         assert!(query.contains("archived=false"));
         assert!(query.contains("page=1"));
         assert!(query.contains("query=test%20search"));
         assert!(query.contains("statuses[]=todo"));
-        assert!(query.contains("assignees=789"));
+        assert!(query.contains("assignees[]=789"));
     }
 }

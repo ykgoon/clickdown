@@ -20,12 +20,6 @@ fn key(c: char) -> InputEvent {
 fn with(code: KeyCode, mods: KeyModifiers) -> InputEvent {
     InputEvent::Key(KeyEvent::new(code, mods))
 }
-fn type_str(app: &mut TuiApp, text: &str) {
-    for c in text.chars() {
-        app.update(key(c));
-    }
-}
-
 /// App on the task detail screen with a focused comment pane.
 fn comment_app(rt: &Runtime, client: MockClickUpClient) -> TuiApp {
     let mut app = rt.block_on(async { TuiApp::with_client(Arc::new(client)).unwrap() });

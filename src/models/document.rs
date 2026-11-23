@@ -1,6 +1,6 @@
 //! Document models
 
-use crate::models::{ClickUpFolderReference as FolderReference, ClickUpSpace as SpaceReference};
+use crate::models::entity_ref::EntityRef;
 use serde::{Deserialize, Serialize};
 
 /// A ClickUp Document
@@ -17,9 +17,9 @@ pub struct Document {
     #[serde(default)]
     pub updated_by: Option<User>,
     #[serde(default)]
-    pub space: Option<SpaceReference>,
+    pub space: Option<EntityRef>,
     #[serde(default)]
-    pub folder: Option<FolderReference>,
+    pub folder: Option<EntityRef>,
     #[serde(default)]
     pub url: Option<String>,
     #[serde(default)]
@@ -53,18 +53,6 @@ pub use crate::models::user::User;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentsResponse {
     pub docs: Vec<Document>,
-}
-
-/// API response for getting document pages
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DocumentPagesResponse {
-    pub pages: Vec<Page>,
-}
-
-/// API response for getting a single page
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PageResponse {
-    pub page: Page,
 }
 
 /// Parameters for searching documents
