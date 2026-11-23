@@ -365,6 +365,10 @@ See `src/api/` for implementation details.
   - Toggle filter with 'a' key within a list's task view
   - Includes closed/completed tasks in results
   - User ID fetched on startup for filtering
+- **Status filter**: Per-list task filter for a given status (`SPC t F` in task list)
+  - Picker seeded from the list's status configuration (falls back to statuses on loaded tasks)
+  - Server-side filtering via the ClickUp `statuses[]` query parameter
+  - Title shows the active filter; Esc in the picker clears it
 - Document viewing with Markdown rendering
 - SQLite caching layer
 - Configuration and token management

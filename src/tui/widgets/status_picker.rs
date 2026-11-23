@@ -18,12 +18,15 @@ use ratatui::{
 /// - `statuses`: Available statuses to choose from
 /// - `cursor`: Current cursor position
 /// - `current_status`: The task's current status (to highlight)
+/// - `filter_mode`: When true, the picker selects a status *filter* for the
+///   task list instead of changing a task's status
 pub fn render_status_picker(
     frame: &mut Frame,
     area: Rect,
     statuses: &[TaskStatus],
     cursor: usize,
     current_status: Option<&str>,
+    filter_mode: bool,
 ) {
     // Calculate overlay dimensions
     let overlay_width = 40.min(area.width.saturating_sub(4));
@@ -49,7 +52,11 @@ pub fn render_status_picker(
 
     // Build the overlay content
     let block = Block::default()
-        .title(" Change Status ")
+        .title(if filter_mode {
+            " Filter by Status "
+        } else {
+            " Change Status "
+        })
         .borders(Borders::ALL)
         .style(Style::default().bg(Theme::BACKGROUND));
 

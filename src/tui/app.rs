@@ -348,6 +348,9 @@ pub struct TuiApp {
     status_picker_original_status: Option<crate::models::TaskStatus>,
     status_picker_task_id: Option<String>,
 
+    /// Active task-list status filter (None shows all statuses)
+    status_filter: Option<String>,
+
     /// Task captured when the delete confirmation dialog is opened
     pending_delete_task_id: Option<String>,
 
@@ -1057,6 +1060,14 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                             self.toggle_expanded_panel(ExpandedPanel::Description);
                         }
                     }
+                    ('t', KeyCode::Char('F')) => {
+                        // Filter the task list by status (tasks screen)
+                        if self.screen == Screen::Tasks {
+                            self.open_status_filter_picker();
+                        } else {
+                            self.status = "Status filter works from the task list".to_string();
+                        }
+                    }
                     // `SPC i d` -- dismiss the highlighted inbox item. This is
                     // the only way to dismiss: there is no bare `d` binding, so
                     // a stray keypress cannot hide an item by accident.
@@ -1578,6 +1589,21 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     }
 
     #[allow(dead_code)]
+    pub fn status_picker_cursor_for_test(&self) -> usize {
+        self.status_picker_cursor
+    }
+
+    #[allow(dead_code)]
+    pub fn tasks_for_test(&self) -> &[Task] {
+        &self.tasks
+    }
+
+    #[allow(dead_code)]
+    pub fn set_tasks_for_test(&mut self, tasks: Vec<Task>) {
+        self.tasks = tasks;
+    }
+
+    #[allow(dead_code)]
     pub fn set_cached_list_statuses_for_test(&mut self, list_id: &str, statuses: Vec<crate::models::TaskStatus>) {
         self.cached_list_statuses
             .insert(list_id.to_string(), statuses);
@@ -1918,6 +1944,7 @@ impl TuiApp {
             status_picker_cursor: 0,
             status_picker_original_status: None,
             status_picker_task_id: None,
+            status_filter: None,
             pending_delete_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -2068,6 +2095,7 @@ impl TuiApp {
             status_picker_cursor: 0,
             status_picker_original_status: None,
             status_picker_task_id: None,
+            status_filter: None,
             pending_delete_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -2202,6 +2230,7 @@ impl TuiApp {
             status_picker_cursor: 0,
             status_picker_original_status: None,
             status_picker_task_id: None,
+            status_filter: None,
             pending_delete_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -4910,7 +4939,10 @@ impl TuiApp {
 
         use crate::models::TaskFilters;
         let tx = self.message_tx.clone().unwrap();
-        let filters = TaskFilters::default();
+        let mut filters = TaskFilters::default();
+        if let Some(status) = &self.status_filter {
+            filters.statuses = vec![status.clone()];
+        }
         tokio::spawn(async move {
             let result = client.get_tasks(&list_id, &filters).await;
             let msg = match result {
@@ -5153,8 +5185,149 @@ impl TuiApp {
         self.status = "Select new status (j/k navigate, Enter select, Esc cancel)".to_string();
     }
 
+    /// Open the status-filter picker for the current task list
+    ///
+    /// Mirrors `open_status_picker`: seed from the cached list statuses,
+    /// fall back to statuses observed on loaded tasks, then last-resort
+    /// defaults. The full configuration is fetched in the background when
+    /// only a subset is known. Selecting a status re-queries the list with
+    /// `statuses[]` so filtering uses ClickUp's server-side filter.
+    #[allow(dead_code)]
+    pub fn open_status_filter_picker(&mut self) {
+        use crate::models::TaskStatus;
+
+        let mut statuses: Vec<TaskStatus> = Vec::new();
+        let add_status = |status: &TaskStatus, statuses: &mut Vec<TaskStatus>| {
+            if !statuses
+                .iter()
+                .any(|existing| existing.status.eq_ignore_ascii_case(&status.status))
+            {
+                statuses.push(status.clone());
+            }
+        };
+
+        if let Some(list_id) = &self.current_list_id {
+            if let Some(cached) = self.cached_list_statuses.get(list_id) {
+                for status in cached {
+                    add_status(status, &mut statuses);
+                }
+            }
+        }
+        if statuses.is_empty() {
+            for loaded_task in &self.tasks {
+                if let Some(status) = &loaded_task.status {
+                    add_status(status, &mut statuses);
+                }
+            }
+        }
+        if statuses.is_empty() {
+            statuses = vec![
+                TaskStatus {
+                    id: None,
+                    status: "To Do".to_string(),
+                    color: Some("#8794a6".to_string()),
+                    type_field: None,
+                    orderindex: Some(0),
+                    status_group: Some("todo".to_string()),
+                },
+                TaskStatus {
+                    id: None,
+                    status: "In Progress".to_string(),
+                    color: Some("#4f46de".to_string()),
+                    type_field: None,
+                    orderindex: Some(1),
+                    status_group: Some("in_progress".to_string()),
+                },
+                TaskStatus {
+                    id: None,
+                    status: "Done".to_string(),
+                    color: Some("#0f4a58".to_string()),
+                    type_field: None,
+                    orderindex: Some(2),
+                    status_group: Some("done".to_string()),
+                },
+            ];
+        }
+
+        statuses.sort_by(|a, b| {
+            a.orderindex
+                .unwrap_or(u32::MAX)
+                .cmp(&b.orderindex.unwrap_or(u32::MAX))
+                .then_with(|| a.status.to_lowercase().cmp(&b.status.to_lowercase()))
+        });
+
+        // Preselect the currently active filter, if any
+        self.status_picker_cursor = self
+            .status_filter
+            .as_ref()
+            .and_then(|current| {
+                statuses
+                    .iter()
+                    .position(|status| status.status.eq_ignore_ascii_case(current))
+            })
+            .unwrap_or(0);
+        self.status_picker_statuses = statuses;
+        self.status_picker_open = true;
+
+        if let Some(list_id) = &self.current_list_id {
+            if !self.cached_list_statuses.contains_key(list_id) {
+                if let Some(client) = self.client.clone() {
+                    let list_id = list_id.clone();
+                    let tx = self.message_tx.clone().unwrap();
+                    self.loading = true;
+                    self.status = "Loading statuses...".to_string();
+                    tokio::spawn(async move {
+                        let result = client.get_list(&list_id).await;
+                        let statuses = result.map(|l| l.statuses);
+                        let msg = AppMessage::ListStatusesLoaded(
+                            list_id,
+                            statuses.map_err(|e| e.to_string()),
+                        );
+                        let _ = tx.send(msg).await;
+                    });
+                }
+            }
+        }
+        self.status = "Filter by status (j/k navigate, Enter apply, Esc cancel)".to_string();
+    }
+
+    /// Apply the currently highlighted status-filter selection
+    #[allow(dead_code)]
+    pub fn apply_status_filter(&mut self) {
+        let selected = match self.status_picker_statuses.get(self.status_picker_cursor) {
+            Some(status) => status.clone(),
+            None => {
+                self.status_picker_open = false;
+                self.status = "No status selected".to_string();
+                return;
+            }
+        };
+
+        self.status_filter = Some(selected.status.clone());
+        self.status_picker_open = false;
+        self.update_screen_title();
+
+        if let Some(list_id) = &self.current_list_id {
+            self.load_tasks(list_id.clone());
+        }
+        self.status = format!("Filtering: {}", selected.status);
+    }
+
+    /// Clear the status filter and reload all tasks
+    #[allow(dead_code)]
+    pub fn clear_status_filter(&mut self) {
+        self.status_filter = None;
+        self.status_picker_open = false;
+        self.update_screen_title();
+        if let Some(list_id) = &self.current_list_id {
+            self.load_tasks(list_id.clone());
+        }
+        self.status = "Status filter cleared".to_string();
+    }
+
     /// Handle keyboard input for status picker
-    fn handle_status_picker_input(&mut self, key: crossterm::event::KeyEvent) {
+    #[allow(dead_code)]
+    pub fn handle_status_picker_input(&mut self, key: crossterm::event::KeyEvent) {
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => {
                 if self.status_picker_cursor < self.status_picker_statuses.len().saturating_sub(1) {
@@ -5167,11 +5340,19 @@ impl TuiApp {
                 }
             }
             KeyCode::Enter => {
-                self.save_status();
+                if self.status_picker_task_id.is_some() {
+                    self.save_status();
+                } else {
+                    self.apply_status_filter();
+                }
             }
             KeyCode::Esc => {
-                self.status_picker_open = false;
-                self.status = "Status change cancelled".to_string();
+                if self.status_picker_task_id.is_some() {
+                    self.status_picker_open = false;
+                    self.status = "Status change cancelled".to_string();
+                } else {
+                    self.clear_status_filter();
+                }
             }
             _ => {}
         }
@@ -5616,7 +5797,8 @@ impl TuiApp {
         });
     }
 
-    fn update_screen_title(&mut self) {
+    #[allow(dead_code)]
+    pub fn update_screen_title(&mut self) {
         self.screen_title = match &self.screen {
             Screen::Auth => generate_screen_title("Authentication"),
             Screen::Inbox => {
@@ -5680,9 +5862,13 @@ impl TuiApp {
                     let base = format!("Tasks: {}", list.name);
                     if self.assigned_filter_active {
                         generate_screen_title(&format!("{} (Assigned to Me)", base))
+                    } else if let Some(status) = &self.status_filter {
+                        generate_screen_title(&format!("{} (Status: {})", base, status))
                     } else {
                         generate_screen_title(&base)
                     }
+                } else if let Some(status) = &self.status_filter {
+                    generate_screen_title(&format!("Tasks (Status: {})", status))
                 } else {
                     if self.assigned_filter_active {
                         generate_screen_title("Tasks (Assigned to Me)")
@@ -5777,6 +5963,7 @@ impl TuiApp {
                 &self.status_picker_statuses,
                 self.status_picker_cursor,
                 current_status,
+                self.status_picker_task_id.is_none(),
             );
         }
 

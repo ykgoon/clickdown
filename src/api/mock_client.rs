@@ -105,6 +105,8 @@ pub struct MockClickUpClient {
     /// Tests keep a clone of the handle to inspect calls after handing the
     /// client to the app.
     pub reaction_calls: ReactionCalls,
+    /// get_tasks calls recorded as (list_id, filters.statuses)
+    pub tasks_call_log: TasksCallLog,
 }
 
 #[allow(dead_code)]
@@ -140,6 +142,7 @@ impl MockClickUpClient {
             inbox_response: None,
             comment_reaction_response: None,
             reaction_calls: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            tasks_call_log: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -171,6 +174,11 @@ impl MockClickUpClient {
     /// A handle to this client's assigned-page log, valid after it moves
     pub fn assigned_page_log_handle(&self) -> AssignedPageLog {
         self.assigned_page_log.clone()
+    }
+
+    /// A handle to this client's get_tasks call log, valid after it moves
+    pub fn tasks_call_log_handle(&self) -> TasksCallLog {
+        self.tasks_call_log.clone()
     }
 
     /// Record one reaction call and return the configured outcome
@@ -355,6 +363,8 @@ impl MockClickUpClient {
 /// Shared handle to a mock's recorded reaction calls, so tests can inspect
 /// them after the client has been moved into the app.
 pub type ReactionCalls = std::sync::Arc<std::sync::Mutex<Vec<(String, String, bool)>>>;
+/// Recorded get_tasks calls as (list_id, statuses filter)
+pub type TasksCallLog = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<String>)>>>;
 
 /// Shared handle to the pages requested from the assigned-tasks endpoint.
 pub type AssignedPageLog = std::sync::Arc<std::sync::Mutex<Vec<u32>>>;
@@ -419,7 +429,10 @@ impl ClickUpApi for MockClickUpClient {
         return_response(&self.list_response, "List not found")
     }
 
-    async fn get_tasks(&self, _list_id: &str, _filters: &TaskFilters) -> Result<Vec<Task>> {
+    async fn get_tasks(&self, _list_id: &str, filters: &TaskFilters) -> Result<Vec<Task>> {
+        if let Ok(mut log) = self.tasks_call_log.lock() {
+            log.push((_list_id.to_string(), filters.statuses.clone()));
+        }
         return_vec_response(&self.tasks_response)
     }
 

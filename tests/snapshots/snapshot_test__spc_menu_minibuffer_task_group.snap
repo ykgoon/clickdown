@@ -1,9 +1,8 @@
 ---
 source: tests/snapshot_test.rs
-assertion_line: 60
+assertion_line: 59
 expression: snapshot
 ---
-                                                                                                    
                                                                                                     
                                                                                                     
                                                                                                     
@@ -25,5 +24,6 @@ expression: snapshot
   a   Assign people                                                                                 
   f   Assigned-to-Me filter                                                                         
   v   Expand/collapse description                                                                   
+  F   Filter by status                                                                              
  ────────────────────────────────────────────────────────────────────────────────────────────────── 
  press an action key · Esc back

@@ -473,7 +473,7 @@ fn test_s_key_in_task_detail_no_response_snapshot() {
         layout.render_status(frame, status_after_s);
 
         // Render status picker overlay (the fix!)
-        render_status_picker(frame, area, &statuses, 0, Some("in progress"));
+        render_status_picker(frame, area, &statuses, 0, Some("in progress"), false);
     });
 }
 
