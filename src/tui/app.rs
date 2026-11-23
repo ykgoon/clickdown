@@ -371,14 +371,18 @@ pub struct TuiApp {
     /// `statuses[]` parameter.
     status_filters: Vec<String>,
 
-    /// Every status name this session has observed, in first-seen order.
+    /// Every status this session has observed.
     ///
     /// Needed because the list shown is the *filtered* result: applying a
     /// status filter replaces `tasks` with rows of that one status, so
     /// deriving the menu from loaded tasks collapsed it to a single entry and
     /// made an active filter impossible to change. This registry only grows,
     /// so it survives filtering.
-    known_status_names: Vec<String>,
+    ///
+    /// Full `TaskStatus` values are kept, not just names, so the picker can
+    /// still order options by the workspace's configured `orderindex` instead
+    /// of the order they happened to be seen in.
+    known_statuses: Vec<crate::models::TaskStatus>,
 
     /// Statuses ticked in the filter picker (multi-select)
     status_picker_selected: Vec<String>,
@@ -422,6 +426,12 @@ pub struct TuiApp {
     /// Session restore state
     /// Tracks whether we're currently restoring a saved session
     restoring_session: bool,
+
+    /// Which screen the saved session should end on, when that screen is a
+    /// workspace-wide query (`Assigned`). The hierarchy replay cannot reach
+    /// such a screen because it has no list to navigate to, so it is applied
+    /// separately once the user id the query needs has loaded.
+    restored_screen: Option<Screen>,
     /// Target IDs to restore at each navigation level
     restored_workspace_id: Option<String>,
     restored_space_id: Option<String>,
@@ -1161,7 +1171,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
         // `current_list_id` (the hierarchy context is gone), but the task
         // itself carries its list. Resolve from either so the picker is never
         // silently empty.
-        let list_id = match self.resolve_mention_list_id() {
+        let list_id = match self.resolve_task_list_id() {
             Some(id) => id,
             None => {
                 self.status = "No list context for @mentions on this task".to_string();
@@ -1213,7 +1223,14 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     /// Prefers the navigation context, then the task's own list reference
     /// (the Assigned view clears the former), then the list a restored
     /// session pointed at.
-    fn resolve_mention_list_id(&self) -> Option<String> {
+    /// List id for operations that act on the open task (assignees,
+    /// @mention members).
+    ///
+    /// A task opened from the workspace-wide Assigned view has no
+    /// `current_list_id` because the hierarchy context is gone, but the task
+    /// itself carries its list. Without the fallback, every such task refused
+    /// to assign with "list context not available".
+    fn resolve_task_list_id(&self) -> Option<String> {
         if let Some(id) = &self.current_list_id {
             return Some(id.clone());
         }
@@ -1811,6 +1828,49 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
         self.mention_picker_open
     }
 
+    /// Cache access for tests that need to persist session state.
+    #[allow(dead_code)]
+    pub fn cache_mut_for_test(&mut self) -> &mut CacheManager {
+        &mut self.cache
+    }
+
+    /// Push a message through the real channel so `process_async_messages`
+    /// handles it exactly as it would at runtime. Tests must not re-implement
+    /// the handler, or they would assert on a copy of the logic.
+    #[allow(dead_code)]
+    fn deliver_for_test(&mut self, msg: AppMessage) {
+        self.message_tx
+            .as_ref()
+            .expect("message channel should exist")
+            .try_send(msg)
+            .expect("test channel should accept a message");
+    }
+
+    /// Enter restore mode for a saved screen name, as `restore_session_state`
+    /// does after reading the cache. Separated so tests do not have to write
+    /// and read a session through SQLite: each app instance owns its own
+    /// temporary database, so a cross-instance round trip cannot work.
+    #[allow(dead_code)]
+    pub fn restore_saved_screen_for_test(&mut self, screen_name: &str) {
+        self.restoring_session = true;
+        self.restored_screen = match screen_name {
+            "Assigned" => Some(Screen::Assigned),
+            _ => None,
+        };
+    }
+
+    /// Deliver a synthetic `WorkspacesLoaded`, as startup does.
+    #[allow(dead_code)]
+    pub fn simulate_workspaces_loaded_for_test(&mut self, workspaces: Vec<crate::models::Workspace>) {
+        self.deliver_for_test(AppMessage::WorkspacesLoaded(Ok(workspaces)));
+    }
+
+    /// Deliver a synthetic `CurrentUserLoaded`, as startup does.
+    #[allow(dead_code)]
+    pub fn simulate_user_loaded_for_test(&mut self, user: crate::models::User) {
+        self.deliver_for_test(AppMessage::CurrentUserLoaded(Ok(user)));
+    }
+
     /// Render the whole UI to a string (for asserting on what the user sees).
     #[allow(dead_code)]
     pub fn render_to_string_for_test(&mut self, width: u16, height: u16) -> String {
@@ -2185,7 +2245,7 @@ impl TuiApp {
             status_picker_original_status: None,
             status_picker_task_id: None,
             status_filters: Vec::new(),
-            known_status_names: Vec::new(),
+            known_statuses: Vec::new(),
             status_picker_selected: Vec::new(),
             filter_menu_open: false,
             filter_menu_cursor: 0,
@@ -2202,6 +2262,7 @@ impl TuiApp {
             current_folder_id: None,
             current_list_id: None,
             restoring_session: false,
+            restored_screen: None,
             restored_workspace_id: None,
             restored_space_id: None,
             restored_folder_id: None,
@@ -2416,7 +2477,7 @@ impl TuiApp {
             status_picker_original_status: None,
             status_picker_task_id: None,
             status_filters: Vec::new(),
-            known_status_names: Vec::new(),
+            known_statuses: Vec::new(),
             status_picker_selected: Vec::new(),
             filter_menu_open: false,
             filter_menu_cursor: 0,
@@ -2433,6 +2494,7 @@ impl TuiApp {
             current_folder_id: None,
             current_list_id: None,
             restoring_session: false,
+            restored_screen: None,
             restored_workspace_id: None,
             restored_space_id: None,
             restored_folder_id: None,
@@ -2566,8 +2628,13 @@ impl TuiApp {
                                 }
                                 *self.sidebar.items_mut() = self.root_sidebar_items();
 
-                                // Check if we're restoring a session
-                                if self.restoring_session {
+                                // A saved query-style screen needs no
+                                // hierarchy replay, and replaying would drag
+                                // the user back into it.
+                                if self.restored_screen.is_some() {
+                                    self.restoring_session = false;
+                                    self.try_restore_query_screen();
+                                } else if self.restoring_session {
                                     // Try to select the restored workspace
                                     if let Some(restored_id) = self.restored_workspace_id.clone() {
                                         if self.sidebar.select_by_id(&restored_id) {
@@ -3100,6 +3167,12 @@ impl TuiApp {
                                         self.load_tasks_with_assigned_filter(list_id.clone());
                                     }
                                 }
+
+                                // A session saved in the Assigned view reopens
+                                // there. This needs the user id, which only
+                                // exists now, so it cannot happen during the
+                                // hierarchy replay.
+                                self.try_restore_query_screen();
                             }
                             Err(e) => {
                                 tracing::warn!("Background user profile fetch failed: {}", e);
@@ -5187,11 +5260,12 @@ impl TuiApp {
             return;
         }
 
-        // Guard: need list context
-        let list_id = match &self.current_list_id {
-            Some(id) => id.clone(),
+        // Members are list-scoped, and a task opened from the Assigned view
+        // has no navigation context, so resolve from the task's own list.
+        let list_id = match self.resolve_task_list_id() {
+            Some(id) => id,
             None => {
-                self.status = "Cannot assign: list context not available".to_string();
+                self.status = "Cannot assign: this task's list is unknown".to_string();
                 return;
             }
         };
@@ -5286,11 +5360,11 @@ impl TuiApp {
         for task in self.assigned_tasks.iter().chain(self.tasks.iter()) {
             let Some(status) = &task.status else { continue };
             if !self
-                .known_status_names
+                .known_statuses
                 .iter()
-                .any(|known| known.eq_ignore_ascii_case(&status.status))
+                .any(|known| known.status.eq_ignore_ascii_case(&status.status))
             {
-                self.known_status_names.push(status.status.clone());
+                self.known_statuses.push(status.clone());
             }
         }
     }
@@ -5321,19 +5395,12 @@ impl TuiApp {
             }
         }
 
-        for name in &self.known_status_names {
+        for known in &self.known_statuses {
             if !ordered
                 .iter()
-                .any(|existing| existing.status.eq_ignore_ascii_case(name))
+                .any(|existing| existing.status.eq_ignore_ascii_case(&known.status))
             {
-                ordered.push(TaskStatus {
-                    id: None,
-                    status: name.clone(),
-                    color: None,
-                    type_field: None,
-                    orderindex: None,
-                    status_group: None,
-                });
+                ordered.push(known.clone());
             }
         }
 
@@ -5367,6 +5434,16 @@ impl TuiApp {
                 },
             ];
         }
+
+        // Configured order, then alphabetical for anything without an index.
+        // Without this the order follows the order statuses were first seen,
+        // which depends on task load order rather than the workspace config.
+        ordered.sort_by(|a, b| {
+            a.orderindex
+                .unwrap_or(u32::MAX)
+                .cmp(&b.orderindex.unwrap_or(u32::MAX))
+                .then_with(|| a.status.to_lowercase().cmp(&b.status.to_lowercase()))
+        });
         ordered
     }
 
@@ -5469,6 +5546,23 @@ impl TuiApp {
         } else {
             "No filters were active".to_string()
         };
+    }
+
+    /// Apply a saved query-style screen (`Assigned to Me`) once the data it
+    /// needs exists. Safe to call repeatedly; it no-ops until the user id and
+    /// a workspace are known, and clears the request when it succeeds.
+    fn try_restore_query_screen(&mut self) {
+        if self.restored_screen != Some(Screen::Assigned) {
+            return;
+        }
+        if self.current_user_id.is_none() || self.current_team_id.is_none() {
+            // Needs the profile (assignee) and a workspace (team) first.
+            return;
+        }
+        self.restored_screen = None;
+        self.restoring_session = false;
+        self.open_assigned_view();
+        self.status = "Restored to Assigned to Me".to_string();
     }
 
     /// Whether any filter is currently narrowing the list.
@@ -7515,6 +7609,14 @@ impl TuiApp {
 
         // Set restoring session flag
         self.restoring_session = true;
+
+        // Honour a saved query-style screen. The replay below walks the
+        // hierarchy (workspace -> space -> folder -> list), which cannot
+        // express "Assigned to Me": that view has no location to navigate to.
+        self.restored_screen = match saved_state.screen.as_str() {
+            "Assigned" => Some(Screen::Assigned),
+            _ => None,
+        };
 
         // Store target IDs for progressive restore
         self.restored_workspace_id = saved_state.workspace_id.clone();

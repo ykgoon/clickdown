@@ -328,3 +328,82 @@ fn assigned_query_omits_statuses_when_unfiltered() {
         calls[0].1
     );
 }
+
+// ---------------------------------------------------------------- option order
+
+/// Filter options must follow the workspace's configured `orderindex`, not
+/// the order statuses happened to be observed in.
+///
+/// This regressed when the registry stored only status *names*: rebuilding
+/// options from names dropped `orderindex`, so the picker fell back to
+/// first-seen order and `j` no longer moved to the expected status.
+#[test]
+fn filter_options_follow_configured_order() {
+    let rt = Runtime::new().unwrap();
+    let mut app = new_app(&rt);
+    app.set_screen(Screen::Assigned);
+
+    // Deliberately out of order on the tasks, so first-seen order differs
+    // from configured order.
+    app.set_assigned_tasks_for_test(vec![
+        task_with("t3", "c", status("Done", 3), None),
+        task_with("t1", "a", status("To Do", 0), None),
+        task_with("t2", "b", status("In Progress", 1), None),
+    ]);
+    app.remember_status_names_for_test();
+
+    let names: Vec<String> = app
+        .status_filter_options_for_test()
+        .iter()
+        .map(|s| s.status.clone())
+        .collect();
+
+    assert_eq!(
+        names,
+        vec!["To Do", "In Progress", "Done"],
+        "options must be ordered by orderindex, got {names:?}"
+    );
+}
+
+/// The order must survive an active filter: the reloaded rows are one status,
+/// so the order has to come from the registry.
+#[test]
+fn filter_option_order_survives_an_active_filter() {
+    let rt = Runtime::new().unwrap();
+    let mut app = new_app(&rt);
+    app.set_screen(Screen::Assigned);
+
+    app.set_assigned_tasks_for_test(vec![
+        task_with("t4", "d", status("Review", 2), None),
+        task_with("t3", "c", status("Done", 3), None),
+        task_with("t1", "a", status("To Do", 0), None),
+        task_with("t2", "b", status("In Progress", 1), None),
+    ]);
+    app.remember_status_names_for_test();
+
+    // Filter applied: only matching rows remain loaded.
+    app.set_status_filters_for_test(vec!["In Progress".to_string()]);
+    app.set_assigned_tasks_for_test(vec![task_with(
+        "t2",
+        "b",
+        status("In Progress", 1),
+        None,
+    )]);
+
+    let names: Vec<String> = app
+        .status_filter_options_for_test()
+        .iter()
+        .map(|s| s.status.clone())
+        .collect();
+
+    assert_eq!(
+        names.len(),
+        4,
+        "every known status must still be offered, got {names:?}"
+    );
+    assert_eq!(
+        names,
+        vec!["To Do", "In Progress", "Review", "Done"],
+        "order must match orderindex even while filtered, got {names:?}"
+    );
+}

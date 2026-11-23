@@ -379,6 +379,9 @@ See `src/api/` for implementation details.
     them and a banner above the rows names them plus `SPC t f`
   - Tests for filtering live in tests/filter_surfaces_test.rs and run every
     case against both the default task list and Assigned to Me
+  - Options are ordered by each status's configured `orderindex`, so the
+    registry stores full `TaskStatus` values: keeping only names lost the
+    index and the picker fell back to first-seen order
   - The status picker seeds from `known_status_names`, a registry that only
     grows, because the loaded rows are the *filtered* result: deriving options
     from them collapsed the menu to the single filtered status and made the
@@ -398,8 +401,10 @@ See `src/api/` for implementation details.
     shown (so re-filtering never presents an empty or single-entry menu)
   - The overlay is modal in *both* modes: Erase-then-paint keeps the status,
     assignee, and @mention dialogs opaque over background content
-  - @mentions resolve members from the task's own list when the hierarchy
-    context is gone (tasks opened from the Assigned view)
+  - @mentions and assignment both resolve members from the task's own list
+    when the hierarchy context is gone (tasks opened from the Assigned view).
+    `resolve_task_list_id` is the single resolver: `current_list_id`, then the
+    task's own `list.id`, then the restored list id
 - **Status change**: `SPC t s` opens the picker for the current task
   - Options come from `collect_known_statuses`, never from the visible rows
     alone: a filtered list shows one status, which used to collapse the menu
