@@ -97,6 +97,20 @@ pub enum InsertTarget {
     Comment,
 }
 
+/// What the status overlay is being used for.
+///
+/// The overlay serves two unrelated jobs. Overloading `status_picker_task_id`
+/// as the mode flag made a filter picker inherit a previous status-change
+/// selection and silently mutate a task instead of filtering the list, so the
+/// mode is explicit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusPickerMode {
+    /// Pick a new status for one task (`SPC t s`)
+    ChangeTask,
+    /// Pick a status to filter the visible task list by (`SPC t F`)
+    FilterList,
+}
+
 /// Command menu (SPACEmenu) state: which command group is shown.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommandMenuLevel {
@@ -331,6 +345,9 @@ pub struct TuiApp {
 
     /// In-memory cache for list members (keyed by list ID)
     cached_list_members: std::collections::HashMap<String, Vec<User>>,
+    /// List the currently loaded `mention_members` came from, so switching to
+    /// a task in another list refetches instead of offering the wrong people.
+    mention_members_list_id: Option<String>,
     /// Full status configuration per list ID (fetched from the ClickUp API)
     cached_list_statuses: std::collections::HashMap<String, Vec<crate::models::TaskStatus>>,
 
@@ -350,6 +367,9 @@ pub struct TuiApp {
 
     /// Active task-list status filter (None shows all statuses)
     status_filter: Option<String>,
+
+    /// Why the status overlay is open (task change vs. list filter)
+    status_picker_mode: StatusPickerMode,
 
     /// Task captured when the delete confirmation dialog is opened
     pending_delete_task_id: Option<String>,
@@ -1127,25 +1147,85 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
         self.mention_query.clear();
         self.mention_picker_open = true;
 
-        if self.mention_members.is_empty() {
-            // Fetch members for the current list context
-            let list_id = match &self.current_list_id {
-                Some(id) => id.clone(),
-                None => return, // No context; picker shows empty
+        // A task opened from the workspace-wide Assigned view has no
+        // `current_list_id` (the hierarchy context is gone), but the task
+        // itself carries its list. Resolve from either so the picker is never
+        // silently empty.
+        let list_id = match self.resolve_mention_list_id() {
+            Some(id) => id,
+            None => {
+                self.status = "No list context for @mentions on this task".to_string();
+                return;
+            }
+        };
+
+        let have_members_for_this_list =
+            !self.mention_members.is_empty() && self.mention_members_list_id.as_deref() == Some(list_id.as_str());
+
+        // Reuse anything already fetched for this list.
+        if let Some(cached) = self.cached_list_members.get(&list_id) {
+            if !have_members_for_this_list {
+                self.mention_members = cached.clone();
+                self.mention_members_list_id = Some(list_id);
+                self.seed_mention_registry();
+            }
+            return;
+        }
+
+        if have_members_for_this_list {
+            return;
+        }
+
+        // Members came from another list: drop them so the picker cannot
+        // offer people who cannot see this task.
+        if self.mention_members_list_id.as_deref() != Some(list_id.as_str()) {
+            self.mention_members.clear();
+        }
+        self.mention_members_list_id = Some(list_id.clone());
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => return,
+        };
+        let tx = self.message_tx.clone().unwrap();
+        tokio::spawn(async move {
+            let result = client.get_list_members(&list_id).await;
+            let msg = match result {
+                Ok(members) => AppMessage::MentionMembersLoaded(Ok(members)),
+                Err(e) => AppMessage::MentionMembersLoaded(Err(e.to_string())),
             };
-            let client = match &self.client {
-                Some(c) => c.clone(),
-                None => return,
-            };
-            let tx = self.message_tx.clone().unwrap();
-            tokio::spawn(async move {
-                let result = client.get_list_members(&list_id).await;
-                let msg = match result {
-                    Ok(members) => AppMessage::MentionMembersLoaded(Ok(members)),
-                    Err(e) => AppMessage::MentionMembersLoaded(Err(e.to_string())),
-                };
-                let _ = tx.send(msg).await;
-            });
+            let _ = tx.send(msg).await;
+        });
+    }
+
+    /// List id to fetch @mention members from.
+    ///
+    /// Prefers the navigation context, then the task's own list reference
+    /// (the Assigned view clears the former), then the list a restored
+    /// session pointed at.
+    fn resolve_mention_list_id(&self) -> Option<String> {
+        if let Some(id) = &self.current_list_id {
+            return Some(id.clone());
+        }
+        if let Some(task) = &self.task_detail.task {
+            if let Some(list) = &task.list {
+                return Some(list.id.clone());
+            }
+        }
+        if let Some(id) = &self.restored_list_id {
+            return Some(id.clone());
+        }
+        None
+    }
+
+    /// Register every known member as a mention target.
+    fn seed_mention_registry(&mut self) {
+        for member in &self.mention_members {
+            if let Some(entry) = crate::tui::mention::MentionEntry::from_user(member) {
+                if !self.mention_registry.iter().any(|existing| existing.id == entry.id) {
+                    self.mention_registry.push(entry);
+                }
+            }
         }
     }
 
@@ -1600,6 +1680,51 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     }
 
     #[allow(dead_code)]
+    pub fn set_status_picker_cursor_for_test(&mut self, cursor: usize) {
+        self.status_picker_cursor = cursor;
+    }
+
+    #[allow(dead_code)]
+    pub fn status_picker_mode_for_test(&self) -> StatusPickerMode {
+        self.status_picker_mode
+    }
+
+    #[allow(dead_code)]
+    pub fn status_picker_task_id_for_test(&self) -> Option<&String> {
+        self.status_picker_task_id.as_ref()
+    }
+
+    #[allow(dead_code)]
+    pub fn status_filter_for_test(&self) -> Option<String> {
+        self.status_filter.clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn open_status_picker_for_test(&mut self, task: crate::models::Task) {
+        self.open_status_picker(task);
+    }
+
+    #[allow(dead_code)]
+    pub fn set_task_detail_task_for_test(&mut self, task: crate::models::Task) {
+        self.task_detail.task = Some(task);
+    }
+
+    #[allow(dead_code)]
+    pub fn open_mention_picker_for_test(&mut self) {
+        self.open_mention_picker();
+    }
+
+    #[allow(dead_code)]
+    pub fn mention_members_for_test(&self) -> &[crate::models::User] {
+        &self.mention_members
+    }
+
+    #[allow(dead_code)]
+    pub fn is_mention_picker_open(&self) -> bool {
+        self.mention_picker_open
+    }
+
+    #[allow(dead_code)]
     pub fn tasks_for_test(&self) -> &[Task] {
         &self.tasks
     }
@@ -1939,6 +2064,7 @@ impl TuiApp {
             inbox_loading: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
+            mention_members_list_id: None,
             cached_list_statuses: std::collections::HashMap::new(),
             assignee_picker_open: false,
             assignee_picker_members: Vec::new(),
@@ -1951,6 +2077,7 @@ impl TuiApp {
             status_picker_original_status: None,
             status_picker_task_id: None,
             status_filter: None,
+            status_picker_mode: StatusPickerMode::ChangeTask,
             pending_delete_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -2090,6 +2217,7 @@ impl TuiApp {
             inbox_loading: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
+            mention_members_list_id: None,
             cached_list_statuses: std::collections::HashMap::new(),
             assignee_picker_open: false,
             assignee_picker_members: Vec::new(),
@@ -2102,6 +2230,7 @@ impl TuiApp {
             status_picker_original_status: None,
             status_picker_task_id: None,
             status_filter: None,
+            status_picker_mode: StatusPickerMode::ChangeTask,
             pending_delete_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -2225,6 +2354,7 @@ impl TuiApp {
             inbox_loading: false,
             current_user_id: None,
             cached_list_members: std::collections::HashMap::new(),
+            mention_members_list_id: None,
             cached_list_statuses: std::collections::HashMap::new(),
             assignee_picker_open: false,
             assignee_picker_members: Vec::new(),
@@ -2237,6 +2367,7 @@ impl TuiApp {
             status_picker_original_status: None,
             status_picker_task_id: None,
             status_filter: None,
+            status_picker_mode: StatusPickerMode::ChangeTask,
             pending_delete_task_id: None,
             message_rx: Some(message_rx),
             message_tx: Some(message_tx.clone()),
@@ -3059,21 +3190,15 @@ impl TuiApp {
                     AppMessage::MentionMembersLoaded(result) => match result {
                         Ok(members) => {
                             self.mention_members = members;
+                            // Cache per list so re-opening the picker (or
+                            // another task in the same list) is instant.
+                            if let Some(list_id) = self.current_list_id.clone() {
+                                self.cached_list_members
+                                    .insert(list_id, self.mention_members.clone());
+                            }
                             // Seed the mention registry so a hand-typed
                             // "@Some Name" still resolves to a real tag.
-                            for member in &self.mention_members {
-                                if let Some(entry) =
-                                    crate::tui::mention::MentionEntry::from_user(member)
-                                {
-                                    if !self
-                                        .mention_registry
-                                        .iter()
-                                        .any(|existing| existing.id == entry.id)
-                                    {
-                                        self.mention_registry.push(entry);
-                                    }
-                                }
-                            }
+                            self.seed_mention_registry();
                             if self.mention_members.is_empty() {
                                 self.status = "No members found for @mentions".to_string();
                             }
@@ -5089,6 +5214,9 @@ impl TuiApp {
     fn open_status_picker(&mut self, task: crate::models::Task) {
         use crate::models::TaskStatus;
 
+        // Changing a task's status, not filtering the list
+        self.status_picker_mode = StatusPickerMode::ChangeTask;
+
         // Store the task ID we're changing status for
         self.status_picker_task_id = Some(task.id.clone());
 
@@ -5212,6 +5340,13 @@ impl TuiApp {
     pub fn open_status_filter_picker(&mut self) {
         use crate::models::TaskStatus;
 
+        // Filtering the list, not changing a task. Clearing the task id is
+        // what stops Enter from calling save_status() on the task the user
+        // picked earlier with `SPC t s`.
+        self.status_picker_mode = StatusPickerMode::FilterList;
+        self.status_picker_task_id = None;
+        self.status_picker_original_status = None;
+
         let mut statuses: Vec<TaskStatus> = Vec::new();
         let add_status = |status: &TaskStatus, statuses: &mut Vec<TaskStatus>| {
             if !statuses
@@ -5222,27 +5357,44 @@ impl TuiApp {
             }
         };
 
+        // Every status configuration this app has seen, so the menu offers
+        // the full set even when the current result set is filtered down to
+        // a single status (or empty).
+        for list in &self.lists {
+            for status in &list.statuses {
+                add_status(status, &mut statuses);
+            }
+        }
+        for cached in self.cached_list_statuses.values() {
+            for status in cached {
+                add_status(status, &mut statuses);
+            }
+        }
+
         if self.screen == Screen::Assigned {
-            // Workspace-wide view: no single list config; use statuses
-            // observed across the loaded assigned tasks.
-            for loaded_task in &self.assigned_tasks {
+            // Workspace-wide view: no single list config, so also fold in the
+            // statuses observed on assigned tasks (all pages, plus whatever
+            // is currently rendered).
+            for loaded_task in self.assigned_tasks.iter().chain(self.tasks.iter()) {
+                if let Some(status) = &loaded_task.status {
+                    add_status(status, &mut statuses);
+                }
+            }
+        } else if let Some(list_id) = &self.current_list_id {
+            if let Some(list) = self.lists.iter().find(|l| &l.id == list_id) {
+                for status in &list.statuses {
+                    add_status(status, &mut statuses);
+                }
+            }
+            for loaded_task in &self.tasks {
                 if let Some(status) = &loaded_task.status {
                     add_status(status, &mut statuses);
                 }
             }
         } else {
-            if let Some(list_id) = &self.current_list_id {
-                if let Some(cached) = self.cached_list_statuses.get(list_id) {
-                    for status in cached {
-                        add_status(status, &mut statuses);
-                    }
-                }
-            }
-            if statuses.is_empty() {
-                for loaded_task in &self.tasks {
-                    if let Some(status) = &loaded_task.status {
-                        add_status(status, &mut statuses);
-                    }
+            for loaded_task in &self.tasks {
+                if let Some(status) = &loaded_task.status {
+                    add_status(status, &mut statuses);
                 }
             }
         }
@@ -5372,18 +5524,20 @@ impl TuiApp {
                 }
             }
             KeyCode::Enter => {
-                if self.status_picker_task_id.is_some() {
-                    self.save_status();
-                } else {
+                if self.status_picker_mode == StatusPickerMode::FilterList {
                     self.apply_status_filter();
+                } else {
+                    self.save_status();
                 }
             }
             KeyCode::Esc => {
-                if self.status_picker_task_id.is_some() {
+                if self.status_picker_mode == StatusPickerMode::FilterList {
+                    // Esc closes the picker; over an active filter it also
+                    // clears it, which is how the filter toggles back off.
+                    self.clear_status_filter();
+                } else {
                     self.status_picker_open = false;
                     self.status = "Status change cancelled".to_string();
-                } else {
-                    self.clear_status_filter();
                 }
             }
             _ => {}
@@ -5997,7 +6151,7 @@ impl TuiApp {
                 &self.status_picker_statuses,
                 self.status_picker_cursor,
                 current_status,
-                self.status_picker_task_id.is_none(),
+                self.status_picker_mode == StatusPickerMode::FilterList,
             );
         }
 

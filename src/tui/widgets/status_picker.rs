@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
 
@@ -44,10 +44,13 @@ pub fn render_status_picker(
         height: overlay_height,
     };
 
-    // Render dimmed background behind overlay
-    let dim_block = Block::default().style(Style::default().bg(Theme::SECONDARY));
+    // Erase whatever is underneath first. Setting a background colour alone
+    // only recolours cells; it leaves the glyphs in place, so task rows and
+    // list text showed through the "opaque" dialog.
+    frame.render_widget(Clear, picker_area);
 
-    // Clear the overlay area first
+    // Paint the overlay background.
+    let dim_block = Block::default().style(Style::default().bg(Theme::BACKGROUND));
     frame.render_widget(dim_block, picker_area);
 
     // Build the overlay content

@@ -369,8 +369,13 @@ See `src/api/` for implementation details.
   - Picker seeded from the list's status configuration (falls back to statuses on loaded tasks)
   - Server-side filtering via the ClickUp `statuses[]` query parameter
   - Title shows the active filter; Esc in the picker clears it
-  - Also works in the Assigned to Me view: statuses seed from loaded assigned
-    tasks and the paged workspace query carries the filter
+  - Also works in the Assigned to Me view: the paged workspace query carries
+    the filter, and the picker always offers every status the workspace has
+    shown (so re-filtering never presents an empty or single-entry menu)
+  - The overlay is modal in *both* modes: Erase-then-paint keeps the status,
+    assignee, and @mention dialogs opaque over background content
+  - @mentions resolve members from the task's own list when the hierarchy
+    context is gone (tasks opened from the Assigned view)
 - Document viewing with Markdown rendering
 - SQLite caching layer
 - Configuration and token management

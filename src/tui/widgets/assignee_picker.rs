@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
 
@@ -41,10 +41,12 @@ pub fn render_assignee_picker(
         height: overlay_height,
     };
 
-    // Render dimmed background behind overlay
-    let dim_block = Block::default().style(Style::default().bg(Theme::SECONDARY));
+    // Erase the cells first: a background colour alone leaves the glyphs
+    // underneath visible, which read as a translucent dialog.
+    frame.render_widget(Clear, picker_area);
 
-    // Clear the overlay area first
+    // Paint the overlay background.
+    let dim_block = Block::default().style(Style::default().bg(Theme::BACKGROUND));
     frame.render_widget(dim_block, picker_area);
 
     // Build the overlay content
