@@ -378,15 +378,101 @@ fn get_priority_indicator(priority: &Option<crate::models::Priority>) -> &'stati
     }
 }
 
-pub fn render_task_list(frame: &mut Frame, state: &GroupedTaskList, area: Rect, loading: bool) {
+/// Frame title describing the filters currently in force.
+///
+/// The list is shorter when filtered, and a shorter list is indistinguishable
+/// from a list that simply has fewer tasks, so the applied filters have to be
+/// stated. Returns just " Tasks " when nothing is filtered.
+pub fn filter_frame_title(assigned_active: bool, statuses: &[String]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if assigned_active {
+        parts.push("Assigned to Me".to_string());
+    }
+    if !statuses.is_empty() {
+        parts.push(format!("Status: {}", statuses.join(", ")));
+    }
+    if parts.is_empty() {
+        " Tasks ".to_string()
+    } else {
+        format!(" Tasks — {} ", parts.join(" · "))
+    }
+}
+
+/// One-line summary of the active filters, or `None` when nothing is filtered.
+pub fn filter_summary(assigned_active: bool, statuses: &[String]) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if assigned_active {
+        parts.push("assigned to me".to_string());
+    }
+    if !statuses.is_empty() {
+        parts.push(format!("status: {}", statuses.join(", ")));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(format!("Filtered by {}  ·  SPC t f to change", parts.join(", ")))
+    }
+}
+
+pub fn render_task_list(
+    frame: &mut Frame,
+    state: &GroupedTaskList,
+    area: Rect,
+    loading: bool,
+    assigned_active: bool,
+    statuses: &[String],
+) {
+    let title = filter_frame_title(assigned_active, statuses);
+
     // Show loading indicator if loading
     if loading {
         use ratatui::widgets::Paragraph;
         let loading_text = Paragraph::new("Loading assigned tasks...")
             .style(Style::default().fg(Theme::WARNING))
-            .block(crate::tui::layout::titled_block(" Tasks "));
+            .block(crate::tui::layout::titled_block(title));
         frame.render_widget(loading_text, area);
         return;
+    }
+
+    // Reserve a row for the filter bar so the applied filters are visible in
+    // the frame rather than left to be guessed at.
+    let summary = filter_summary(assigned_active, statuses);
+    let (bar_area, list_area) = match summary {
+        Some(_) if area.height > 3 => {
+            let bar = Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: 1,
+            };
+            (
+                Some(bar),
+                Rect {
+                    x: area.x,
+                    y: area.y + 1,
+                    width: area.width,
+                    height: area.height - 1,
+                },
+            )
+        }
+        _ => (None, area),
+    };
+
+    if let (Some(bar), Some(text)) = (bar_area, summary.as_ref()) {
+        let para = ratatui::widgets::Paragraph::new(Line::from(vec![
+            Span::styled(
+                " \u{25b8} ",
+                Style::default().fg(Theme::WARNING),
+            ),
+            Span::styled(
+                text.as_str(),
+                Style::default()
+                    .fg(Theme::SUCCESS)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]))
+        .style(Style::default().bg(Theme::BACKGROUND));
+        frame.render_widget(para, bar);
     }
 
     let items: Vec<ListItem> = state
@@ -421,7 +507,7 @@ pub fn render_task_list(frame: &mut Frame, state: &GroupedTaskList, area: Rect, 
         .collect();
 
     let list = List::new(items)
-        .block(crate::tui::layout::titled_block(" Tasks "))
+        .block(crate::tui::layout::titled_block(title))
         .highlight_style(
             Style::default()
                 .bg(Theme::SECONDARY)
@@ -429,7 +515,7 @@ pub fn render_task_list(frame: &mut Frame, state: &GroupedTaskList, area: Rect, 
         )
         .highlight_symbol("▸ ");
 
-    frame.render_stateful_widget(list, area, &mut state.state().clone());
+    frame.render_stateful_widget(list, list_area, &mut state.state().clone());
 }
 
 #[allow(dead_code)]

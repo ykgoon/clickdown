@@ -18,8 +18,9 @@ use ratatui::{
 /// - `statuses`: Available statuses to choose from
 /// - `cursor`: Current cursor position
 /// - `current_status`: The task's current status (to highlight)
-/// - `filter_mode`: When true, the picker selects a status *filter* for the
+/// - `filter_mode`: When true, the picker selects status *filters* for the
 ///   task list instead of changing a task's status
+/// - `selected`: statuses ticked in filter mode (empty in change mode)
 pub fn render_status_picker(
     frame: &mut Frame,
     area: Rect,
@@ -27,6 +28,7 @@ pub fn render_status_picker(
     cursor: usize,
     current_status: Option<&str>,
     filter_mode: bool,
+    selected: &[String],
 ) {
     // Calculate overlay dimensions
     let overlay_width = 40.min(area.width.saturating_sub(4));
@@ -93,7 +95,22 @@ pub fn render_status_picker(
                 .and_then(|c| parse_hex_color(c))
                 .unwrap_or(Theme::TEXT);
 
-            let status_indicator = if is_current { "*" } else { " " };
+            let ticked = selected
+                .iter()
+                .any(|chosen| chosen.eq_ignore_ascii_case(&status.status));
+            // Change mode keeps its original one-glyph marker so the dialog
+            // is unchanged; filter mode shows a tick box instead.
+            let status_indicator = if filter_mode {
+                if ticked {
+                    "[x]"
+                } else {
+                    "[ ]"
+                }
+            } else if is_current {
+                "*"
+            } else {
+                " "
+            };
 
             let mut spans = vec![
                 Span::styled(
@@ -134,8 +151,12 @@ pub fn render_status_picker(
     frame.render_widget(list, layout[0]);
 
     // Render hint line
-    let hint = Paragraph::new("j/k: navigate | Enter: select | Esc: cancel")
-        .style(Style::default().fg(Theme::WARNING));
+    let hint_text = if filter_mode {
+        "j/k: move | Space: toggle | Enter: apply | Esc: cancel"
+    } else {
+        "j/k: navigate | Enter: select | Esc: cancel"
+    };
+    let hint = Paragraph::new(hint_text).style(Style::default().fg(Theme::WARNING));
     frame.render_widget(hint, layout[1]);
 }
 

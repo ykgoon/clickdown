@@ -253,10 +253,13 @@ fn esc_closes_menu_without_changing_filters() {
     assert_eq!(app.status_filter_for_test().as_deref(), Some("Done"));
 }
 
-/// The Assigned view has no list context, so status filtering is not offered
-/// as available there, but clear-all still works.
+/// Status filtering works in the Assigned view too.
+///
+/// It used to be refused there because that view has no single list to scope
+/// to. The workspace-wide assigned endpoint accepts the same `statuses[]`
+/// parameter, so there is no reason to withhold it.
 #[test]
-fn assigned_view_disables_status_option_but_allows_clearing() {
+fn assigned_view_supports_status_filtering() {
     let rt = Runtime::new().unwrap();
     let mut app = new_app(&rt);
     app.set_screen(Screen::Assigned);
@@ -264,22 +267,28 @@ fn assigned_view_disables_status_option_but_allows_clearing() {
 
     app.open_filter_menu();
     assert!(
-        !app.filter_can_status_for_test(),
-        "status filter is unavailable without a list"
+        app.filter_can_status_for_test(),
+        "status filtering must be available in Assigned to Me"
     );
 
-    // 's' explains instead of opening a picker.
-    app.update(key('s'));
-    assert!(!app.status_picker_open_for_test());
-    assert!(app.status_for_test().to_lowercase().contains("list"));
+    // 's' opens the picker rather than refusing.
+    rt.block_on(async { app.update(key('s')) });
+    assert!(
+        app.status_picker_open_for_test(),
+        "status picker should open in the Assigned view"
+    );
+    assert!(!app.status_picker_statuses_for_test().is_empty());
 
-    // 'x' still clears the stale filter.
+    // Close the picker, then clear from the menu: 'x' while the picker is
+    // open belongs to the picker, not the menu.
+    rt.block_on(async { app.update(esc()) });
+    app.open_filter_menu();
     rt.block_on(async { app.update(key('x')) });
-    assert_eq!(app.status_filter_for_test(), None);
+    assert_eq!(app.status_filters_for_test(), Vec::<String>::new());
 }
 
 /// The user-visible form of the reported bug: open the status picker while a
-/// filter is active and theme the seeded menu, not the internal option list.
+/// filter is active and inspect the seeded menu, not the internal option list.
 #[test]
 fn status_picker_after_filtering_offers_more_than_one_status() {
     let rt = Runtime::new().unwrap();

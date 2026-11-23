@@ -367,6 +367,18 @@ See `src/api/` for implementation details.
   - User ID fetched on startup for filtering
 - **Filter menu**: `SPC t f` opens one menu for every list filter
   - Entries: `f` assigned to me, `s` by status, `x` clear all filters
+  - Filters compose: assigned-to-me and several statuses can be active at once
+  - The status picker is multi-select (Space toggles, Enter applies). Enter
+    with nothing ticked applies the highlighted status, so the common case
+    stays one keypress
+  - Status filtering works on both surfaces. In a list it fills `statuses[]`;
+    in Assigned to Me it goes to the workspace query, which accepts the same
+    parameter, so filtering stays server-side across pages instead of hiding
+    rows from the page already fetched
+  - Applied filters are shown in the task-list frame: the frame title carries
+    them and a banner above the rows names them plus `SPC t f`
+  - Tests for filtering live in tests/filter_surfaces_test.rs and run every
+    case against both the default task list and Assigned to Me
   - The status picker seeds from `known_status_names`, a registry that only
     grows, because the loaded rows are the *filtered* result: deriving options
     from them collapsed the menu to the single filtered status and made the

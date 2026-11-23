@@ -20,7 +20,8 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Inbox**: Workspace inbox at the navigation root, showing items that need your attention with an unread count in the sidebar; `Enter` opens the task and `SPC i d` dismisses it (inbox zero, local only)
 - **Assigned to Me**: Workspace-wide section at the navigation root listing every task assigned to you, most recently active first
 - **Filters**: `SPC t f` opens a filter menu for the task list (assigned to you,
-  by status, or clear all). Filters are removable from the same menu
+  by status, or clear all). Filters compose, apply to Assigned to Me as well,
+  and are listed in the task-list frame so what is in force is always visible
 - **URL Navigation**: Paste any ClickUp URL to jump directly to a workspace, space, folder, list, task, comment, or document (press `g` then `u`)
 - **Document Viewing**: Read ClickUp documents with Markdown rendering
 - **Session Restore**: Automatically restores your last viewed location on startup
@@ -261,7 +262,7 @@ no undo).
 | `Tab` (on focused status) | Fold/unfold the status group (hides/shows its tasks) |
 | `SPC t f` | Open the filter menu (assigned to me, by status, clear all) |
 | `SPC t f` → `f` | Narrow the list to tasks assigned to you |
-| `SPC t f` → `s` | Narrow the list to one status |
+| `SPC t f` → `s` | Narrow the list by status (Space ticks several, Enter applies) |
 | `SPC t f` → `x` | Remove every active filter |
 
 ### Global

@@ -66,7 +66,7 @@ pub fn render_filter_menu(
     frame: &mut Frame,
     area: Rect,
     assigned_active: bool,
-    status: Option<&str>,
+    statuses: &[String],
     cursor: usize,
 ) {
     let entries = FilterMenuEntry::ALL;
@@ -107,7 +107,7 @@ pub fn render_filter_menu(
         .map(|(idx, entry)| {
             let active = match entry {
                 FilterMenuEntry::AssignedToMe => Some(assigned_active),
-                FilterMenuEntry::Status => Some(status.is_some()),
+                FilterMenuEntry::Status => Some(!statuses.is_empty()),
                 FilterMenuEntry::ClearAll => None,
             };
 
@@ -128,9 +128,9 @@ pub fn render_filter_menu(
             spans.push(Span::styled(entry.label(), label_style));
 
             if matches!(entry, FilterMenuEntry::Status) {
-                if let Some(current) = status {
+                if !statuses.is_empty() {
                     spans.push(Span::styled(
-                        format!(": {}", current),
+                        format!(": {}", statuses.join(", ")),
                         Style::default().fg(Theme::WARNING),
                     ));
                 }

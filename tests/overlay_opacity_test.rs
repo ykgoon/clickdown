@@ -114,6 +114,7 @@ fn status_picker_is_opaque() {
                 0,
                 Some("To Do"),
                 true,
+                &[],
             )
         },
         "status picker",

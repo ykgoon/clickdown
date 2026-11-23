@@ -366,8 +366,10 @@ pub struct TuiApp {
     status_picker_original_status: Option<crate::models::TaskStatus>,
     status_picker_task_id: Option<String>,
 
-    /// Active task-list status filter (None shows all statuses)
-    status_filter: Option<String>,
+    /// Active task-list status filters. Empty shows every status. More than
+    /// one entry means "any of these", which ClickUp expresses as a repeated
+    /// `statuses[]` parameter.
+    status_filters: Vec<String>,
 
     /// Every status name this session has observed, in first-seen order.
     ///
@@ -377,6 +379,9 @@ pub struct TuiApp {
     /// made an active filter impossible to change. This registry only grows,
     /// so it survives filtering.
     known_status_names: Vec<String>,
+
+    /// Statuses ticked in the filter picker (multi-select)
+    status_picker_selected: Vec<String>,
 
     /// Filter menu (`SPC t f`) open state and cursor
     filter_menu_open: bool,
@@ -1701,7 +1706,24 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
 
     #[allow(dead_code)]
     pub fn status_filter_for_test(&self) -> Option<String> {
-        self.status_filter.clone()
+        self.status_filters.first().cloned()
+    }
+
+    /// All active status filters, in selection order
+    #[allow(dead_code)]
+    pub fn status_filters_for_test(&self) -> Vec<String> {
+        self.status_filters.clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn set_status_filters_for_test(&mut self, statuses: Vec<String>) {
+        self.status_filters = statuses;
+    }
+
+    /// Number of statuses that can be selected at once
+    #[allow(dead_code)]
+    pub fn filter_menu_picker_is_multi_for_test(&self) -> bool {
+        true
     }
 
     #[allow(dead_code)]
@@ -1751,7 +1773,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
 
     #[allow(dead_code)]
     pub fn set_status_filter_for_test(&mut self, status: Option<String>) {
-        self.status_filter = status;
+        self.status_filters = status.into_iter().collect();
     }
 
     #[allow(dead_code)]
@@ -1787,6 +1809,27 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     #[allow(dead_code)]
     pub fn is_mention_picker_open(&self) -> bool {
         self.mention_picker_open
+    }
+
+    /// Render the whole UI to a string (for asserting on what the user sees).
+    #[allow(dead_code)]
+    pub fn render_to_string_for_test(&mut self, width: u16, height: u16) -> String {
+        use ratatui::{backend::TestBackend, Terminal};
+
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| self.draw_ui(frame))
+            .expect("draw should succeed");
+
+        let buffer = terminal.backend().buffer();
+        let mut out = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                out.push_str(buffer[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
     }
 
     #[allow(dead_code)]
@@ -2141,8 +2184,9 @@ impl TuiApp {
             status_picker_cursor: 0,
             status_picker_original_status: None,
             status_picker_task_id: None,
-            status_filter: None,
+            status_filters: Vec::new(),
             known_status_names: Vec::new(),
+            status_picker_selected: Vec::new(),
             filter_menu_open: false,
             filter_menu_cursor: 0,
             filter_can_status: false,
@@ -2371,8 +2415,9 @@ impl TuiApp {
             status_picker_cursor: 0,
             status_picker_original_status: None,
             status_picker_task_id: None,
-            status_filter: None,
+            status_filters: Vec::new(),
             known_status_names: Vec::new(),
+            status_picker_selected: Vec::new(),
             filter_menu_open: false,
             filter_menu_cursor: 0,
             filter_can_status: false,
@@ -4859,11 +4904,13 @@ impl TuiApp {
             }
         };
 
-        // Carry the active status filter (Assigned view) into the query
-        let statuses = if self.screen == Screen::Assigned {
-            self.status_filter.clone().map(|s| vec![s])
-        } else {
+        // Carry every active status filter into the query. The assigned
+        // endpoint accepts a repeated `statuses[]`, so filtering here is a
+        // server-side operation just like in a single list.
+        let statuses = if self.status_filters.is_empty() {
             None
+        } else {
+            Some(self.status_filters.clone())
         };
 
         self.assigned_page_in_flight = Some(page);
@@ -5102,8 +5149,8 @@ impl TuiApp {
         use crate::models::TaskFilters;
         let tx = self.message_tx.clone().unwrap();
         let mut filters = TaskFilters::default();
-        if let Some(status) = &self.status_filter {
-            filters.statuses = vec![status.clone()];
+        if !self.status_filters.is_empty() {
+            filters.statuses = self.status_filters.clone();
         }
         tokio::spawn(async move {
             let result = client.get_tasks(&list_id, &filters).await;
@@ -5325,9 +5372,10 @@ impl TuiApp {
 
     /// Open the filter menu (`SPC t f`).
     pub fn open_filter_menu(&mut self) {
-        // Status filtering needs a list to query server-side; the Assigned
-        // view is a workspace-wide query with no list context.
-        self.filter_can_status = self.screen == Screen::Tasks && self.current_list_id.is_some();
+        // Every task-list screen can filter by status: a single list queries
+        // `statuses[]`, and the Assigned view's workspace-wide query accepts
+        // the same parameter.
+        self.filter_can_status = matches!(self.screen, Screen::Tasks | Screen::Assigned);
         self.remember_status_names();
         self.filter_menu_open = true;
         self.filter_menu_cursor = 0;
@@ -5386,12 +5434,8 @@ impl TuiApp {
         match entry {
             FilterMenuEntry::AssignedToMe => self.toggle_assigned_filter(),
             FilterMenuEntry::Status => {
-                if self.filter_can_status || self.screen == Screen::Tasks {
-                    self.filter_menu_open = false;
-                    self.open_status_filter_picker();
-                } else {
-                    self.status = "Status filter needs a task list (open a list first)".to_string();
-                }
+                self.filter_menu_open = false;
+                self.open_status_filter_picker();
             }
             FilterMenuEntry::ClearAll => self.clear_all_filters(),
         }
@@ -5414,8 +5458,8 @@ impl TuiApp {
 
     /// Drop every active filter and reload.
     pub fn clear_all_filters(&mut self) {
-        let had_any = self.status_filter.is_some() || self.assigned_filter_active;
-        self.status_filter = None;
+        let had_any = !self.status_filters.is_empty() || self.assigned_filter_active;
+        self.status_filters.clear();
         self.assigned_filter_active = false;
         self.filter_menu_open = false;
         self.update_screen_title();
@@ -5429,7 +5473,7 @@ impl TuiApp {
 
     /// Whether any filter is currently narrowing the list.
     pub fn has_active_filters(&self) -> bool {
-        self.status_filter.is_some() || self.assigned_filter_active
+        !self.status_filters.is_empty() || self.assigned_filter_active
     }
 
     /// Reload the visible task list from its source (never from the already
@@ -5663,10 +5707,20 @@ impl TuiApp {
         self.remember_status_names();
         let statuses = self.status_filter_options();
 
-        // Preselect the currently active filter, if any
+        // Preselect the currently active filters so the picker opens showing
+        // exactly what is in force, and re-toggling them off is obvious.
+        self.status_picker_selected = statuses
+            .iter()
+            .filter(|status| {
+                self.status_filters
+                    .iter()
+                    .any(|active| active.eq_ignore_ascii_case(&status.status))
+            })
+            .map(|status| status.status.clone())
+            .collect();
         self.status_picker_cursor = self
-            .status_filter
-            .as_ref()
+            .status_filters
+            .first()
             .and_then(|current| {
                 statuses
                     .iter()
@@ -5697,31 +5751,53 @@ impl TuiApp {
                 }
             }
         }
-        self.status = "Filter by status (j/k navigate, Enter apply, Esc close)".to_string();
+        self.status =
+            "Filter by status (j/k navigate, Space toggle, Enter apply, Esc close)".to_string();
     }
 
-    /// Apply the currently highlighted status-filter selection
+    /// Apply the statuses selected in the picker.
+    ///
+    /// Selecting none means "no status filter", which is how a status filter
+    /// is removed from inside the picker.
     #[allow(dead_code)]
     pub fn apply_status_filter(&mut self) {
-        let selected = match self.status_picker_statuses.get(self.status_picker_cursor) {
-            Some(status) => status.clone(),
-            None => {
-                self.status_picker_open = false;
-                self.status = "No status selected".to_string();
-                return;
-            }
-        };
+        if self.status_picker_statuses.is_empty() {
+            self.status_picker_open = false;
+            self.status = "No statuses available".to_string();
+            return;
+        }
 
-        self.status_filter = Some(selected.status.clone());
+        // Forgiving default: Enter on a highlighted status with nothing
+        // ticked applies that single status, so the common case stays one
+        // keypress. Removing every status filter is the menu's `x`.
+        if self.status_picker_selected.is_empty() {
+            if let Some(status) = self.status_picker_statuses.get(self.status_picker_cursor) {
+                self.status_picker_selected.push(status.status.clone());
+            }
+        }
+
+        // Keep the picker's own order (configured order) rather than the
+        // order the user happened to toggle them in.
+        self.status_filters = self
+            .status_picker_statuses
+            .iter()
+            .filter(|status| {
+                self.status_picker_selected
+                    .iter()
+                    .any(|chosen| chosen.eq_ignore_ascii_case(&status.status))
+            })
+            .map(|status| status.status.clone())
+            .collect();
+
         self.status_picker_open = false;
         self.update_screen_title();
+        self.reload_current_task_list();
 
-        if self.screen == Screen::Assigned {
-            self.load_assigned_tasks();
-        } else if let Some(list_id) = &self.current_list_id {
-            self.load_tasks(list_id.clone());
-        }
-        self.status = format!("Filtering: {}", selected.status);
+        self.status = if self.status_filters.is_empty() {
+            "Status filters cleared".to_string()
+        } else {
+            format!("Filtering: {}", self.status_filters.join(", "))
+        };
     }
 
     /// Handle keyboard input for status picker
@@ -5736,6 +5812,22 @@ impl TuiApp {
             KeyCode::Char('k') | KeyCode::Up => {
                 if self.status_picker_cursor > 0 {
                     self.status_picker_cursor -= 1;
+                }
+            }
+            // Space toggles the highlighted status in filter mode, so several
+            // statuses can be shown at once.
+            KeyCode::Char(' ') if self.status_picker_mode == StatusPickerMode::FilterList => {
+                if let Some(status) = self.status_picker_statuses.get(self.status_picker_cursor) {
+                    let name = status.status.clone();
+                    if let Some(pos) = self
+                        .status_picker_selected
+                        .iter()
+                        .position(|chosen| chosen.eq_ignore_ascii_case(&name))
+                    {
+                        self.status_picker_selected.remove(pos);
+                    } else {
+                        self.status_picker_selected.push(name);
+                    }
                 }
             }
             KeyCode::Enter => {
@@ -6214,8 +6306,11 @@ impl TuiApp {
                 }
             }
             Screen::Assigned => {
-                if let Some(status) = &self.status_filter {
-                    generate_screen_title(&format!("Assigned to Me (Status: {})", status))
+                if !self.status_filters.is_empty() {
+                    generate_screen_title(&format!(
+                        "Assigned to Me (Status: {})",
+                        self.status_filters.join(", ")
+                    ))
                 } else if self.assigned_tasks.is_empty() {
                     generate_screen_title("Assigned to Me")
                 } else {
@@ -6266,15 +6361,23 @@ impl TuiApp {
                     .and_then(|id| self.lists.iter().find(|list| &list.id == id))
                 {
                     let base = format!("Tasks: {}", list.name);
+                    // Filters compose, so both can be shown at once.
+                    let mut title = base;
                     if self.assigned_filter_active {
-                        generate_screen_title(&format!("{} (Assigned to Me)", base))
-                    } else if let Some(status) = &self.status_filter {
-                        generate_screen_title(&format!("{} (Status: {})", base, status))
-                    } else {
-                        generate_screen_title(&base)
+                        title.push_str(" (Assigned to Me)");
                     }
-                } else if let Some(status) = &self.status_filter {
-                    generate_screen_title(&format!("Tasks (Status: {})", status))
+                    if !self.status_filters.is_empty() {
+                        title.push_str(&format!(
+                            " (Status: {})",
+                            self.status_filters.join(", ")
+                        ));
+                    }
+                    generate_screen_title(&title)
+                } else if !self.status_filters.is_empty() {
+                    generate_screen_title(&format!(
+                        "Tasks (Status: {})",
+                        self.status_filters.join(", ")
+                    ))
                 } else {
                     if self.assigned_filter_active {
                         generate_screen_title("Tasks (Assigned to Me)")
@@ -6361,7 +6464,7 @@ impl TuiApp {
                 frame,
                 area,
                 self.assigned_filter_active,
-                self.status_filter.as_deref(),
+                &self.status_filters,
                 self.filter_menu_cursor,
             );
         }
@@ -6381,6 +6484,7 @@ impl TuiApp {
                 self.status_picker_cursor,
                 current_status,
                 self.status_picker_mode == StatusPickerMode::FilterList,
+                &self.status_picker_selected,
             );
         }
 
@@ -6451,9 +6555,21 @@ impl TuiApp {
             }
             Screen::Tasks | Screen::Assigned => {
                 self.task_list.set_viewport_height(area.height.saturating_sub(2) as usize);
+                // Active filters are drawn in the frame title and a bar above
+                // the rows, so what is applied is always visible instead of
+                // being inferred from a shorter list.
+                let assigned_active = self.assigned_filter_active;
+                let statuses = self.status_filters.clone();
                 // While pages are still arriving the list stays interactive;
                 // the status line carries the progress.
-                render_task_list(frame, &self.task_list, area, false)
+                render_task_list(
+                    frame,
+                    &self.task_list,
+                    area,
+                    false,
+                    assigned_active,
+                    &statuses,
+                )
             }
             Screen::TaskDetail => {
                 // Expanded panel takes the full screen (issue 5)

@@ -234,7 +234,7 @@ fn test_task_list_empty() {
 
     assert_widget_snapshot("task_list_empty", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
-        render_task_list(frame, &task_list, area, false);
+        render_task_list(frame, &task_list, area, false, false, &[]);
     });
 }
 
@@ -247,7 +247,7 @@ fn test_task_list_with_tasks() {
 
     assert_widget_snapshot("task_list_with_tasks", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
-        render_task_list(frame, &task_list, area, false);
+        render_task_list(frame, &task_list, area, false, false, &[]);
     });
 }
 
@@ -260,7 +260,7 @@ fn test_task_list_with_selection() {
 
     assert_widget_snapshot("task_list_with_selection", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
-        render_task_list(frame, &task_list, area, false);
+        render_task_list(frame, &task_list, area, false, false, &[]);
     });
 }
 
@@ -274,7 +274,7 @@ fn test_task_list_header_focused() {
 
     assert_widget_snapshot("task_list_header_focused", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
-        render_task_list(frame, &task_list, area, false);
+        render_task_list(frame, &task_list, area, false, false, &[]);
     });
 }
 
@@ -287,7 +287,7 @@ fn test_task_list_folded_group() {
 
     assert_widget_snapshot("task_list_folded_group", 60, 15, |frame| {
         let area = Rect::new(0, 0, 60, 15);
-        render_task_list(frame, &task_list, area, false);
+        render_task_list(frame, &task_list, area, false, false, &[]);
     });
 }
 
@@ -473,7 +473,7 @@ fn test_s_key_in_task_detail_no_response_snapshot() {
         layout.render_status(frame, status_after_s);
 
         // Render status picker overlay (the fix!)
-        render_status_picker(frame, area, &statuses, 0, Some("in progress"), false);
+        render_status_picker(frame, area, &statuses, 0, Some("in progress"), false, &[]);
     });
 }
 
