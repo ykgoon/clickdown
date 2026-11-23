@@ -51,9 +51,8 @@ The API layer uses a trait-based dependency injection pattern for testability:
 ### Project Structure
 ```
 src/
-├── main.rs              # Entry point, logging initialization
-├── lib.rs               # Library root
-├── app.rs               # Main application state (Elm architecture)
+├── main.rs              # Thin binary: logging, arg parsing, delegates to the lib
+├── lib.rs               # Library root — the only place modules are declared
 ├── api/
 │   ├── mod.rs           # Module exports
 │   ├── client.rs        # Real HTTP client implementation
@@ -63,32 +62,67 @@ src/
 │   └── mock_client.rs   # Mock client for testing
 ├── models/
 │   ├── mod.rs           # Model exports
+│   ├── entity_ref.rs    # The `{ id, name, hidden, access }` stub ClickUp embeds
 │   ├── workspace.rs     # Workspace, Space, Folder, List
 │   ├── task.rs          # Task, TaskStatus, Priority, TaskFilters
-│   └── document.rs      # Document, Page, DocumentFilters
+│   ├── comment.rs       # Comment, reactions, create/update requests
+│   ├── inbox.rs         # Inbox payload from the undocumented endpoint
+│   ├── document.rs      # Document, Page, DocumentFilters
+│   ├── session.rs       # Persisted navigation state
+│   └── user.rs          # User, MembersResponse
 ├── tui/
 │   ├── mod.rs           # TUI module exports
-│   ├── app.rs           # TUI application state and rendering loop
+│   ├── app/             # Application state + update loop, split by concern
+│   │   ├── mod.rs       #   TuiApp fields, AppMessage, Screen; construction
+│   │   ├── update.rs    #   Async message handling (API results -> state)
+│   │   ├── input.rs     #   Normal-mode key dispatch per screen
+│   │   ├── input_engine.rs # INSERT mode, SPACE menu, @mention picker
+│   │   ├── navigate.rs  #   Moving between screens
+│   │   ├── inbox.rs     #   Inbox loading and read/dismiss tracking
+│   │   ├── assigned.rs  #   Workspace-wide "Assigned to Me" paging
+│   │   ├── auth.rs      #   Token verification and hierarchy loaders
+│   │   ├── filters.rs   #   Assignee/status filter management
+│   │   ├── refresh.rs   #   Reload and comment/task mutations
+│   │   ├── render.rs    #   Drawing the screen
+│   │   ├── url.rs       #   URL input and navigation
+│   │   ├── reactions.rs #   Reactions and clipboard
+│   │   ├── session.rs   #   Quit and session persistence
+│   │   └── test_support.rs # Introspection hooks for integration tests
 │   ├── terminal.rs      # Terminal initialization and cleanup
 │   ├── layout.rs        # Screen layout definitions
-│   ├── input.rs         # Keyboard input handling
-│   └── widgets/         # TUI widgets
-│       ├── sidebar.rs   # Navigation sidebar
-│       ├── task_list.rs # Task list view
-│       ├── task_detail.rs # Task create/edit panel
-│       ├── auth_view.rs # Authentication screen
-│       └── document_view.rs # Document/Markdown viewer
+│   ├── input.rs         # InputEvent type
+│   ├── text_edit.rs     # Single-line/multi-line editing primitives
+│   ├── mention.rs       # @mention resolution and wire encoding
+│   ├── helpers.rs       # SelectableList
+│   ├── theme.rs         # Colours
+│   └── widgets/         # TUI widgets (one file per view)
 ├── cache/
 │   ├── mod.rs           # SQLite cache module
 │   └── schema.rs        # Database schema
+├── cli/
+│   ├── mod.rs
+│   ├── args.rs          # Argument parsing and exit codes
+│   └── run.rs           # CLI debug-mode execution
+├── commands/
+│   └── debug_ops.rs     # Shared debug data-fetching operations
+├── utils/
+│   ├── clipboard.rs     # arboard wrapper
+│   ├── copy_text.rs     # Rich-text -> plain text
+│   ├── deserializers.rs # Flexible serde helpers
+│   ├── query.rs         # Query-string builder
+│   ├── text.rs          # Timestamp/wrap/truncate helpers
+│   ├── url_generator.rs # Build ClickUp URLs
+│   └── url_parser.rs    # Parse pasted ClickUp URLs
 └── config/
-    ├── mod.rs           # Configuration management
-    └── storage.rs       # Config file locations
+    └── mod.rs           # Cache directory and database path
 
-tests/
-├── app_test.rs          # Integration tests
-└── fixtures.rs          # Test data fixtures
+tests/                   # Integration tests (one file per feature area)
+└── fixtures.rs          # Shared test data
 ```
+
+**Module declaration lives only in `lib.rs`.** `main.rs` imports `clickdown::…`
+instead of re-declaring `mod` trees, so the crate is compiled once and every
+file has a single module path.
 
 ## Building and Running
 
@@ -323,7 +357,7 @@ async fn test_example() {
 ```
 
 ### Message Pattern
-All state changes flow through the `Message` enum in `app.rs`:
+All state changes flow through the `AppMessage` enum in `src/tui/app/mod.rs`:
 - Authentication: `TokenEntered`, `AuthSuccess`, `AuthError`, `Logout`
 - Navigation: `WorkspaceSelected`, `SpaceSelected`, `FolderSelected`, `ListSelected`
 - Tasks: `TasksLoaded`, `TaskSelected`, `TaskCreated`, `TaskUpdated`, `TaskDeleted`
@@ -356,6 +390,24 @@ The application's internal API abstraction uses:
 See `src/api/` for implementation details.
 
 ## Current Status
+
+### Task Ordering
+
+One rule, applied everywhere: **newest-first across the board.**
+
+- Tasks sort by `updated_at`, then `created_at`, then `id` for a stable tie.
+  A task with no timestamp sorts last rather than jumping to the top.
+- Status groups sort the same way, by their most recently touched task. A
+  status name is a grouping key, not a priority ranking, so fresh work in a
+  later status still surfaces above stale work in an earlier one.
+- Groups with equal recency keep first-seen order (the sort is stable). This
+  matters for payloads where nothing has a timestamp: an alphabetical
+  tie-break would reshuffle the list against the server's order.
+
+The Assigned view renders from the same `tasks` vector as a list does, so it
+gets identical ordering for free. Ordering lives in
+`GroupedTaskList::from_tasks_with_folds` alone — callers must not pre-sort, or
+the second sort silently wins.
 
 ### Completed ✅
 - Workspace navigation hierarchy
