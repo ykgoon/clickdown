@@ -25,7 +25,8 @@ use super::terminal;
 use super::widgets::{
     render_assignee_picker, render_auth, render_command_menu,
     render_comments, render_mention_picker,
-    render_dialog, render_document, render_inbox, render_sidebar, render_status_picker,
+    render_dialog, render_document, render_filter_menu, render_inbox, render_sidebar,
+    render_status_picker,
     render_task_detail_with_editor, render_task_list, AuthState, DialogState, DialogType, DocumentState,
     GroupedTaskList, ListRow, SidebarState, TaskDetailState,
 };
@@ -107,7 +108,7 @@ pub enum InsertTarget {
 pub enum StatusPickerMode {
     /// Pick a new status for one task (`SPC t s`)
     ChangeTask,
-    /// Pick a status to filter the visible task list by (`SPC t F`)
+    /// Pick a status to filter the visible task list by (`SPC t f` -> `s`)
     FilterList,
 }
 
@@ -368,6 +369,23 @@ pub struct TuiApp {
     /// Active task-list status filter (None shows all statuses)
     status_filter: Option<String>,
 
+    /// Every status name this session has observed, in first-seen order.
+    ///
+    /// Needed because the list shown is the *filtered* result: applying a
+    /// status filter replaces `tasks` with rows of that one status, so
+    /// deriving the menu from loaded tasks collapsed it to a single entry and
+    /// made an active filter impossible to change. This registry only grows,
+    /// so it survives filtering.
+    known_status_names: Vec<String>,
+
+    /// Filter menu (`SPC t f`) open state and cursor
+    filter_menu_open: bool,
+    filter_menu_cursor: usize,
+
+    /// Which filters the current screen can actually apply. The Assigned view
+    /// has no list context, so a status filter is unavailable there.
+    filter_can_status: bool,
+
     /// Why the status overlay is open (task change vs. list filter)
     status_picker_mode: StatusPickerMode,
 
@@ -443,6 +461,7 @@ impl TuiApp {
             || !self.comment_new_text.is_empty()
             || self.insert_mode_target.is_some()
             || self.mention_picker_open
+            || self.filter_menu_open
             || self.command_menu.is_some()
     }
 
@@ -1060,33 +1079,18 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         }
                     }
                     ('t', KeyCode::Char('f')) => {
-                        // Toggle "Assigned to Me" filter (tasks screen)
-                        if self.screen == Screen::Tasks {
-                            self.assigned_filter_active = !self.assigned_filter_active;
-                            self.update_screen_title();
-                            if let Some(list_id) = &self.current_list_id {
-                                if self.assigned_filter_active {
-                                    self.status = "Filtering: Assigned to Me".to_string();
-                                    self.load_tasks_with_assigned_filter(list_id.clone());
-                                } else {
-                                    self.status = "Showing all tasks".to_string();
-                                    self.load_tasks(list_id.clone());
-                                }
-                            }
+                        // One entry point for every task-list filter
+                        // (assigned-to-me, by status, clear all).
+                        if self.screen == Screen::Tasks || self.screen == Screen::Assigned {
+                            self.open_filter_menu();
+                        } else {
+                            self.status = "Filters work from the task list".to_string();
                         }
                     }
                     ('t', KeyCode::Char('v')) => {
                         // Expand/collapse the description panel
                         if self.screen == Screen::TaskDetail {
                             self.toggle_expanded_panel(ExpandedPanel::Description);
-                        }
-                    }
-                    ('t', KeyCode::Char('F')) => {
-                        // Filter the task list by status (tasks / assigned screens)
-                        if self.screen == Screen::Tasks || self.screen == Screen::Assigned {
-                            self.open_status_filter_picker();
-                        } else {
-                            self.status = "Status filter works from the task list".to_string();
                         }
                     }
                     // `SPC i d` -- dismiss the highlighted inbox item. This is
@@ -1701,6 +1705,51 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     }
 
     #[allow(dead_code)]
+    pub fn filter_menu_open_for_test(&self) -> bool {
+        self.filter_menu_open
+    }
+
+    #[allow(dead_code)]
+    pub fn filter_menu_cursor_for_test(&self) -> usize {
+        self.filter_menu_cursor
+    }
+
+    #[allow(dead_code)]
+    pub fn filter_can_status_for_test(&self) -> bool {
+        self.filter_can_status
+    }
+
+    #[allow(dead_code)]
+    pub fn assigned_filter_active_for_test(&self) -> bool {
+        self.assigned_filter_active
+    }
+
+    #[allow(dead_code)]
+    pub fn has_active_filters_for_test(&self) -> bool {
+        self.has_active_filters()
+    }
+
+    #[allow(dead_code)]
+    pub fn status_for_test(&self) -> String {
+        self.status.clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn status_picker_open_for_test(&self) -> bool {
+        self.status_picker_open
+    }
+
+    #[allow(dead_code)]
+    pub fn remember_status_names_for_test(&mut self) {
+        self.remember_status_names();
+    }
+
+    #[allow(dead_code)]
+    pub fn status_filter_options_for_test(&self) -> Vec<crate::models::TaskStatus> {
+        self.status_filter_options()
+    }
+
+    #[allow(dead_code)]
     pub fn set_status_filter_for_test(&mut self, status: Option<String>) {
         self.status_filter = status;
     }
@@ -2093,6 +2142,10 @@ impl TuiApp {
             status_picker_original_status: None,
             status_picker_task_id: None,
             status_filter: None,
+            known_status_names: Vec::new(),
+            filter_menu_open: false,
+            filter_menu_cursor: 0,
+            filter_can_status: false,
             status_picker_mode: StatusPickerMode::ChangeTask,
             pending_delete_task_id: None,
             message_rx: Some(message_rx),
@@ -2319,6 +2372,10 @@ impl TuiApp {
             status_picker_original_status: None,
             status_picker_task_id: None,
             status_filter: None,
+            known_status_names: Vec::new(),
+            filter_menu_open: false,
+            filter_menu_cursor: 0,
+            filter_can_status: false,
             status_picker_mode: StatusPickerMode::ChangeTask,
             pending_delete_task_id: None,
             message_rx: Some(message_rx),
@@ -2771,6 +2828,9 @@ impl TuiApp {
                             Ok(tasks) => {
                                 // Store tasks as source of truth
                                 self.tasks = tasks;
+                                // Record the statuses we just saw: the next
+                                // load may be filtered down to one of them.
+                                self.remember_status_names();
                                 // Build grouped task list (preserving fold state)
                                 self.task_list = GroupedTaskList::from_tasks_with_folds(
                                     self.tasks.clone(),
@@ -3342,6 +3402,9 @@ impl TuiApp {
                             Ok(tasks) => {
                                 let fetched = tasks.len();
                                 self.assigned_tasks.extend(tasks);
+                                // Keep the status registry growing so the
+                                // filter menu survives an active filter.
+                                self.remember_status_names();
                                 Self::sort_assigned_tasks(&mut self.assigned_tasks);
 
                                 // Rebuild in place so selection survives a
@@ -3628,6 +3691,12 @@ impl TuiApp {
             // from URLs will trigger copy_url() instead of being inserted into the input
             if self.url_input_open {
                 self.handle_url_input(key);
+                return;
+            }
+
+            // Handle filter menu input (modal overlay)
+            if self.filter_menu_open {
+                self.handle_filter_menu_input(key);
                 return;
             }
 
@@ -5163,6 +5232,227 @@ impl TuiApp {
     /// The ClickUp API does not expose list statuses through the endpoints we use
     /// here, so derive the options from statuses already observed on loaded tasks.
     /// This still lets users pick any status actually in use in the list.
+    /// Remember every status name currently visible, so the filter menu can
+    /// still offer the full set after a filter has replaced `tasks` with a
+    /// narrow subset. Only ever grows.
+    fn remember_status_names(&mut self) {
+        for task in self.assigned_tasks.iter().chain(self.tasks.iter()) {
+            let Some(status) = &task.status else { continue };
+            if !self
+                .known_status_names
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(&status.status))
+            {
+                self.known_status_names.push(status.status.clone());
+            }
+        }
+    }
+
+    /// Status options for the list filter, ordered by the list's configured
+    /// order when known, else by first sighting.
+    fn status_filter_options(&self) -> Vec<crate::models::TaskStatus> {
+        use crate::models::TaskStatus;
+
+        let mut ordered: Vec<TaskStatus> = Vec::new();
+        // Configured order from the active list, when we have it.
+        if let Some(list_id) = self.current_list_id.clone() {
+            ordered = self.list_statuses_for(&list_id);
+        }
+
+        // Without a single list to scope to (the Assigned view), every
+        // configuration already fetched is a plausible filter value.
+        if self.current_list_id.is_none() {
+            for cached in self.cached_list_statuses.values() {
+                for status in cached {
+                    if !ordered
+                        .iter()
+                        .any(|existing| existing.status.eq_ignore_ascii_case(&status.status))
+                    {
+                        ordered.push(status.clone());
+                    }
+                }
+            }
+        }
+
+        for name in &self.known_status_names {
+            if !ordered
+                .iter()
+                .any(|existing| existing.status.eq_ignore_ascii_case(name))
+            {
+                ordered.push(TaskStatus {
+                    id: None,
+                    status: name.clone(),
+                    color: None,
+                    type_field: None,
+                    orderindex: None,
+                    status_group: None,
+                });
+            }
+        }
+
+        // Nothing known at all: fall back to the generic ClickUp defaults so
+        // the menu is never empty.
+        if ordered.is_empty() {
+            ordered = vec![
+                TaskStatus {
+                    id: None,
+                    status: "To Do".to_string(),
+                    color: None,
+                    type_field: None,
+                    orderindex: Some(0),
+                    status_group: None,
+                },
+                TaskStatus {
+                    id: None,
+                    status: "In Progress".to_string(),
+                    color: None,
+                    type_field: None,
+                    orderindex: Some(1),
+                    status_group: None,
+                },
+                TaskStatus {
+                    id: None,
+                    status: "Done".to_string(),
+                    color: None,
+                    type_field: None,
+                    orderindex: Some(2),
+                    status_group: None,
+                },
+            ];
+        }
+        ordered
+    }
+
+    /// Open the filter menu (`SPC t f`).
+    pub fn open_filter_menu(&mut self) {
+        // Status filtering needs a list to query server-side; the Assigned
+        // view is a workspace-wide query with no list context.
+        self.filter_can_status = self.screen == Screen::Tasks && self.current_list_id.is_some();
+        self.remember_status_names();
+        self.filter_menu_open = true;
+        self.filter_menu_cursor = 0;
+        self.status = "Filter: j/k navigate, Enter select, x clears all, Esc closes".to_string();
+    }
+
+    /// Keyboard handling for the filter menu overlay.
+    fn handle_filter_menu_input(&mut self, key: crossterm::event::KeyEvent) {
+        use crate::tui::widgets::FilterMenuEntry;
+
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.filter_menu_cursor + 1 < FilterMenuEntry::ALL.len() {
+                    self.filter_menu_cursor += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.filter_menu_cursor = self.filter_menu_cursor.saturating_sub(1);
+            }
+            KeyCode::Enter => self.apply_filter_menu_selection(),
+            // Direct letters, as advertised in the menu itself.
+            KeyCode::Char(c) => {
+                if let Some(entry) = FilterMenuEntry::ALL
+                    .iter()
+                    .find(|entry| entry.key() == c)
+                    .copied()
+                {
+                    self.activate_filter_entry(entry);
+                }
+            }
+            KeyCode::Esc => self.close_filter_menu(),
+            _ => {}
+        }
+    }
+
+    /// Close the filter menu without changing anything.
+    pub fn close_filter_menu(&mut self) {
+        self.filter_menu_open = false;
+        self.status = "Filter menu closed".to_string();
+    }
+
+    /// Activate the highlighted filter menu entry.
+    pub fn apply_filter_menu_selection(&mut self) {
+        let entry = crate::tui::widgets::FilterMenuEntry::ALL
+            .get(self.filter_menu_cursor)
+            .copied();
+        if let Some(entry) = entry {
+            self.activate_filter_entry(entry);
+        }
+    }
+
+    /// Activate one filter entry by key or by menu selection.
+    pub fn activate_filter_entry(&mut self, entry: crate::tui::widgets::FilterMenuEntry) {
+        use crate::tui::widgets::FilterMenuEntry;
+
+        match entry {
+            FilterMenuEntry::AssignedToMe => self.toggle_assigned_filter(),
+            FilterMenuEntry::Status => {
+                if self.filter_can_status || self.screen == Screen::Tasks {
+                    self.filter_menu_open = false;
+                    self.open_status_filter_picker();
+                } else {
+                    self.status = "Status filter needs a task list (open a list first)".to_string();
+                }
+            }
+            FilterMenuEntry::ClearAll => self.clear_all_filters(),
+        }
+    }
+
+    /// Toggle the "Assigned to Me" narrow, reloading from the source so the
+    /// result is not compounded on top of an earlier filtered response.
+    fn toggle_assigned_filter(&mut self) {
+        let turning_on = !self.assigned_filter_active;
+        self.assigned_filter_active = turning_on;
+        self.filter_menu_open = false;
+        self.update_screen_title();
+        self.reload_current_task_list();
+        self.status = if turning_on {
+            "Filtering: Assigned to Me".to_string()
+        } else {
+            "Assigned to Me filter off".to_string()
+        };
+    }
+
+    /// Drop every active filter and reload.
+    pub fn clear_all_filters(&mut self) {
+        let had_any = self.status_filter.is_some() || self.assigned_filter_active;
+        self.status_filter = None;
+        self.assigned_filter_active = false;
+        self.filter_menu_open = false;
+        self.update_screen_title();
+        self.reload_current_task_list();
+        self.status = if had_any {
+            "All filters cleared".to_string()
+        } else {
+            "No filters were active".to_string()
+        };
+    }
+
+    /// Whether any filter is currently narrowing the list.
+    pub fn has_active_filters(&self) -> bool {
+        self.status_filter.is_some() || self.assigned_filter_active
+    }
+
+    /// Reload the visible task list from its source (never from the already
+    /// filtered rows), which is what makes filters removable.
+    ///
+    /// Before this existed, turning a filter off re-issued a request that
+    /// still carried the other filter's parameters, so a filter could never
+    /// be undone without leaving the screen.
+    fn reload_current_task_list(&mut self) {
+        if self.screen == Screen::Assigned {
+            self.load_assigned_tasks();
+            return;
+        }
+        let Some(list_id) = self.current_list_id.clone() else {
+            return;
+        };
+        if self.assigned_filter_active {
+            self.load_tasks_with_assigned_filter(list_id);
+        } else {
+            self.load_tasks(list_id);
+        }
+    }
+
     /// Statuses configured for one list, from cache first, then the
     /// hierarchy if it carries this list's configuration.
     fn list_statuses_for(&self, list_id: &str) -> Vec<crate::models::TaskStatus> {
@@ -5368,10 +5658,10 @@ impl TuiApp {
         self.status_picker_task_id = None;
         self.status_picker_original_status = None;
 
-        // Union of every known status configuration. A filtered list shows
-        // only one status, so seeding from `self.tasks` alone would offer a
-        // single-choice menu.
-        let statuses = self.collect_known_statuses(None);
+        // Durable registry first: the visible rows may already be filtered
+        // down to the status we are trying to change or remove.
+        self.remember_status_names();
+        let statuses = self.status_filter_options();
 
         // Preselect the currently active filter, if any
         self.status_picker_cursor = self
@@ -5407,7 +5697,7 @@ impl TuiApp {
                 }
             }
         }
-        self.status = "Filter by status (j/k navigate, Enter apply, Esc cancel)".to_string();
+        self.status = "Filter by status (j/k navigate, Enter apply, Esc close)".to_string();
     }
 
     /// Apply the currently highlighted status-filter selection
@@ -5434,20 +5724,6 @@ impl TuiApp {
         self.status = format!("Filtering: {}", selected.status);
     }
 
-    /// Clear the status filter and reload all tasks
-    #[allow(dead_code)]
-    pub fn clear_status_filter(&mut self) {
-        self.status_filter = None;
-        self.status_picker_open = false;
-        self.update_screen_title();
-        if self.screen == Screen::Assigned {
-            self.load_assigned_tasks();
-        } else if let Some(list_id) = &self.current_list_id {
-            self.load_tasks(list_id.clone());
-        }
-        self.status = "Status filter cleared".to_string();
-    }
-
     /// Handle keyboard input for status picker
     #[allow(dead_code)]
     pub fn handle_status_picker_input(&mut self, key: crossterm::event::KeyEvent) {
@@ -5471,9 +5747,12 @@ impl TuiApp {
             }
             KeyCode::Esc => {
                 if self.status_picker_mode == StatusPickerMode::FilterList {
-                    // Esc closes the picker; over an active filter it also
-                    // clears it, which is how the filter toggles back off.
-                    self.clear_status_filter();
+                    // Esc only closes the picker. It must not silently drop
+                    // the active filter: removing filters is an explicit
+                    // action ("Clear all filters" in the menu), otherwise Esc
+                    // looks like a cancel but changes what is on screen.
+                    self.status_picker_open = false;
+                    self.status = "Filter unchanged".to_string();
                 } else {
                     self.status_picker_open = false;
                     self.status = "Status change cancelled".to_string();
@@ -6073,6 +6352,17 @@ impl TuiApp {
                 &self.assignee_picker_members,
                 &self.assignee_picker_selected,
                 self.assignee_picker_cursor,
+            );
+        }
+
+        // Render filter menu overlay if open
+        if self.filter_menu_open {
+            render_filter_menu(
+                frame,
+                area,
+                self.assigned_filter_active,
+                self.status_filter.as_deref(),
+                self.filter_menu_cursor,
             );
         }
 

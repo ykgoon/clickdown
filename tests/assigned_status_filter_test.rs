@@ -1,4 +1,5 @@
-//! Tests for the status filter in the root "Assigned to Me" view (`SPC t F`).
+//! Tests for the status filter in the root "Assigned to Me" view
+//! (`SPC t f` -> `s`, or the picker APIs directly).
 //!
 //! The Assigned view is workspace-wide, so the picker seeds from statuses
 //! observed on the loaded assigned tasks and applying/clearing re-runs the
@@ -124,7 +125,11 @@ fn test_assigned_apply_filter_sends_status() {
     );
 }
 
-/// Esc in the picker clears an active filter and reloads unfiltered.
+/// Removing the filter is an explicit action and reloads unfiltered.
+///
+/// Esc in the picker used to clear the filter as a side effect, which read as
+/// "cancel" but changed the result set. Clearing now comes from the filter
+/// menu's "Clear all filters" entry (`SPC t f`, then `x`).
 #[test]
 fn test_assigned_clear_filter_reloads_unfiltered() {
     let rt = Runtime::new().unwrap();
@@ -153,13 +158,10 @@ fn test_assigned_clear_filter_reloads_unfiltered() {
         app.screen_title_for_test()
     );
 
-    // Reopen and clear
-    app.open_status_filter_picker();
+    // Clear explicitly from the filter menu (`SPC t f`, then `x`).
     {
         let _guard = rt.enter();
-        app.handle_status_picker_input(crossterm::event::KeyEvent::from(
-            crossterm::event::KeyCode::Esc,
-        ));
+        app.clear_all_filters();
     }
     spawn_and_pump(&mut app, &rt, |_| {});
 

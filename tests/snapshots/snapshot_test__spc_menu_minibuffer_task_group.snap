@@ -16,14 +16,14 @@ expression: snapshot
                                                                                                     
                                                                                                     
                                                                                                     
+                                                                                                    
   Task                                                                                              
   n   New task                                                                                      
   e   Edit task / description                                                                       
   s   Change status                                                                                 
   d   Delete task                                                                                   
   a   Assign people                                                                                 
-  f   Assigned-to-Me filter                                                                         
   v   Expand/collapse description                                                                   
-  F   Filter by status                                                                              
+  f   Filter task list                                                                              
  ────────────────────────────────────────────────────────────────────────────────────────────────── 
  press an action key · Esc back

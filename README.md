@@ -19,7 +19,8 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Task Management**: View, create, edit, and delete tasks
 - **Inbox**: Workspace inbox at the navigation root, showing items that need your attention with an unread count in the sidebar; `Enter` opens the task and `SPC i d` dismisses it (inbox zero, local only)
 - **Assigned to Me**: Workspace-wide section at the navigation root listing every task assigned to you, most recently active first
-- **Assigned to Me Filter**: Per-list filter showing tasks assigned to you (press `SPC t f` in task list)
+- **Filters**: `SPC t f` opens a filter menu for the task list (assigned to you,
+  by status, or clear all). Filters are removable from the same menu
 - **URL Navigation**: Paste any ClickUp URL to jump directly to a workspace, space, folder, list, task, comment, or document (press `g` then `u`)
 - **Document Viewing**: Read ClickUp documents with Markdown rendering
 - **Session Restore**: Automatically restores your last viewed location on startup
@@ -258,7 +259,10 @@ no undo).
 |-----|--------|
 | `Tab` | Focus the selected task's status group |
 | `Tab` (on focused status) | Fold/unfold the status group (hides/shows its tasks) |
-| `SPC t f` | Toggle "Assigned to Me" filter for the current list |
+| `SPC t f` | Open the filter menu (assigned to me, by status, clear all) |
+| `SPC t f` → `f` | Narrow the list to tasks assigned to you |
+| `SPC t f` → `s` | Narrow the list to one status |
+| `SPC t f` → `x` | Remove every active filter |
 
 ### Global
 
@@ -286,7 +290,7 @@ the inbox screen is open.
 | Chord | Action |
 |-------|--------|
 | `SPC g u` | Open a ClickUp URL |
-| `SPC t n/e/s/d/a/f/v` | Task: new, edit, status, delete, assign, filter, expand description |
+| `SPC t n/e/s/d/a/f/v` | Task: new, edit, status, delete, assign, filter menu, expand description |
 | `SPC c n/e/r/u/v` | Comments: new, edit, reply, thumbs-up, expand |
 | `SPC i d` | Inbox: dismiss the selected item (inbox screen only) |
 

@@ -84,9 +84,8 @@ fn group_actions(group: char) -> Option<(&'static str, Vec<(&'static str, char)>
                 ("Change status", 's'),
                 ("Delete task", 'd'),
                 ("Assign people", 'a'),
-                ("Assigned-to-Me filter", 'f'),
                 ("Expand/collapse description", 'v'),
-                ("Filter by status", 'F'),
+                ("Filter task list", 'f'),
             ],
         )),
         'c' => Some((

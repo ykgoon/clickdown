@@ -1,4 +1,4 @@
-//! Tests for the task-list status filter feature (`SPC t F`)
+//! Tests for the task-list status filter (`SPC t f` -> `s`)
 //!
 //! Covers picker seeding, filter application through the public API
 //! (`load_tasks` sends the status to the API), clearing, and title display.
@@ -131,7 +131,7 @@ fn test_enter_applies_status_filter_and_refetches() {
 
 /// Esc clears an active filter and reloads all tasks
 #[test]
-fn test_esc_clears_existing_status_filter() {
+fn test_esc_keeps_existing_status_filter_until_cleared_explicitly() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let mock_client = MockClickUpClient::new().with_tasks(vec![]);
@@ -159,13 +159,22 @@ fn test_esc_clears_existing_status_filter() {
         app.screen_title_for_test()
     );
 
-        // Reopen and press Esc: filter is cleared
+        // Reopen and press Esc: the picker closes, the filter stays.
         app.open_status_filter_picker();
         app.handle_status_picker_input(crossterm::event::KeyEvent::from(
             crossterm::event::KeyCode::Esc,
         ));
 
-        assert!(!app.is_status_picker_open(), "picker should close on clear");
+        assert!(!app.is_status_picker_open(), "picker should close on Esc");
+        assert!(
+            app.screen_title_for_test()
+                .ends_with("Tasks (Status: Done)"),
+            "Esc must not drop the filter suffix, got: {}",
+            app.screen_title_for_test()
+        );
+
+        // Clearing is explicit (`SPC t f` -> `x`).
+        app.clear_all_filters();
         assert!(
             app.screen_title_for_test().ends_with("- Tasks"),
             "title should drop the filter suffix, got: {}",

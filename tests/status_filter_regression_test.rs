@@ -148,9 +148,13 @@ fn filter_picker_offers_full_status_list_while_filtered() {
     }
 }
 
-/// Esc over an active filter clears it (the toggle-off path).
+/// Esc over an active filter leaves it alone; clearing is explicit.
+///
+/// Esc used to double as "clear the filter", so a key that reads as cancel
+/// silently changed the result set. Filter removal now lives in the filter
+/// menu (`SPC t f`, then `x`) and is covered by `clear_all_filters_*` tests.
 #[test]
-fn esc_clears_active_filter_in_assigned_view() {
+fn esc_keeps_active_filter_in_assigned_view() {
     let rt = Runtime::new().unwrap();
     let mock = MockClickUpClient::new()
         .with_team_tasks(vec![task_with_status("t1", "A", status("Done", 2))]);
@@ -174,8 +178,20 @@ fn esc_clears_active_filter_in_assigned_view() {
         ))
     });
     assert!(
+        !a.status_picker_open_for_test(),
+        "Esc must close the picker"
+    );
+    assert_eq!(
+        a.status_filter_for_test().as_deref(),
+        Some("Done"),
+        "Esc must not clear the active filter"
+    );
+
+    // The explicit path does remove it.
+    pump(&mut a, &rt, |a| a.clear_all_filters());
+    assert!(
         a.status_filter_for_test().is_none(),
-        "Esc must clear the active filter"
+        "clear_all_filters must remove the filter"
     );
 }
 

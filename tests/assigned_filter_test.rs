@@ -387,7 +387,11 @@ fn test_assigned_filter_refetches_after_user_loads() {
     });
 }
 
-/// Test: Toggling the filter via SPC t f updates the screen title suffix
+/// Test: Toggling the filter via SPC t f -> f updates the screen title suffix
+///
+/// `SPC t f` opens the filter menu; `f` activates "Assigned to Me". It used to
+/// toggle the filter directly, but one key cannot both open a menu of
+/// filters and toggle one of them.
 #[test]
 fn test_toggle_filter_updates_screen_title() {
     use clickdown::api::mock_client::MockClickUpClient;
@@ -406,15 +410,14 @@ fn test_toggle_filter_updates_screen_title() {
         app.set_current_list_id(Some("list-1".to_string()));
         app.set_current_user_id(Some(123));
 
+        // Open the filter menu (`SPC t f`) then pick "Assigned to Me" (`f`).
         let spc_tf = |app: &mut TuiApp| {
-            app.update(InputEvent::Key(KeyEvent::new(
-                KeyCode::Char(' '),
-                KeyModifiers::NONE,
-            )));
-            app.update(InputEvent::Key(KeyEvent::new(
-                KeyCode::Char('t'),
-                KeyModifiers::NONE,
-            )));
+            for k in [' ', 't', 'f'] {
+                app.update(InputEvent::Key(KeyEvent::new(
+                    KeyCode::Char(k),
+                    KeyModifiers::NONE,
+                )));
+            }
             app.update(InputEvent::Key(KeyEvent::new(
                 KeyCode::Char('f'),
                 KeyModifiers::NONE,
@@ -473,15 +476,14 @@ fn test_toggle_on_fetches_only_assigned_tasks() {
         app.set_current_list_id(Some("list-1".to_string()));
         app.set_current_user_id(Some(123));
 
+        // Menu (`SPC t f`) then the "Assigned to Me" entry (`f`).
         let spc_tf = |app: &mut TuiApp| {
-            app.update(InputEvent::Key(KeyEvent::new(
-                KeyCode::Char(' '),
-                KeyModifiers::NONE,
-            )));
-            app.update(InputEvent::Key(KeyEvent::new(
-                KeyCode::Char('t'),
-                KeyModifiers::NONE,
-            )));
+            for k in [' ', 't', 'f'] {
+                app.update(InputEvent::Key(KeyEvent::new(
+                    KeyCode::Char(k),
+                    KeyModifiers::NONE,
+                )));
+            }
             app.update(InputEvent::Key(KeyEvent::new(
                 KeyCode::Char('f'),
                 KeyModifiers::NONE,
@@ -551,19 +553,13 @@ fn test_navigate_back_preserves_assigned_filter_title() {
         app.set_current_list_id(Some("list-1".to_string()));
         app.set_current_user_id(Some(123));
 
-        // Toggle the filter ON via SPC t f
-        app.update(InputEvent::Key(KeyEvent::new(
-            KeyCode::Char(' '),
-            KeyModifiers::NONE,
-        )));
-        app.update(InputEvent::Key(KeyEvent::new(
-            KeyCode::Char('t'),
-            KeyModifiers::NONE,
-        )));
-        app.update(InputEvent::Key(KeyEvent::new(
-            KeyCode::Char('f'),
-            KeyModifiers::NONE,
-        )));
+        // Toggle the filter ON via the filter menu: `SPC t f` then `f`.
+        for k in [' ', 't', 'f', 'f'] {
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char(k),
+                KeyModifiers::NONE,
+            )));
+        }
         assert!(app.screen_title_for_test().contains("(Assigned to Me)"));
 
         // Go to task detail and come back with Esc

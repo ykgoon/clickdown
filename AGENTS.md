@@ -365,10 +365,22 @@ See `src/api/` for implementation details.
   - Toggle filter with 'a' key within a list's task view
   - Includes closed/completed tasks in results
   - User ID fetched on startup for filtering
-- **Status filter**: Per-list task filter for a given status (`SPC t F` in task list)
+- **Filter menu**: `SPC t f` opens one menu for every list filter
+  - Entries: `f` assigned to me, `s` by status, `x` clear all filters
+  - The status picker seeds from `known_status_names`, a registry that only
+    grows, because the loaded rows are the *filtered* result: deriving options
+    from them collapsed the menu to the single filtered status and made the
+    filter impossible to change or remove (reported bug)
+  - Clearing is explicit (`x`); Esc only closes an overlay and never changes
+    the result set
+  - Re-toggling reloads from the source (`reload_current_task_list`) instead
+    of re-issuing a request that still carried the other filter
+  - The Assigned view has no list context, so status filtering is reported as
+    unavailable there rather than opening an empty picker
   - Picker seeded from the list's status configuration (falls back to statuses on loaded tasks)
   - Server-side filtering via the ClickUp `statuses[]` query parameter
-  - Title shows the active filter; Esc in the picker clears it
+  - Title shows the active filter; removing it is explicit (`SPC t f` -> `x`),
+    Esc only closes an overlay
   - Also works in the Assigned to Me view: the paged workspace query carries
     the filter, and the picker always offers every status the workspace has
     shown (so re-filtering never presents an empty or single-entry menu)
