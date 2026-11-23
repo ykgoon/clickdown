@@ -1701,6 +1701,21 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     }
 
     #[allow(dead_code)]
+    pub fn set_status_filter_for_test(&mut self, status: Option<String>) {
+        self.status_filter = status;
+    }
+
+    #[allow(dead_code)]
+    pub fn set_assigned_tasks_for_test(&mut self, tasks: Vec<crate::models::Task>) {
+        self.assigned_tasks = tasks;
+    }
+
+    #[allow(dead_code)]
+    pub fn assigned_tasks_for_test(&self) -> &[crate::models::Task] {
+        &self.assigned_tasks
+    }
+
+    #[allow(dead_code)]
     pub fn open_status_picker_for_test(&mut self, task: crate::models::Task) {
         self.open_status_picker(task);
     }
@@ -5148,50 +5163,101 @@ impl TuiApp {
     /// The ClickUp API does not expose list statuses through the endpoints we use
     /// here, so derive the options from statuses already observed on loaded tasks.
     /// This still lets users pick any status actually in use in the list.
-    fn open_status_picker(&mut self, task: crate::models::Task) {
+    /// Statuses configured for one list, from cache first, then the
+    /// hierarchy if it carries this list's configuration.
+    fn list_statuses_for(&self, list_id: &str) -> Vec<crate::models::TaskStatus> {
+        if let Some(cached) = self.cached_list_statuses.get(list_id) {
+            if !cached.is_empty() {
+                return cached.clone();
+            }
+        }
+        self.lists
+            .iter()
+            .find(|list| list.id == list_id)
+            .map(|list| list.statuses.clone())
+            .unwrap_or_default()
+    }
+
+    /// Status options for a picker.
+    ///
+    /// Pickers must not derive their options from the currently displayed
+    /// tasks alone: when the task list is filtered the result set holds a
+    /// single status, which collapsed the change-status menu to one entry.
+    ///
+    /// When changing `task`, the task's own list configuration is
+    /// authoritative, because ClickUp rejects a status that does not belong
+    /// to the task's list; other lists are never offered. Only when that
+    /// configuration is unknown does this widen to everything observed, so
+    /// the menu is never a single entry while the real config is fetched.
+    fn collect_known_statuses(
+        &self,
+        task: Option<&crate::models::Task>,
+    ) -> Vec<crate::models::TaskStatus> {
         use crate::models::TaskStatus;
 
-        // Changing a task's status, not filtering the list
-        self.status_picker_mode = StatusPickerMode::ChangeTask;
-
-        // Store the task ID we're changing status for
-        self.status_picker_task_id = Some(task.id.clone());
-
-        // Store original status for potential rollback
-        self.status_picker_original_status = task.status.clone();
-
-        let mut statuses: Vec<TaskStatus> = Vec::new();
-        let add_status = |status: &TaskStatus, statuses: &mut Vec<TaskStatus>| {
+        fn add(status: &TaskStatus, statuses: &mut Vec<TaskStatus>) {
             if !statuses
                 .iter()
                 .any(|existing| existing.status.eq_ignore_ascii_case(&status.status))
             {
                 statuses.push(status.clone());
             }
-        };
+        }
 
-        // Prefer the list's full status configuration (all available statuses,
-        // not just the subset currently in use by loaded tasks).
-        if let Some(list_id) = &self.current_list_id {
-            if let Some(cached) = self.cached_list_statuses.get(list_id) {
-                for status in cached {
-                    add_status(status, &mut statuses);
+        fn sort(statuses: &mut [TaskStatus]) {
+            statuses.sort_by(|a, b| {
+                a.orderindex
+                    .unwrap_or(u32::MAX)
+                    .cmp(&b.orderindex.unwrap_or(u32::MAX))
+                    .then_with(|| a.status.to_lowercase().cmp(&b.status.to_lowercase()))
+            });
+        }
+
+        // Changing a task: use its list's configuration when we know it.
+        if let Some(task) = task {
+            let list_id = task
+                .list
+                .as_ref()
+                .map(|list| list.id.clone())
+                .or_else(|| self.current_list_id.clone());
+            if let Some(list_id) = list_id {
+                let mut scoped = self.list_statuses_for(&list_id);
+                if !scoped.is_empty() {
+                    // The task's present status must always be selectable.
+                    if let Some(status) = &task.status {
+                        add(status, &mut scoped);
+                    }
+                    sort(&mut scoped);
+                    return scoped;
                 }
             }
         }
-        // Fall back to statuses observed on loaded tasks
-        if statuses.is_empty() {
-            for loaded_task in &self.tasks {
-                if let Some(status) = &loaded_task.status {
-                    add_status(status, &mut statuses);
-                }
+
+        // Unknown configuration: widen to everything this app has seen.
+        let mut statuses: Vec<TaskStatus> = Vec::new();
+        for list in &self.lists {
+            for status in &list.statuses {
+                add(status, &mut statuses);
             }
         }
-        if let Some(status) = &task.status {
-            add_status(status, &mut statuses);
+        for cached in self.cached_list_statuses.values() {
+            for status in cached {
+                add(status, &mut statuses);
+            }
+        }
+        // The Assigned view keeps its rows in `assigned_tasks`, not `tasks`.
+        for loaded_task in self.assigned_tasks.iter().chain(self.tasks.iter()) {
+            if let Some(status) = &loaded_task.status {
+                add(status, &mut statuses);
+            }
+        }
+        if let Some(task) = task {
+            if let Some(status) = &task.status {
+                add(status, &mut statuses);
+            }
         }
 
-        // Last-resort defaults when no task has any status information.
+        // Last-resort defaults when nothing at all is known.
         if statuses.is_empty() {
             statuses = vec![
                 TaskStatus {
@@ -5221,12 +5287,33 @@ impl TuiApp {
             ];
         }
 
-        statuses.sort_by(|a, b| {
-            a.orderindex
-                .unwrap_or(u32::MAX)
-                .cmp(&b.orderindex.unwrap_or(u32::MAX))
-                .then_with(|| a.status.to_lowercase().cmp(&b.status.to_lowercase()))
-        });
+        sort(&mut statuses);
+        statuses
+    }
+
+    /// List whose status configuration should be fetched for `task`, if any.
+    ///
+    /// The Assigned view has no navigation context, so fall back to the
+    /// task's own list reference; otherwise the picker could never learn the
+    /// full configuration for a task opened from a workspace-wide view.
+    fn status_source_list_id(&self, task: Option<&crate::models::Task>) -> Option<String> {
+        self.current_list_id.clone().or_else(|| {
+            task.and_then(|task| task.list.as_ref().map(|list| list.id.clone()))
+        })
+    }
+
+    fn open_status_picker(&mut self, task: crate::models::Task) {
+        // Changing a task's status, not filtering the list
+        self.status_picker_mode = StatusPickerMode::ChangeTask;
+
+        // Store the task ID we're changing status for
+        self.status_picker_task_id = Some(task.id.clone());
+
+        // Store original status for potential rollback
+        self.status_picker_original_status = task.status.clone();
+
+        // Full known set, never just what the filtered list is showing.
+        let statuses = self.collect_known_statuses(Some(&task));
 
         self.status_picker_cursor = task
             .status
@@ -5242,25 +5329,24 @@ impl TuiApp {
 
         // If we only know a subset of the list's statuses, fetch the full
         // configuration in the background and refresh the picker when it lands.
-        if let Some(list_id) = &self.current_list_id {
-            if !self.cached_list_statuses.contains_key(list_id) {
-                let client = match &self.client {
-                    Some(c) => c.clone(),
-                    None => return,
-                };
-                let list_id = list_id.clone();
-                let tx = self.message_tx.clone().unwrap();
-                self.loading = true;
-                self.status = "Loading statuses...".to_string();
-                tokio::spawn(async move {
-                    let result = client.get_list(&list_id).await;
-                    let statuses = result.map(|l| l.statuses);
-                    let msg = AppMessage::ListStatusesLoaded(
-                        list_id,
-                        statuses.map_err(|e| e.to_string()),
-                    );
-                    let _ = tx.send(msg).await;
-                });
+        // The Assigned view has no navigation context, so this resolves the
+        // task's own list instead of silently skipping the fetch.
+        if let Some(list_id) = self.status_source_list_id(Some(&task)) {
+            if !self.cached_list_statuses.contains_key(&list_id) {
+                if let Some(client) = self.client.clone() {
+                    let tx = self.message_tx.clone().unwrap();
+                    self.loading = true;
+                    self.status = "Loading statuses...".to_string();
+                    tokio::spawn(async move {
+                        let result = client.get_list(&list_id).await;
+                        let statuses = result.map(|l| l.statuses);
+                        let msg = AppMessage::ListStatusesLoaded(
+                            list_id,
+                            statuses.map_err(|e| e.to_string()),
+                        );
+                        let _ = tx.send(msg).await;
+                    });
+                }
             }
         }
         self.status = "Select new status (j/k navigate, Enter select, Esc cancel)".to_string();
@@ -5268,15 +5354,13 @@ impl TuiApp {
 
     /// Open the status-filter picker for the current task list
     ///
-    /// Mirrors `open_status_picker`: seed from the cached list statuses,
-    /// fall back to statuses observed on loaded tasks, then last-resort
-    /// defaults. The full configuration is fetched in the background when
-    /// only a subset is known. Selecting a status re-queries the list with
-    /// `statuses[]` so filtering uses ClickUp's server-side filter.
+    /// Seeds from `collect_known_statuses`, so a list already filtered down
+    /// to one status still offers every status the workspace has shown. The
+    /// full configuration is fetched in the background when only a subset is
+    /// known. Selecting a status re-queries the list with `statuses[]` so
+    /// filtering uses ClickUp's server-side filter.
     #[allow(dead_code)]
     pub fn open_status_filter_picker(&mut self) {
-        use crate::models::TaskStatus;
-
         // Filtering the list, not changing a task. Clearing the task id is
         // what stops Enter from calling save_status() on the task the user
         // picked earlier with `SPC t s`.
@@ -5284,92 +5368,10 @@ impl TuiApp {
         self.status_picker_task_id = None;
         self.status_picker_original_status = None;
 
-        let mut statuses: Vec<TaskStatus> = Vec::new();
-        let add_status = |status: &TaskStatus, statuses: &mut Vec<TaskStatus>| {
-            if !statuses
-                .iter()
-                .any(|existing| existing.status.eq_ignore_ascii_case(&status.status))
-            {
-                statuses.push(status.clone());
-            }
-        };
-
-        // Every status configuration this app has seen, so the menu offers
-        // the full set even when the current result set is filtered down to
-        // a single status (or empty).
-        for list in &self.lists {
-            for status in &list.statuses {
-                add_status(status, &mut statuses);
-            }
-        }
-        for cached in self.cached_list_statuses.values() {
-            for status in cached {
-                add_status(status, &mut statuses);
-            }
-        }
-
-        if self.screen == Screen::Assigned {
-            // Workspace-wide view: no single list config, so also fold in the
-            // statuses observed on assigned tasks (all pages, plus whatever
-            // is currently rendered).
-            for loaded_task in self.assigned_tasks.iter().chain(self.tasks.iter()) {
-                if let Some(status) = &loaded_task.status {
-                    add_status(status, &mut statuses);
-                }
-            }
-        } else if let Some(list_id) = &self.current_list_id {
-            if let Some(list) = self.lists.iter().find(|l| &l.id == list_id) {
-                for status in &list.statuses {
-                    add_status(status, &mut statuses);
-                }
-            }
-            for loaded_task in &self.tasks {
-                if let Some(status) = &loaded_task.status {
-                    add_status(status, &mut statuses);
-                }
-            }
-        } else {
-            for loaded_task in &self.tasks {
-                if let Some(status) = &loaded_task.status {
-                    add_status(status, &mut statuses);
-                }
-            }
-        }
-        if statuses.is_empty() {
-            statuses = vec![
-                TaskStatus {
-                    id: None,
-                    status: "To Do".to_string(),
-                    color: Some("#8794a6".to_string()),
-                    type_field: None,
-                    orderindex: Some(0),
-                    status_group: Some("todo".to_string()),
-                },
-                TaskStatus {
-                    id: None,
-                    status: "In Progress".to_string(),
-                    color: Some("#4f46de".to_string()),
-                    type_field: None,
-                    orderindex: Some(1),
-                    status_group: Some("in_progress".to_string()),
-                },
-                TaskStatus {
-                    id: None,
-                    status: "Done".to_string(),
-                    color: Some("#0f4a58".to_string()),
-                    type_field: None,
-                    orderindex: Some(2),
-                    status_group: Some("done".to_string()),
-                },
-            ];
-        }
-
-        statuses.sort_by(|a, b| {
-            a.orderindex
-                .unwrap_or(u32::MAX)
-                .cmp(&b.orderindex.unwrap_or(u32::MAX))
-                .then_with(|| a.status.to_lowercase().cmp(&b.status.to_lowercase()))
-        });
+        // Union of every known status configuration. A filtered list shows
+        // only one status, so seeding from `self.tasks` alone would offer a
+        // single-choice menu.
+        let statuses = self.collect_known_statuses(None);
 
         // Preselect the currently active filter, if any
         self.status_picker_cursor = self
@@ -5384,7 +5386,7 @@ impl TuiApp {
         self.status_picker_statuses = statuses;
         self.status_picker_open = true;
 
-        if self.screen != Screen::Assigned {
+        {
             if let Some(list_id) = &self.current_list_id {
                 if !self.cached_list_statuses.contains_key(list_id) {
                     if let Some(client) = self.client.clone() {

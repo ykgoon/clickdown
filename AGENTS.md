@@ -376,6 +376,15 @@ See `src/api/` for implementation details.
     assignee, and @mention dialogs opaque over background content
   - @mentions resolve members from the task's own list when the hierarchy
     context is gone (tasks opened from the Assigned view)
+- **Status change**: `SPC t s` opens the picker for the current task
+  - Options come from `collect_known_statuses`, never from the visible rows
+    alone: a filtered list shows one status, which used to collapse the menu
+    to a single entry. Reproduced in Assigned to Me, where rows live in
+    `assigned_tasks` and `current_list_id` is None
+  - The task's own list configuration is authoritative (ClickUp rejects a
+    status from another list); only when that config is unknown does the menu
+    widen to every status observed, so it is never a one-entry list while the
+    real config loads in the background via the task's `list.id`
 - Document viewing with Markdown rendering
 - SQLite caching layer
 - Configuration and token management
