@@ -161,6 +161,7 @@ pub trait ClickUpApi: Send + Sync {
         team_id: &str,
         user_id: i32,
         page: u32,
+        statuses: Option<Vec<String>>,
     ) -> Result<Vec<Task>>;
 
     /// Get tasks assigned to a specific user from a list

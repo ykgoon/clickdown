@@ -489,9 +489,13 @@ impl ClickUpClient {
         team_id: &str,
         user_id: i32,
         page: u32,
+        statuses: Option<Vec<String>>,
     ) -> Result<Vec<Task>> {
         let mut filters = TaskFilters::default();
         filters.assignees = vec![user_id as i64];
+        if let Some(statuses) = statuses {
+            filters.statuses = statuses;
+        }
         // Assigned work is mostly finished work; without this the view would
         // silently hide everything already completed.
         filters.include_closed = Some(true);
@@ -715,8 +719,9 @@ macro_rules! impl_clickup_api {
                 team_id: &str,
                 user_id: i32,
                 page: u32,
+                statuses: Option<Vec<String>>,
             ) -> Result<Vec<Task>> {
-                self.get_team_tasks_with_assignee(team_id, user_id, page)
+                self.get_team_tasks_with_assignee(team_id, user_id, page, statuses)
                     .await
             }
 

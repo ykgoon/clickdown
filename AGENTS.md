@@ -369,6 +369,8 @@ See `src/api/` for implementation details.
   - Picker seeded from the list's status configuration (falls back to statuses on loaded tasks)
   - Server-side filtering via the ClickUp `statuses[]` query parameter
   - Title shows the active filter; Esc in the picker clears it
+  - Also works in the Assigned to Me view: statuses seed from loaded assigned
+    tasks and the paged workspace query carries the filter
 - Document viewing with Markdown rendering
 - SQLite caching layer
 - Configuration and token management

@@ -1061,8 +1061,8 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         }
                     }
                     ('t', KeyCode::Char('F')) => {
-                        // Filter the task list by status (tasks screen)
-                        if self.screen == Screen::Tasks {
+                        // Filter the task list by status (tasks / assigned screens)
+                        if self.screen == Screen::Tasks || self.screen == Screen::Assigned {
                             self.open_status_filter_picker();
                         } else {
                             self.status = "Status filter works from the task list".to_string();
@@ -1480,6 +1480,12 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
     }
 
     /// Set the current user ID (for testing)
+    #[allow(dead_code)]
+    #[allow(dead_code)]
+    pub fn set_current_team_id_for_test(&mut self, team_id: String) {
+        self.current_team_id = Some(team_id);
+    }
+
     #[allow(dead_code)]
     pub fn set_current_user_id(&mut self, user_id: Option<i32>) {
         self.current_user_id = user_id;
@@ -4666,7 +4672,8 @@ impl TuiApp {
     /// Pages are fetched one at a time: ClickUp caps a page at 100 tasks and
     /// does not report the total, so the next page is requested only when the
     /// previous one came back full. That keeps a small workload at one request.
-    fn load_assigned_tasks(&mut self) {
+    #[allow(dead_code)]
+    pub fn load_assigned_tasks(&mut self) {
         if self.current_user_id.is_none() {
             self.status = "Waiting for your user profile...".to_string();
             return;
@@ -4680,6 +4687,7 @@ impl TuiApp {
         };
         self.assigned_tasks.clear();
         self.assigned_loading = true;
+        self.assigned_page_in_flight = None;
         self.loading = true;
         self.status = "Loading assigned tasks...".to_string();
         self.fetch_assigned_page(team_id, 0);
@@ -4705,11 +4713,18 @@ impl TuiApp {
             }
         };
 
+        // Carry the active status filter (Assigned view) into the query
+        let statuses = if self.screen == Screen::Assigned {
+            self.status_filter.clone().map(|s| vec![s])
+        } else {
+            None
+        };
+
         self.assigned_page_in_flight = Some(page);
         let tx = self.message_tx.clone().unwrap();
         tokio::spawn(async move {
             let result = client
-                .get_team_tasks_with_assignee(&team_id, user_id, page)
+                .get_team_tasks_with_assignee(&team_id, user_id, page, statuses)
                 .await;
             let msg = match result {
                 Ok(tasks) => AppMessage::AssignedTasksLoaded(Ok(tasks), page),
@@ -4918,7 +4933,8 @@ impl TuiApp {
         });
     }
 
-    fn load_tasks(&mut self, list_id: String) {
+    #[allow(dead_code)]
+    pub fn load_tasks(&mut self, list_id: String) {
         // If the assigned filter is active, use the filtered version
         if self.assigned_filter_active {
             self.load_tasks_with_assigned_filter(list_id);
@@ -5206,17 +5222,27 @@ impl TuiApp {
             }
         };
 
-        if let Some(list_id) = &self.current_list_id {
-            if let Some(cached) = self.cached_list_statuses.get(list_id) {
-                for status in cached {
+        if self.screen == Screen::Assigned {
+            // Workspace-wide view: no single list config; use statuses
+            // observed across the loaded assigned tasks.
+            for loaded_task in &self.assigned_tasks {
+                if let Some(status) = &loaded_task.status {
                     add_status(status, &mut statuses);
                 }
             }
-        }
-        if statuses.is_empty() {
-            for loaded_task in &self.tasks {
-                if let Some(status) = &loaded_task.status {
-                    add_status(status, &mut statuses);
+        } else {
+            if let Some(list_id) = &self.current_list_id {
+                if let Some(cached) = self.cached_list_statuses.get(list_id) {
+                    for status in cached {
+                        add_status(status, &mut statuses);
+                    }
+                }
+            }
+            if statuses.is_empty() {
+                for loaded_task in &self.tasks {
+                    if let Some(status) = &loaded_task.status {
+                        add_status(status, &mut statuses);
+                    }
                 }
             }
         }
@@ -5269,22 +5295,24 @@ impl TuiApp {
         self.status_picker_statuses = statuses;
         self.status_picker_open = true;
 
-        if let Some(list_id) = &self.current_list_id {
-            if !self.cached_list_statuses.contains_key(list_id) {
-                if let Some(client) = self.client.clone() {
-                    let list_id = list_id.clone();
-                    let tx = self.message_tx.clone().unwrap();
-                    self.loading = true;
-                    self.status = "Loading statuses...".to_string();
-                    tokio::spawn(async move {
-                        let result = client.get_list(&list_id).await;
-                        let statuses = result.map(|l| l.statuses);
-                        let msg = AppMessage::ListStatusesLoaded(
-                            list_id,
-                            statuses.map_err(|e| e.to_string()),
-                        );
-                        let _ = tx.send(msg).await;
-                    });
+        if self.screen != Screen::Assigned {
+            if let Some(list_id) = &self.current_list_id {
+                if !self.cached_list_statuses.contains_key(list_id) {
+                    if let Some(client) = self.client.clone() {
+                        let list_id = list_id.clone();
+                        let tx = self.message_tx.clone().unwrap();
+                        self.loading = true;
+                        self.status = "Loading statuses...".to_string();
+                        tokio::spawn(async move {
+                            let result = client.get_list(&list_id).await;
+                            let statuses = result.map(|l| l.statuses);
+                            let msg = AppMessage::ListStatusesLoaded(
+                                list_id,
+                                statuses.map_err(|e| e.to_string()),
+                            );
+                            let _ = tx.send(msg).await;
+                        });
+                    }
                 }
             }
         }
@@ -5307,7 +5335,9 @@ impl TuiApp {
         self.status_picker_open = false;
         self.update_screen_title();
 
-        if let Some(list_id) = &self.current_list_id {
+        if self.screen == Screen::Assigned {
+            self.load_assigned_tasks();
+        } else if let Some(list_id) = &self.current_list_id {
             self.load_tasks(list_id.clone());
         }
         self.status = format!("Filtering: {}", selected.status);
@@ -5319,7 +5349,9 @@ impl TuiApp {
         self.status_filter = None;
         self.status_picker_open = false;
         self.update_screen_title();
-        if let Some(list_id) = &self.current_list_id {
+        if self.screen == Screen::Assigned {
+            self.load_assigned_tasks();
+        } else if let Some(list_id) = &self.current_list_id {
             self.load_tasks(list_id.clone());
         }
         self.status = "Status filter cleared".to_string();
@@ -5810,7 +5842,9 @@ impl TuiApp {
                 }
             }
             Screen::Assigned => {
-                if self.assigned_tasks.is_empty() {
+                if let Some(status) = &self.status_filter {
+                    generate_screen_title(&format!("Assigned to Me (Status: {})", status))
+                } else if self.assigned_tasks.is_empty() {
                     generate_screen_title("Assigned to Me")
                 } else {
                     generate_screen_title(&format!(

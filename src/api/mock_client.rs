@@ -107,6 +107,8 @@ pub struct MockClickUpClient {
     pub reaction_calls: ReactionCalls,
     /// get_tasks calls recorded as (list_id, filters.statuses)
     pub tasks_call_log: TasksCallLog,
+    /// get_team_tasks_with_assignee calls recorded as (page, statuses)
+    pub team_tasks_call_log: TeamTasksCallLog,
 }
 
 #[allow(dead_code)]
@@ -143,6 +145,7 @@ impl MockClickUpClient {
             comment_reaction_response: None,
             reaction_calls: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             tasks_call_log: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            team_tasks_call_log: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -179,6 +182,11 @@ impl MockClickUpClient {
     /// A handle to this client's get_tasks call log, valid after it moves
     pub fn tasks_call_log_handle(&self) -> TasksCallLog {
         self.tasks_call_log.clone()
+    }
+
+    /// A handle to this client's team-tasks call log, valid after it moves
+    pub fn team_tasks_call_log_handle(&self) -> TeamTasksCallLog {
+        self.team_tasks_call_log.clone()
     }
 
     /// Record one reaction call and return the configured outcome
@@ -365,6 +373,8 @@ impl MockClickUpClient {
 pub type ReactionCalls = std::sync::Arc<std::sync::Mutex<Vec<(String, String, bool)>>>;
 /// Recorded get_tasks calls as (list_id, statuses filter)
 pub type TasksCallLog = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<String>)>>>;
+/// Recorded get_team_tasks_with_assignee calls as (page, statuses filter)
+pub type TeamTasksCallLog = std::sync::Arc<std::sync::Mutex<Vec<(u32, Vec<String>)>>>;
 
 /// Shared handle to the pages requested from the assigned-tasks endpoint.
 pub type AssignedPageLog = std::sync::Arc<std::sync::Mutex<Vec<u32>>>;
@@ -576,9 +586,13 @@ impl ClickUpApi for MockClickUpClient {
         _team_id: &str,
         _user_id: i32,
         page: u32,
+        statuses: Option<Vec<String>>,
     ) -> Result<Vec<Task>> {
         if let Ok(mut log) = self.assigned_page_log.lock() {
             log.push(page);
+        }
+        if let Ok(mut log) = self.team_tasks_call_log.lock() {
+            log.push((page, statuses.unwrap_or_default()));
         }
         if !self.team_tasks_pages.is_empty() {
             return Ok(self

@@ -239,9 +239,10 @@ impl clickdown::api::ClickUpApi for CustomIdOnlyClient {
         team_id: &str,
         user_id: i32,
         page: u32,
+        statuses: Option<Vec<String>>,
     ) -> anyhow::Result<Vec<clickdown::models::Task>> {
         self.inner
-            .get_team_tasks_with_assignee(team_id, user_id, page)
+            .get_team_tasks_with_assignee(team_id, user_id, page, statuses)
             .await
     }
     async fn add_comment_reaction(&self, comment_id: &str, reaction: &str) -> anyhow::Result<()> {
