@@ -1,6 +1,6 @@
 //! Regression tests for the three reported comment issues:
 //! 1. A new-task form must not show the previously viewed task's comments.
-//! 2. The empty-comments placeholder names the real key (SPACEmenu c n).
+//! 2. The empty-comments placeholder tells the user to press SPACE, then c n.
 //! 3. The last reply in a thread stays visible when the parent comment is
 //!    very long: auto-scroll shows the selected comment's whole block.
 
@@ -120,7 +120,7 @@ fn empty_comments_placeholder_mentions_the_real_binding() {
     );
     assert!(
         body.contains("c n"),
-        "placeholder should name the SPACEmenu c n chord:\n{}",
+        "placeholder should tell the user to press SPACE and name the c n chord:\n{}",
         body
     );
 }

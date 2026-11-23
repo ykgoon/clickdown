@@ -5,7 +5,7 @@ Command keys (`n`, `e`, `d`, `a`, `s`, `u`, `v`, `r`, `A`) currently fire direct
 ## What Changes
 
 - **Modified**: Single-key command bindings removed from NORMAL mode; commands are only reachable via `SPACE <group> <key>`
-- **Extended SPACEmenu groups**:
+- **Extended command menu groups**:
   - `SPC g`: `g u` navigate to URL
   - `SPC t`: `t n` new task, `t e` edit task, `t d` delete task, `t s` change status, `t a` assign people, `t f` toggle assigned-to-me filter, `t v` expand/collapse description
   - `SPC c` (new): `c n` new comment, `c e` edit comment, `c r` reply in thread, `c v` expand/collapse comments

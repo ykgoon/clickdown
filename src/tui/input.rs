@@ -13,7 +13,7 @@ pub enum InputEvent {
     None,
 }
 
-// Quit is now the `SPC q` sequence: SPACE opens the transient SPACEmenu
+// Quit is now the `SPC q` sequence: SPACE opens the transient command menu
 // (only in normal mode -- text-input/insert contexts consume SPACE as text),
 // and `q` at the menu root quits immediately (the session is saved on exit).
 // There is deliberately no single-key quit and no confirmation dialog.

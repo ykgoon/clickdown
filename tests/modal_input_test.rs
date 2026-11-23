@@ -77,7 +77,7 @@ fn test_insert_mode_space_is_literal() {
 
 /// SPACE in normal mode opens the command menu, then sub-keys run commands.
 #[test]
-fn test_space_menu_g_u_opens_url_dialog() {
+fn test_command_menu_g_u_opens_url_dialog() {
     let rt = Runtime::new().unwrap();
     let mut app = setup_app(&rt);
 
@@ -93,7 +93,7 @@ fn test_space_menu_g_u_opens_url_dialog() {
     app.update(key('u'));
     assert!(
         app.url_input_open_for_test(),
-        "'g u' from SPACEmenu should open the URL dialog"
+        "'g u' from the command menu should open the URL dialog"
     );
     assert!(!app.command_menu_open_for_test(), "menu should close after command");
 }

@@ -1754,7 +1754,7 @@ fn test_delete_task_empty_response_fails_to_parse() {
     });
 }
 
-/// SPACEmenu minibuffer: Esc at a group level walks back to the root menu
+/// Command menu minibuffer: Esc at a group level walks back to the root menu
 /// (Doom-style hierarchy), instead of closing the whole menu.
 #[test]
 fn test_spc_menu_esc_at_group_returns_to_root() {
@@ -1803,7 +1803,7 @@ fn test_spc_menu_esc_at_group_returns_to_root() {
     });
 }
 
-/// SPACEmenu minibuffer: every root group key has a single-key display,
+/// Command menu minibuffer: every root group key has a single-key display,
 /// and unknown group keys close the menu with feedback (one key per level).
 #[test]
 fn test_spc_menu_root_keys_enter_groups() {

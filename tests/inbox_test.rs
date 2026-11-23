@@ -24,7 +24,7 @@ fn key(c: char) -> InputEvent {
 /// `SPC i d` — dismiss the highlighted inbox item.
 ///
 /// Dismissing is not a bare key: it lives in the contextual Inbox group of the
-/// SPACEmenu, which only exists while the inbox screen is open.
+/// command menu, which only exists while the inbox screen is open.
 fn dismiss_chord() -> Vec<InputEvent> {
     vec![key(' '), key('i'), key('d')]
 }
@@ -519,7 +519,7 @@ fn test_double_esc_from_inbox_keeps_pinned_entries() {
     assert!(matches!(items.get(1), Some(SidebarItem::AssignedToMe)));
 }
 
-/// The dismiss action is only reachable through the SPACEmenu, and only on the
+/// The dismiss action is only reachable through the command menu, and only on the
 /// inbox screen: a contextual Inbox group, not a bare key.
 #[test]
 fn test_dismiss_lives_in_contextual_inbox_group() {

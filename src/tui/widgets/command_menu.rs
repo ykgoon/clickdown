@@ -1,6 +1,7 @@
-//! SPACEmenu Doom-style minibuffer (issue 7) and @mention picker overlay (issue 6)
+//! Command menu (Doom-style minibuffer, opened with SPACE) and the @mention
+//! picker overlay (issue 6)
 //!
-//! The SPACEmenu is docked to the bottom edge of the screen (echo-area style).
+//! The command menu is docked to the bottom edge of the screen (echo-area style).
 //! Each menu level displays exactly the single key the user presses at that
 //! level: the root lists group keys (`g t c y w q`); selecting a group shows
 //! that group's action keys (`n e s d ...`) with descriptions. Two-key chords
@@ -17,7 +18,7 @@ use ratatui::{
 };
 
 // ============================================================================
-// SPACEmenu minibuffer (Doom-style bottom-edge menu)
+// Command menu minibuffer (Doom-style bottom-edge menu)
 // ============================================================================
 
 /// One selectable group in the root minibuffer row.
@@ -165,7 +166,7 @@ fn minibuffer_hint(group: Option<(&'static str, char)>, esc_verb: &str) -> Line<
     ])
 }
 
-/// Render the SPACEmenu as a Doom-style minibuffer docked to the bottom edge.
+/// Render the command menu as a Doom-style minibuffer docked to the bottom edge.
 ///
 /// Each level shows exactly the key(s) the user can press at that level:
 /// Root lists group keys; a group level lists that group's action keys.

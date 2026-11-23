@@ -243,10 +243,10 @@ fn render_comment_list(
         if area.height >= 1 && area.width >= 15 {
             let empty_msg = match view_mode {
                 CommentViewMode::TopLevel => {
-                    "No comments yet. Add one with SPACEmenu, then 'c n'."
+                    "No comments yet. Press SPACE, then 'c n' to add one."
                 }
                 CommentViewMode::InThread { .. } => {
-                    "No replies yet. Open the menu, then 'c r'."
+                    "No replies yet. Press SPACE, then 'c r' to reply."
                 }
             };
             let paragraph =

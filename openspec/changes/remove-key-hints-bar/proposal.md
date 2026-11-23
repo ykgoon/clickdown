@@ -1,6 +1,6 @@
 ## Why
 
-The bottom status bar currently renders a command-key hint bar (`j/k: Navigate | Enter: Select | ...`). With all command keys moving behind the SPACEmenu (see `space-command-menu`), the hint bar is redundant, consumes two extra terminal rows, and rots quickly. Users discover commands via `SPACE` instead.
+The bottom status bar currently renders a command-key hint bar (`j/k: Navigate | Enter: Select | ...`). With all command keys moving behind the command menu (see `space-command-menu`), the hint bar is redundant, consumes two extra terminal rows, and rots quickly. Users discover commands via `SPACE` instead.
 
 ## What Changes
 

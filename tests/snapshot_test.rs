@@ -1579,7 +1579,7 @@ fn snapshot_navigation_root_assigned_entry() {
 }
 
 // ============================================================================
-// SPACEmenu Doom-style minibuffer (bottom edge, one key per level)
+// Command menu Doom-style minibuffer (bottom edge, one key per level); SPACE opens it.
 // ============================================================================
 
 /// Root minibuffer: one row of color-coded group columns + separator + hint.

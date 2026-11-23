@@ -226,6 +226,9 @@ ClickDown automatically saves your navigation state when you exit and restores i
 
 ## Keyboard Shortcuts
 
+`SPC` in the tables below is the space bar: press `SPACE`
+to open the command menu, then the keys shown.
+
 ### Navigation
 
 | Key | Action |
@@ -275,9 +278,9 @@ no undo).
 | `e` | Edit selected item |
 | `d` | Delete selected item |
 
-### SPACEmenu Groups
+### Command Menu Groups
 
-`SPC` opens the command menu. Groups are contextual: `Inbox` only appears while
+Press `SPACE` to open the command menu. Groups are contextual: `Inbox` only appears while
 the inbox screen is open.
 
 | Chord | Action |

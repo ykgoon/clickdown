@@ -111,7 +111,7 @@ pub enum StatusPickerMode {
     FilterList,
 }
 
-/// Command menu (SPACEmenu) state: which command group is shown.
+/// Command menu state: which command group is shown.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommandMenuLevel {
     /// Root menu: pick a command group
@@ -267,7 +267,7 @@ pub struct TuiApp {
     /// While Some(target), all printable keys are inserted into the target
     /// buffer instead of being interpreted as commands.
     insert_mode_target: Option<InsertTarget>,
-    /// Command menu (SPACEmenu) state: None = closed
+    /// Command menu state: None = closed
     command_menu: Option<CommandMenuLevel>,
 
     /// Full-screen expansion state (issue 5): which panel is expanded
@@ -470,7 +470,7 @@ impl TuiApp {
 
     // ==================== Vim-style modal input engine (issue 7) ====================
 
-    /// Open the SPACEmenu command overlay (normal mode only)
+    /// Open the command menu overlay (SPACE, normal mode only)
     fn open_command_menu(&mut self) {
         self.command_menu = Some(CommandMenuLevel::Root);
     }
@@ -719,9 +719,9 @@ impl TuiApp {
         }
     }
 
-    // ==================== SPACEmenu command overlay (issue 7) ====================
+    // ==================== Command menu overlay (SPACE, issue 7) ====================
 
-    /// Toggle an expanded panel (SPACEmenu `t v` / `c v`).
+    /// Toggle an expanded panel (menu `t v` / `c v`).
 /// If the same panel is already expanded it is restored; otherwise it replaces any current expansion.
 pub fn toggle_expanded_panel(&mut self, panel: ExpandedPanel) {
     if self.expanded_panel == Some(panel) {
@@ -856,7 +856,7 @@ pub fn toggle_expanded_panel(&mut self, panel: ExpandedPanel) {
         self.description_scroll_offset = self.description_scroll_offset.saturating_sub(n);
     }
 
-/// Start composing a comment/reply in INSERT mode (SPACEmenu `c n/e/r`).
+/// Start composing a comment/reply in INSERT mode (press SPACE, then `c n/e/r`).
 fn start_comment_compose(&mut self, kind: ComposeKind) {
     if self.screen != Screen::TaskDetail {
         self.status = "Comments live in task detail".to_string();
@@ -877,7 +877,7 @@ fn start_comment_compose(&mut self, kind: ComposeKind) {
         }
         ComposeKind::Edit => {
             if !self.comment_focus {
-                self.status = "Tab to comments, then SPC c e".to_string();
+                self.status = "Tab to comments, then press SPACE, 'c e' to edit".to_string();
                 return;
             }
             if self.comments.is_empty()
@@ -896,7 +896,8 @@ fn start_comment_compose(&mut self, kind: ComposeKind) {
         }
         ComposeKind::Reply => {
             if !matches!(self.comment_view_mode, CommentViewMode::InThread { .. }) {
-                self.status = "Enter a thread first (Enter on a comment), then SPC c r".to_string();
+                self.status =
+                    "Enter a thread first (Enter on a comment), then press SPACE, 'c r'".to_string();
                 return;
             }
             self.comment_new_text.clear();
@@ -1109,11 +1110,11 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
                         }
                     }
                     ('y', KeyCode::Char('u')) => {
-                        tracing::debug!("Copy URL via SPACEmenu (y u)");
+                        tracing::debug!("Copy URL via command menu (SPC y u)");
                         self.copy_url();
                     }
                     ('y', KeyCode::Char('c')) => {
-                        tracing::debug!("Copy focused content via SPACEmenu (y c)");
+                        tracing::debug!("Copy focused content via command menu (SPC y c)");
                         self.copy_focused_content();
                     }
                     ('w', KeyCode::Char('s')) => {
@@ -1619,7 +1620,7 @@ fn handle_command_menu_input(&mut self, key: crossterm::event::KeyEvent) {
         self.command_menu.is_some()
     }
 
-    /// Current SPACEmenu level (for testing)
+    /// Current command menu level (for testing)
     #[allow(dead_code)]
     pub fn command_menu_level_for_test(&self) -> Option<CommandMenuLevel> {
         self.command_menu.clone()
@@ -2143,120 +2144,13 @@ impl TuiApp {
     /// Create a new TUI app with a custom client (for testing)
     #[allow(dead_code)]
     pub fn with_client(client: Arc<dyn ClickUpApi>) -> Result<Self> {
-        let cache = CacheManager::new(ConfigManager::database_path()?)?;
-        let auth = AuthManager::new().unwrap_or_default();
-
-        // Create channel for async messages
-        let (message_tx, message_rx) = mpsc::channel(32);
-
-        let app = Self {
-            screen: Screen::Workspaces,
-            state: AppState::Main,
-            client: Some(client),
-            cache,
-            auth,
-            error: None,
-            loading: false,
-            sidebar: SidebarState::new(),
-            task_list: GroupedTaskList::new(),
-            task_detail: TaskDetailState::new(),
-            auth_state: AuthState::new(),
-            auth_invalid: false,
-            manage_stored_token: false,
-            document: DocumentState::new(),
-            dialog: DialogState::new(),
-            screen_title: generate_screen_title("Workspaces"),
-            status: String::new(),
-            workspaces: Vec::new(),
-            spaces: Vec::new(),
-            folders: Vec::new(),
-            lists: Vec::new(),
-            tasks: Vec::new(),
-            documents: Vec::new(),
-            comments: Vec::new(),
-            comment_selected_index: 0,
-            comment_editing_index: None,
-            comment_new_text: String::new(),
-            comment_cursor: 0,
-            comment_focus: false,
-            comment_pane_scroll: 0,
-            comment_view_mode: CommentViewMode::TopLevel,
-            comment_previous_selection: None,
-            pending_comment_selection: None,
-            pending_task_selection: None,
-            refresh_reloading_comments: false,
-            task_name_input: String::new(),
-            task_name_cursor: 0,
-            task_description_input: String::new(),
-            task_description_cursor: 0,
-            task_creating: false,
-            insert_mode_target: None,
-            command_menu: None,
-            expanded_panel: None,
-            description_edit_buffer: String::new(),
-            description_edit_cursor: 0,
-            description_scroll_offset: 0,
-            mention_members: Vec::new(),
-            mention_cursor: 0,
-            mention_picker_open: false,
-            mention_prev_target: None,
-            mention_query: String::new(),
-            mention_at: None,
-            mention_registry: Vec::new(),
-            task_creation_focus: TaskCreationField::Name,
-            assigned_filter_active: false,
-            current_team_id: None,
-            assigned_tasks: Vec::new(),
-            assigned_page_in_flight: None,
-            assigned_loading: false,
-            task_origin_screen: Screen::Tasks,
-            inbox_tasks: Vec::new(),
-            inbox_read_ids: std::collections::HashSet::new(),
-            inbox_dismissed_ids: std::collections::HashSet::new(),
-            inbox_selected: 0,
-            inbox_loading: false,
-            current_user_id: None,
-            cached_list_members: std::collections::HashMap::new(),
-            mention_members_list_id: None,
-            cached_list_statuses: std::collections::HashMap::new(),
-            assignee_picker_open: false,
-            assignee_picker_members: Vec::new(),
-            assignee_picker_selected: std::collections::HashSet::new(),
-            assignee_picker_original: std::collections::HashSet::new(),
-            assignee_picker_cursor: 0,
-            status_picker_open: false,
-            status_picker_statuses: Vec::new(),
-            status_picker_cursor: 0,
-            status_picker_original_status: None,
-            status_picker_task_id: None,
-            status_filter: None,
-            status_picker_mode: StatusPickerMode::ChangeTask,
-            pending_delete_task_id: None,
-            message_rx: Some(message_rx),
-            message_tx: Some(message_tx.clone()),
-            clipboard: ClipboardService::new(),
-            url_copy_status: None,
-            url_copy_status_time: None,
-            current_workspace_id: None,
-            current_space_id: None,
-            current_folder_id: None,
-            current_list_id: None,
-            restoring_session: false,
-            restored_workspace_id: None,
-            restored_space_id: None,
-            restored_folder_id: None,
-            restored_list_id: None,
-            restored_task_id: None,
-            chord_leader_pending: None,
-            url_input_open: false,
-            url_input_text: String::new(),
-            url_input_error: None,
-            url_input_cursor: 0,
-            navigating: false,
-            navigating_level: String::new(),
-        };
-
-        Ok(app)
+        // Delegate so each app gets its own temporary database file.
+        //
+        // This used to open `ConfigManager::database_path()`, i.e. the user's
+        // real cache.db. cargo runs test binaries in parallel, so dozens of
+        // tests opened one shared SQLite file and intermittently failed with
+        // "database is locked". Tests must never touch the real user cache.
+        Self::with_client_and_test_cache(client)
     }
 
     /// Create a new TUI app with a custom client and in-memory cache (for testing)
@@ -2279,6 +2173,49 @@ impl TuiApp {
 
         // Remove existing file if present
         let _ = std::fs::remove_file(&db_path);
+
+        // Sweep databases left behind by earlier runs. Each app instance gets
+        // its own file, so a full suite creates hundreds per process and they
+        // would sit in the temp dir forever. The pid is part of the name, so
+        // anything whose owning process is gone is safe to delete.
+        use std::sync::Once;
+        static SWEEP: Once = Once::new();
+        SWEEP.call_once(|| {
+            let Ok(entries) = std::fs::read_dir(env::temp_dir()) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else { continue };
+                let Some(rest) = name.strip_prefix("clickdown_test_") else {
+                    continue;
+                };
+                let Some((pid, _)) = rest.split_once('_') else {
+                    continue;
+                };
+                let Ok(pid) = pid.parse::<u32>() else { continue };
+                if pid == std::process::id() {
+                    continue; // ours: still in use
+                }
+                let owner_alive = if std::path::Path::new("/proc").is_dir() {
+                    // Linux: the pid is authoritative.
+                    std::path::Path::new(&format!("/proc/{pid}")).exists()
+                } else {
+                    // Elsewhere fall back to age: only reclaim clearly old files.
+                    entry
+                        .metadata()
+                        .ok()
+                        .and_then(|meta| meta.modified().ok())
+                        .and_then(|modified| modified.elapsed().ok())
+                        .map(|age| age < std::time::Duration::from_secs(3600))
+                        .unwrap_or(false)
+                };
+                if owner_alive {
+                    continue;
+                }
+                let _ = std::fs::remove_file(entry.path());
+            }
+        });
 
         let cache = CacheManager::new(db_path)?;
         let auth = AuthManager::new().unwrap_or_default();
@@ -3642,7 +3579,7 @@ impl TuiApp {
             return;
         }
 
-        // SPACEmenu command overlay (issue 7)
+        // Command menu overlay (SPACE, issue 7)
         if self.command_menu.is_some() {
             if let InputEvent::Key(key) = event {
                 self.handle_command_menu_input(key);
@@ -3718,7 +3655,7 @@ impl TuiApp {
                 return;
             }
 
-            // SPACE opens the command menu (Spacemacs-style SPACEmenu)
+            // SPACE opens the command menu (Spacemacs-style)
             if key.code == KeyCode::Char(' ') && self.screen != Screen::Auth {
                 self.open_command_menu();
                 return;
@@ -6187,7 +6124,7 @@ impl TuiApp {
         };
         layout.render_status(frame, &status);
 
-        // Render SPACEmenu minibuffer LAST so it docks over the bottom
+        // Render the command menu minibuffer LAST so it docks over the bottom
         // edge (including the status line), Doom echo-area style (issue 7).
         // Each level displays only the single key to press at that level.
         if self.command_menu.is_some() {
@@ -7662,13 +7599,13 @@ mod tests {
         app.set_screen(Screen::Tasks);
         app.current_list_id = Some("test-list-1".to_string());
 
-        // Direct 'n' key must no longer trigger anything (SPACEmenu-only commands)
+        // Direct 'n' key must no longer trigger anything (menu-only commands)
         let n_key = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
         app.update(InputEvent::Key(n_key));
         assert_eq!(app.screen, Screen::Tasks, "direct n must not open creation");
         assert!(!app.task_creating, "direct n must not set task_creating");
 
-        // SPACEmenu: SPACE, t, n
+        // Command menu: SPACE, t, n
         app.update(InputEvent::Key(KeyEvent::new(
             KeyCode::Char(' '),
             KeyModifiers::NONE,
@@ -7862,7 +7799,10 @@ mod tests {
             KeyCode::Char(' '),
             KeyModifiers::NONE,
         )));
-        assert!(app.command_menu.is_some(), "SPACE must open SPACEmenu");
+        assert!(
+            app.command_menu.is_some(),
+            "SPACE must open the command menu"
+        );
 
         app.update(InputEvent::Key(KeyEvent::new(
             KeyCode::Char('h'),
@@ -7870,7 +7810,7 @@ mod tests {
         )));
         assert!(
             app.command_menu.is_none(),
-            "SPACEmenu must close on an unknown group key"
+            "command menu must close on an unknown group key"
         );
         assert_eq!(app.status(), "No command group 'h'");
         assert_eq!(app.screen, Screen::Workspaces, "no overlay opened");
@@ -8069,14 +8009,14 @@ mod tests {
         app.screen = Screen::Tasks;
         app.current_list_id = Some("list-1".to_string());
 
-        // Direct 'e' key must no longer trigger anything (SPACEmenu-only commands)
+        // Direct 'e' key must no longer trigger anything (menu-only commands)
         app.update(InputEvent::Key(KeyEvent::new(
             KeyCode::Char('e'),
             KeyModifiers::NONE,
         )));
         assert_eq!(app.screen, Screen::Tasks, "direct e must not open editor");
 
-        // SPACEmenu: SPACE, t, e
+        // Command menu: SPACE, t, e
         app.update(InputEvent::Key(KeyEvent::new(
             KeyCode::Char(' '),
             KeyModifiers::NONE,
@@ -8136,7 +8076,7 @@ mod tests {
     }
 
     #[test]
-    fn test_space_menu_direct_command_keys_are_noops_in_normal_mode() {
+    fn test_command_menu_direct_command_keys_are_noops_in_normal_mode() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let tasks = vec![make_task("task-1", "Selected")];
         let mock_client = MockClickUpClient::new().with_tasks(tasks.clone());
@@ -8168,7 +8108,10 @@ mod tests {
             KeyCode::Char(' '),
             KeyModifiers::NONE,
         )));
-        assert!(app.command_menu.is_some(), "SPACE must open SPACEmenu");
+        assert!(
+            app.command_menu.is_some(),
+            "SPACE must open the command menu"
+        );
 
         // SPACE inside INPUT mode must not open the menu
         app.command_menu = None;
@@ -8218,7 +8161,7 @@ mod tests {
         );
         assert!(
             app.command_menu.is_none(),
-            "SPACEmenu must close after SPC q"
+            "command menu must close after SPC q"
         );
     }
 
