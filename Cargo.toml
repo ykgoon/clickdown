@@ -1,6 +1,6 @@
 [package]
 name = "clickdown"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "A fast and responsive ClickUp terminal client"
 authors = ["Y.K. Goon"]

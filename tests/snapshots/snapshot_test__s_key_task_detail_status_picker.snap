@@ -25,4 +25,4 @@ expression: snapshot
 │ └──────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
-Select new status (j/k navigate, Enter select, Esc cancel)                v0.3.0
+Select new status (j/k navigate, Enter select, Esc cancel)                v0.3.1
