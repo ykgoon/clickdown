@@ -144,6 +144,31 @@ impl GroupedTaskList {
         self.rows = rows;
     }
 
+    /// Whether `row` can hold the selection.
+    ///
+    /// Task rows always can. A header can only when its group is folded: an
+    /// unfolded header always has task rows directly below it, so j/k walking
+    /// past it costs nothing, while a folded header is the *only* row its
+    /// group contributes. Skipping those made a folded group unreachable, so it
+    /// could never be unfolded again (reported bug).
+    fn is_focusable(&self, row: &ListRow) -> bool {
+        match row {
+            ListRow::Task(_) => true,
+            ListRow::Header { group_name, .. } => self.folded.contains(group_name),
+        }
+    }
+
+    /// Index of the nearest focusable row at or after `from`, else at or before.
+    fn focusable_from(&self, from: usize) -> Option<usize> {
+        if self.rows.is_empty() {
+            return None;
+        }
+        let start = from.min(self.rows.len() - 1);
+        (start..self.rows.len())
+            .find(|&i| self.is_focusable(&self.rows[i]))
+            .or_else(|| (0..start).rev().find(|&i| self.is_focusable(&self.rows[i])))
+    }
+
     /// Record the visible row count from the latest render (page size).
     pub fn set_viewport_height(&mut self, height: usize) {
         if height > 0 {
@@ -156,8 +181,10 @@ impl GroupedTaskList {
         self.viewport_height.max(1)
     }
 
-    /// Move selection down by roughly one page, skipping header rows.
-    /// Does not wrap: stops at the last task row.
+    /// Move selection down by roughly one page.
+    ///
+    /// Does not wrap: stops at the last focusable row. Movement counts
+    /// focusable rows, so a folded group's header is one stop like any task.
     pub fn select_next_page(&mut self) {
         if self.rows.is_empty() {
             return;
@@ -167,19 +194,19 @@ impl GroupedTaskList {
         let mut moved = 0usize;
         while moved < self.page_size() && target + 1 < self.rows.len() {
             target += 1;
-            if matches!(self.rows[target], ListRow::Task(_)) {
+            if self.is_focusable(&self.rows[target]) {
                 moved += 1;
             }
         }
-        // Ensure final target is a task row (skip trailing headers)
-        while target + 1 < self.rows.len() && !matches!(self.rows[target], ListRow::Task(_)) {
-            target += 1;
+        // Land on a focusable row, never a transparent header.
+        if let Some(i) = self.focusable_from(target) {
+            self.list.select(Some(i));
         }
-        self.list.select(Some(target));
     }
 
-    /// Move selection up by roughly one page, skipping header rows.
-    /// Does not wrap: stops at the first task row.
+    /// Move selection up by roughly one page.
+    ///
+    /// Does not wrap: stops at the first focusable row.
     pub fn select_previous_page(&mut self) {
         if self.rows.is_empty() {
             return;
@@ -189,17 +216,23 @@ impl GroupedTaskList {
         let mut moved = 0usize;
         while moved < self.page_size() && target > 0 {
             target -= 1;
-            if matches!(self.rows[target], ListRow::Task(_)) {
+            if self.is_focusable(&self.rows[target]) {
                 moved += 1;
             }
         }
-        while target > 0 && !matches!(self.rows[target], ListRow::Task(_)) {
+        // Walk back to a focusable row if the landing point was a header.
+        while target > 0 && !self.is_focusable(&self.rows[target]) {
             target -= 1;
         }
-        self.list.select(Some(target));
+        if self.is_focusable(&self.rows[target]) {
+            self.list.select(Some(target));
+        }
     }
 
-    /// Move selection to the next task row, skipping header rows.
+    /// Move selection to the next focusable row, wrapping.
+    ///
+    /// Focusable means a task row, or the header of a folded group (its tasks
+    /// are hidden, so the header is the group's only row).
     pub fn select_next(&mut self) {
         if self.rows.is_empty() {
             return;
@@ -207,17 +240,16 @@ impl GroupedTaskList {
         let current = self.list.selected().unwrap_or(0);
         let len = self.rows.len();
 
-        // Find next task row, skipping headers, with wrapping
         for offset in 1..=len {
             let next = (current + offset) % len;
-            if matches!(self.rows[next], ListRow::Task(_)) {
+            if self.is_focusable(&self.rows[next]) {
                 self.list.select(Some(next));
                 return;
             }
         }
     }
 
-    /// Move selection to the previous task row, skipping header rows.
+    /// Move selection to the previous focusable row, wrapping.
     pub fn select_previous(&mut self) {
         if self.rows.is_empty() {
             return;
@@ -225,27 +257,23 @@ impl GroupedTaskList {
         let current = self.list.selected().unwrap_or(0);
         let len = self.rows.len();
 
-        // Find previous task row, skipping headers, with wrapping
         for offset in 1..=len {
             let prev = if current >= offset {
                 current - offset
             } else {
                 len - (offset - current)
             };
-            if matches!(self.rows[prev], ListRow::Task(_)) {
+            if self.is_focusable(&self.rows[prev]) {
                 self.list.select(Some(prev));
                 return;
             }
         }
     }
 
-    /// Select the first task row, skipping header rows.
+    /// Select the first focusable row (a task, or a folded group's header).
     pub fn select_first(&mut self) {
-        for (i, row) in self.rows.iter().enumerate() {
-            if matches!(row, ListRow::Task(_)) {
-                self.list.select(Some(i));
-                return;
-            }
+        if let Some(i) = self.focusable_from(0) {
+            self.list.select(Some(i));
         }
     }
 

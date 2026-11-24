@@ -409,6 +409,15 @@ gets identical ordering for free. Ordering lives in
 `GroupedTaskList::from_tasks_with_folds` alone — callers must not pre-sort, or
 the second sort silently wins.
 
+### Folded groups stay navigable
+j/k and paging move between *focusable* rows, not task rows:
+`GroupedTaskList::is_focusable` accepts any task, plus the header of a folded
+group. Unfolded headers remain transparent because their tasks sit directly
+below them, but a folded header is the only row its group contributes — skipping
+it made the group unreachable and therefore impossible to unfold again
+(reported bug). Anything that navigates the list must go through
+`is_focusable`/`focusable_from` rather than matching `ListRow::Task` directly.
+
 ### Completed ✅
 - Workspace navigation hierarchy
 - Task list viewing with status/priority indicators

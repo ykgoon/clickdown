@@ -268,6 +268,7 @@ keypress cannot hide an item (dismissal is local and has no undo).
 |-----|--------|
 | `Tab` | Focus the selected task's status group |
 | `Tab` (on focused status) | Fold/unfold the status group (hides/shows its tasks) |
+| `j` / `k` | Move between rows; a folded group's header is one stop, so a folded group can always be reached and unfolded again |
 | `SPC t f` | Open the filter menu (assigned to me, by status, clear all) |
 | `SPC t f` → `f` | Narrow the list to tasks assigned to you |
 | `SPC t f` → `s` | Narrow the list by status (Space ticks several, Enter applies) |
