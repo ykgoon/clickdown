@@ -379,22 +379,6 @@ pub fn filter_frame_title(assigned_active: bool, statuses: &[String]) -> String 
     }
 }
 
-/// One-line summary of the active filters, or `None` when nothing is filtered.
-pub fn filter_summary(assigned_active: bool, statuses: &[String]) -> Option<String> {
-    let mut parts: Vec<String> = Vec::new();
-    if assigned_active {
-        parts.push("assigned to me".to_string());
-    }
-    if !statuses.is_empty() {
-        parts.push(format!("status: {}", statuses.join(", ")));
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(format!("Filtered by {}  ·  SPC t f to change", parts.join(", ")))
-    }
-}
-
 pub fn render_task_list(
     frame: &mut Frame,
     state: &GroupedTaskList,
@@ -415,47 +399,8 @@ pub fn render_task_list(
         return;
     }
 
-    // Reserve a row for the filter bar so the applied filters are visible in
-    // the frame rather than left to be guessed at.
-    let summary = filter_summary(assigned_active, statuses);
-    let (bar_area, list_area) = match summary {
-        Some(_) if area.height > 3 => {
-            let bar = Rect {
-                x: area.x,
-                y: area.y,
-                width: area.width,
-                height: 1,
-            };
-            (
-                Some(bar),
-                Rect {
-                    x: area.x,
-                    y: area.y + 1,
-                    width: area.width,
-                    height: area.height - 1,
-                },
-            )
-        }
-        _ => (None, area),
-    };
-
-    if let (Some(bar), Some(text)) = (bar_area, summary.as_ref()) {
-        let para = ratatui::widgets::Paragraph::new(Line::from(vec![
-            Span::styled(
-                " \u{25b8} ",
-                Style::default().fg(Theme::WARNING),
-            ),
-            Span::styled(
-                text.as_str(),
-                Style::default()
-                    .fg(Theme::SUCCESS)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]))
-        .style(Style::default().bg(Theme::BACKGROUND));
-        frame.render_widget(para, bar);
-    }
-
+    // The frame title already names the active filters, so the rows start at
+    // the top of the frame instead of below a duplicate banner.
     let items: Vec<ListItem> = state
         .rows()
         .iter()
@@ -496,7 +441,7 @@ pub fn render_task_list(
         )
         .highlight_symbol("▸ ");
 
-    frame.render_stateful_widget(list, list_area, &mut state.state().clone());
+    frame.render_stateful_widget(list, area, &mut state.state().clone());
 }
 
 #[cfg(test)]

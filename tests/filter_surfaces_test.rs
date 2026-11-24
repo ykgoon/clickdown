@@ -12,7 +12,7 @@ use clickdown::models::EntityRef;
 use clickdown::models::Task;
 use clickdown::tui::app::{Screen, TuiApp};
 use clickdown::tui::input::InputEvent;
-use clickdown::tui::widgets::task_list::{filter_frame_title, filter_summary};
+use clickdown::tui::widgets::task_list::filter_frame_title;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -213,21 +213,9 @@ fn frame_title_shows_active_filters() {
     assert!(both.contains("Status: To Do, Done"), "got {both:?}");
 }
 
-/// The one-line banner summarises filters and names the key to change them.
-#[test]
-fn filter_summary_describes_state() {
-    assert_eq!(filter_summary(false, &[]), None, "no filters, no banner");
-
-    let s = filter_summary(true, &[]).expect("banner for assigned filter");
-    assert!(s.contains("assigned to me"), "got {s:?}");
-    assert!(s.contains("SPC t f"), "should point at the menu, got {s:?}");
-
-    let s = filter_summary(false, &["Review".to_string()]).expect("banner for status");
-    assert!(s.contains("status: Review"), "got {s:?}");
-}
-
-/// Both surfaces render the filter banner, so the applied filters are visible
-/// in the task-list frame rather than inferred from a shorter list.
+/// Both surfaces show the active filters in the frame title only. The old
+/// banner row repeated the same information above the rows and cost a line of
+/// list space, so it must not come back.
 #[test]
 fn rendered_frame_shows_filters_in_both_surfaces() {
     let rt = Runtime::new().unwrap();
@@ -243,13 +231,13 @@ fn rendered_frame_shows_filters_in_both_surfaces() {
             "{surface:?}: the frame must show the active filter, got:\n{rendered}"
         );
         assert!(
-            rendered.contains("SPC t f"),
-            "{surface:?}: the frame should say how to change filters"
+            !rendered.contains("Filtered by"),
+            "{surface:?}: the redundant filter banner must be gone, got:\n{rendered}"
         );
     }
 }
 
-/// With no filters the frame carries no filter banner, so it is not noise.
+/// With no filters the frame title stays bare and no banner appears.
 #[test]
 fn unfiltered_frame_has_no_banner() {
     let rt = Runtime::new().unwrap();

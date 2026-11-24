@@ -427,8 +427,9 @@ the second sort silently wins.
     in Assigned to Me it goes to the workspace query, which accepts the same
     parameter, so filtering stays server-side across pages instead of hiding
     rows from the page already fetched
-  - Applied filters are shown in the task-list frame: the frame title carries
-    them and a banner above the rows names them plus `SPC t f`
+  - Applied filters are shown in the task-list frame title (e.g.
+    ` Tasks — Status: Review `). There is no separate banner row: it repeated
+    the same text and cost a line of list space
   - Tests for filtering live in tests/filter_surfaces_test.rs and run every
     case against both the default task list and Assigned to Me
   - Options are ordered by each status's configured `orderindex`, so the
