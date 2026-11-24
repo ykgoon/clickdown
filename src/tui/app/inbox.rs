@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// Whether the Inbox entry is offered at the navigation root.
+///
+/// Currently `false`: the inbox entries are not useful yet, so the entry is
+/// hidden rather than shown empty or misleading. Everything behind it (screen,
+/// fetch, read/dismiss tracking, the contextual menu group) is still wired up
+/// and tested, so flipping this back to `true` restores the feature without
+/// touching the navigation code.
+pub const INBOX_VISIBLE: bool = false;
+
 impl TuiApp {
 
     /// Start (or restart) the inbox fetch for the current workspace.

@@ -62,18 +62,14 @@ fn test_assigned_entry_is_at_navigation_root() {
     let mut app = root_app(&rt, client);
     let items = app.sidebar().items().to_vec();
 
+    // The Inbox entry is hidden for now, so Assigned leads the root.
     assert!(
-        matches!(items.first(), Some(SidebarItem::Inbox { .. })),
-        "the Inbox entry sits above Assigned at the root, got: {:?}",
+        matches!(items.first(), Some(SidebarItem::AssignedToMe)),
+        "the Assigned entry must lead the navigation root, got: {:?}",
         items
     );
     assert!(
-        matches!(items.get(1), Some(SidebarItem::AssignedToMe)),
-        "the Assigned entry must follow the Inbox entry, got: {:?}",
-        items
-    );
-    assert!(
-        matches!(items.get(2), Some(SidebarItem::Workspace { .. })),
+        matches!(items.get(1), Some(SidebarItem::Workspace { .. })),
         "workspaces must follow the Assigned entry"
     );
 }

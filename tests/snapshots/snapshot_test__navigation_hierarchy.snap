@@ -1,15 +1,14 @@
 ---
 source: tests/snapshot_test.rs
-assertion_line: 1106
 expression: combined_snapshot
 ---
 === Level 1: Workspaces (Down) ===
 ┌ Navigation ──────────────────────────┐
-│▸ Inbox                               │
-│  Assigned to Me                      │
+│▸ Assigned to Me                      │
 │  Engineering                         │
 │  Marketing                           │
 │  Design                              │
+│                                      │
 │                                      │
 │                                      │
 │                                      │
@@ -141,11 +140,11 @@ expression: combined_snapshot
 
 === Level 9: Workspaces (Up) ===
 ┌ Navigation ──────────────────────────┐
-│  Inbox                               │
 │  Assigned to Me                      │
 │▸ Engineering                         │
 │  Marketing                           │
 │  Design                              │
+│                                      │
 │                                      │
 │                                      │
 │                                      │

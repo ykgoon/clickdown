@@ -97,19 +97,23 @@ fn root_app(rt: &Runtime, client: MockClickUpClient) -> TuiApp {
     app
 }
 
+/// Enter the inbox directly. The root entry is currently hidden, so tests must
+/// not go through the sidebar row; the screen and its behaviour still ship.
 fn open_inbox(rt: &Runtime, app: &mut TuiApp) {
     let _guard = rt.enter();
-    app.sidebar().select_by_id("inbox");
-    app.navigate_into();
+    app.open_inbox_for_test();
     for _ in 0..2 {
         rt.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(40)).await });
         app.process_async_messages();
     }
 }
 
-/// Inbox sits above Assigned at the navigation root.
+/// The Inbox entry is currently hidden, so the root starts with Assigned.
+///
+/// The feature is gated on `INBOX_VISIBLE`, not deleted: this assertion flips
+/// back to "Inbox first" when the entry is re-enabled.
 #[test]
-fn test_inbox_is_above_assigned_at_root() {
+fn test_inbox_entry_is_hidden_at_root() {
     let rt = Runtime::new().unwrap();
     let client = MockClickUpClient::new()
         .with_workspaces(vec![workspace("ws-1", "Engineering")])
@@ -119,13 +123,15 @@ fn test_inbox_is_above_assigned_at_root() {
     let items = app.sidebar().items().to_vec();
 
     assert!(
-        matches!(items.first(), Some(SidebarItem::Inbox { .. })),
-        "Inbox must be the first root entry, got: {:?}",
+        !items
+            .iter()
+            .any(|item| matches!(item, SidebarItem::Inbox { .. })),
+        "the Inbox entry must not be offered at the root, got: {:?}",
         items
     );
     assert!(
-        matches!(items.get(1), Some(SidebarItem::AssignedToMe)),
-        "Assigned must follow Inbox, got: {:?}",
+        matches!(items.first(), Some(SidebarItem::AssignedToMe)),
+        "Assigned must lead the root while Inbox is hidden, got: {:?}",
         items
     );
 }
@@ -177,9 +183,12 @@ fn test_inbox_ordered_by_most_recent_activity() {
     );
 }
 
-/// The sidebar badge shows the number of unread items.
+/// The unread count that the badge is built from still tracks the listing.
+///
+/// The badge itself has no row to live on while `INBOX_VISIBLE` is `false`, so
+/// this asserts the count the sidebar row would render.
 #[test]
-fn test_sidebar_badge_shows_unread_count() {
+fn test_unread_count_tracks_listing() {
     let rt = Runtime::new().unwrap();
     let client = MockClickUpClient::new()
         .with_workspaces(vec![workspace("ws-1", "Engineering")])
@@ -192,17 +201,11 @@ fn test_sidebar_badge_shows_unread_count() {
     let mut app = root_app(&rt, client);
     open_inbox(&rt, &mut app);
 
-    // All three start unread.
-    let badge = app
-        .sidebar()
-        .items()
-        .iter()
-        .find_map(|item| match item {
-            SidebarItem::Inbox { unread } => Some(*unread),
-            _ => None,
-        })
-        .expect("inbox entry present");
-    assert_eq!(badge, 3, "all three should count as unread initially");
+    assert_eq!(
+        app.inbox_unread_count(),
+        3,
+        "all three should count as unread initially"
+    );
 }
 
 /// Moving through the list marks items read, so the badge decreases.
@@ -380,11 +383,15 @@ fn test_esc_from_inbox_returns_to_root() {
 
     assert_eq!(app.screen(), Screen::Workspaces);
     assert!(
-        matches!(
-            app.sidebar().selected_item(),
-            Some(SidebarItem::Inbox { .. })
-        ),
-        "the inbox entry stays selected at the root"
+        !app.sidebar()
+            .items()
+            .iter()
+            .any(|item| matches!(item, SidebarItem::Inbox { .. })),
+        "the hidden inbox entry must not reappear on Esc"
+    );
+    assert!(
+        app.sidebar().selected_item().is_some(),
+        "the root must still have a valid selection"
     );
 }
 
@@ -419,7 +426,7 @@ fn test_empty_inbox_reports_clear() {
     assert_eq!(app.inbox_unread_count(), 0);
 }
 
-/// The inbox entry never appears below the navigation root.
+/// The inbox entry is not offered anywhere while it is hidden, root included.
 #[test]
 fn test_inbox_absent_below_root() {
     let rt = Runtime::new().unwrap();
@@ -430,7 +437,10 @@ fn test_inbox_absent_below_root() {
 
     let mut app = root_app(&rt, client);
     let _guard = rt.enter();
-    assert!(app.sidebar().select_by_id("inbox"), "present at root");
+    assert!(
+        !app.sidebar().select_by_id("inbox"),
+        "the hidden entry must not be selectable at the root"
+    );
 
     app.sidebar().select_by_id("ws-1");
     app.navigate_into();
@@ -452,11 +462,11 @@ fn space(id: &str, name: &str) -> clickdown::models::ClickUpSpace {
 }
 
 /// Walking into a workspace and back out with Esc must land on the full root
-/// sidebar: the pinned Inbox and Assigned entries plus the workspaces.
+/// sidebar: the pinned Assigned entry plus the workspaces.
 ///
 /// Regression: the Spaces -> Workspaces back path rebuilt the sidebar from
-/// the workspace list alone, so the two pinned entries silently vanished once
-/// the user came back from a workspace.
+/// the workspace list alone, so the pinned entry silently vanished once the
+/// user came back from a workspace.
 #[test]
 fn test_esc_from_spaces_restores_pinned_root_entries() {
     let rt = Runtime::new().unwrap();
@@ -481,12 +491,7 @@ fn test_esc_from_spaces_restores_pinned_root_entries() {
 
     let items = app.sidebar().items().to_vec();
     assert!(
-        matches!(items.first(), Some(SidebarItem::Inbox { .. })),
-        "Inbox must still be pinned after Esc from Spaces, got: {:?}",
-        items
-    );
-    assert!(
-        matches!(items.get(1), Some(SidebarItem::AssignedToMe)),
+        matches!(items.first(), Some(SidebarItem::AssignedToMe)),
         "Assigned must still be pinned after Esc from Spaces, got: {:?}",
         items
     );
@@ -499,8 +504,8 @@ fn test_esc_from_spaces_restores_pinned_root_entries() {
     );
 }
 
-/// Opening the inbox and pressing Esc twice must return to a root sidebar that
-/// still shows both pinned entries, with the inbox entry selected.
+/// Leaving the inbox must return to a root sidebar that keeps the pinned
+/// Assigned entry and does not resurrect the hidden Inbox row.
 #[test]
 fn test_double_esc_from_inbox_keeps_pinned_entries() {
     let rt = Runtime::new().unwrap();
@@ -515,8 +520,14 @@ fn test_double_esc_from_inbox_keeps_pinned_entries() {
     assert_eq!(app.screen(), Screen::Workspaces);
 
     let items = app.sidebar().items().to_vec();
-    assert!(matches!(items.first(), Some(SidebarItem::Inbox { .. })));
-    assert!(matches!(items.get(1), Some(SidebarItem::AssignedToMe)));
+    assert!(matches!(items.first(), Some(SidebarItem::AssignedToMe)));
+    assert!(
+        !items
+            .iter()
+            .any(|item| matches!(item, SidebarItem::Inbox { .. })),
+        "the hidden inbox entry must stay out of the root, got: {:?}",
+        items
+    );
 }
 
 /// The dismiss action is only reachable through the command menu, and only on the

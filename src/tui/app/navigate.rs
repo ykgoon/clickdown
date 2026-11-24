@@ -255,13 +255,18 @@ impl TuiApp {
     ///
     /// The Assigned entry is deliberately only added here: it is a shortcut to
     /// a workspace-wide query, so it makes no sense inside the hierarchy.
+    ///
+    /// The Inbox entry is gated on [`inbox::INBOX_VISIBLE`]: it is hidden while
+    /// the inbox contents are not yet worth surfacing, but stays wired up so
+    /// re-enabling it is a one-line change.
     pub(super) fn root_sidebar_items(&self) -> Vec<SidebarItem> {
-        let mut items = vec![
-            SidebarItem::Inbox {
+        let mut items = Vec::new();
+        if inbox::INBOX_VISIBLE {
+            items.push(SidebarItem::Inbox {
                 unread: self.inbox_unread_count(),
-            },
-            SidebarItem::AssignedToMe,
-        ];
+            });
+        }
+        items.push(SidebarItem::AssignedToMe);
         items.extend(self.workspaces.iter().map(|w| SidebarItem::Workspace {
             name: w.name.clone(),
             id: w.id.clone(),

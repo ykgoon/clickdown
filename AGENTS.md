@@ -478,6 +478,12 @@ the second sort silently wins.
   `CARGO_PKG_VERSION` so it cannot drift from the release
 - Comment operations (view, create, reply, update)
 - CLI debug commands for comment debugging
+- Inbox view (loading, ordering, local read/dismiss tracking, contextual
+  `SPC i d` group). Currently HIDDEN: the root entry is gated on
+  `INBOX_VISIBLE` in `src/tui/app/inbox.rs`, which is `false` because the
+  contents were not useful yet. The screen and its tests still ship, so
+  re-enabling is a one-line flip rather than a re-implementation; tests reach
+  the screen through `open_inbox_for_test` instead of the sidebar row
 
 ### Roadmap 🚧
 - Task filtering and sorting (in Assigned to Me view)

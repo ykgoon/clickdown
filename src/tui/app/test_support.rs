@@ -474,6 +474,15 @@ impl TuiApp {
         self.inbox_tasks.len()
     }
 
+    /// Open the inbox view directly, bypassing the root sidebar entry.
+    ///
+    /// The entry itself is hidden while `INBOX_VISIBLE` is `false`, but the
+    /// screen behind it still ships and is still tested, so tests need a way in
+    /// that does not depend on the (deliberately absent) sidebar row.
+    pub fn open_inbox_for_test(&mut self) {
+        self.open_inbox_view();
+    }
+
     /// Sidebar access for tests that render it directly.
     pub fn sidebar(&mut self) -> &mut SidebarState {
         &mut self.sidebar

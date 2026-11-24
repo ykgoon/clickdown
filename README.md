@@ -17,7 +17,6 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Fast & Native**: Built with Rust and ratatui TUI framework for native terminal performance
 - **Workspace Navigation**: Browse workspaces, spaces, folders, and lists
 - **Task Management**: View, create, edit, and delete tasks
-- **Inbox**: Workspace inbox at the navigation root, showing items that need your attention with an unread count in the sidebar; `Enter` opens the task and `SPC i d` dismisses it (inbox zero, local only)
 - **Assigned to Me**: Workspace-wide section at the navigation root listing every task assigned to you, most recently active first
 - **Filters**: `SPC t f` opens a filter menu for the task list (assigned to you,
   by status, or clear all). Filters compose, apply to Assigned to Me as well,
@@ -243,11 +242,17 @@ to open the command menu, then the keys shown.
 | `Enter` | Select/open item |
 | `Esc` | Go back / Close |
 
-### Inbox
+### Inbox (hidden)
 
-The Inbox entry lives at the navigation root. Dismissing is a menu command, not
-a bare key, so a stray keypress cannot hide an item (dismissal is local and has
-no undo).
+The Inbox view is currently hidden: its contents were not surfacing anything
+useful, so the navigation root no longer offers the entry. The screen, the
+fetch, and the local read/dismiss tracking are all still implemented and
+covered by tests; the entry is gated on `INBOX_VISIBLE` in
+`src/tui/app/inbox.rs` and returns by flipping that to `true`.
+
+While hidden, the key bindings below only apply if you reach the screen (which
+the UI no longer does). Dismissing is a menu command, not a bare key, so a stray
+keypress cannot hide an item (dismissal is local and has no undo).
 
 | Key | Action |
 |-----|--------|
