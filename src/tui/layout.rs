@@ -92,12 +92,28 @@ impl TuiLayout {
     }
 
     /// Render the one-row status message line (no key-hint bar).
+    ///
+    /// The crate version is pinned to the bottom-right corner of the same row.
+    /// Status text is given the remaining width, so a long message is clipped
+    /// before it can run into the version instead of overprinting it.
     pub fn render_status(&self, frame: &mut Frame, status: &str) {
+        let rows = ratatui::layout::Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(1), Constraint::Length(version_width())])
+            .split(self.status_area);
+
         let status_widget = Paragraph::new(Line::from(vec![Span::styled(
             status,
             Style::default().fg(Theme::WARNING),
         )]));
-        frame.render_widget(status_widget, self.status_area);
+        frame.render_widget(status_widget, rows[0]);
+
+        let version_widget = Paragraph::new(Line::from(vec![Span::styled(
+            version_label(),
+            Style::default().fg(Theme::TEXT_DIM),
+        )]))
+        .alignment(ratatui::layout::Alignment::Right);
+        frame.render_widget(version_widget, rows[1]);
     }
 
     /// Render "terminal too small" warning
@@ -114,6 +130,20 @@ impl TuiLayout {
 
         frame.render_widget(warning, self.content_area);
     }
+}
+
+/// Version string shown at the bottom-right of the status row.
+///
+/// Taken from the crate version at compile time, so the indicator cannot drift
+/// from the released binary.
+pub fn version_label() -> String {
+    format!("v{}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Columns the version indicator occupies, including a one-column gutter that
+/// keeps it off the status text.
+pub fn version_width() -> u16 {
+    version_label().chars().count() as u16 + 1
 }
 
 /// Generate screen title based on current context

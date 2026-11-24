@@ -473,7 +473,9 @@ the second sort silently wins.
 - Dark theme TUI with vim-style keyboard navigation (j/k to navigate, Enter to select, Esc to go back)
 - Terminal initialization and cleanup with crossterm
 - Keyboard input handling for forms and navigation
-- Screen titles and status bar with contextual help
+- Screen titles and status bar with contextual help; the crate version is
+  pinned to the bottom-right corner of the status row (`v0.3.0`), read from
+  `CARGO_PKG_VERSION` so it cannot drift from the release
 - Comment operations (view, create, reply, update)
 - CLI debug commands for comment debugging
 

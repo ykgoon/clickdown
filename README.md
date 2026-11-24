@@ -27,6 +27,8 @@ A fast and responsive terminal-based ClickUp client built with Rust.
 - **Session Restore**: Automatically restores your last viewed location on startup
 - **Offline Cache**: SQLite-based caching for instant reloads
 - **Dark Theme**: Easy on the eyes for extended use
+- **Version Indicator**: The running version is shown in the bottom-right
+  corner of the status bar (e.g. `v0.3.0`)
 - **Keyboard-Driven**: Vim-style navigation (j/k to navigate, Enter to select, Esc to go back)
 - **Terminal Native**: Runs directly in your terminal with no GUI dependencies
 - **URL Copying**: Quickly copy ClickUp web app URLs for any element (press `u`)

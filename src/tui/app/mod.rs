@@ -1737,7 +1737,7 @@ mod tests {
             })
             .unwrap();
         let buffer = terminal.backend().buffer().clone();
-        // Bottom row must show the status message only
+        // Bottom row carries the status message plus the version indicator
         let bottom: String = (0..80)
             .map(|x| buffer[(x, 23)].symbol().to_string())
             .collect();
@@ -1747,6 +1747,50 @@ mod tests {
             "no key hints on status row: {}",
             bottom
         );
+        assert!(
+            bottom
+                .trim_end()
+                .ends_with(concat!("v", env!("CARGO_PKG_VERSION"))),
+            "version indicator sits at the right edge: {}",
+            bottom
+        );
+    }
+
+    /// The version indicator is pinned to the last column of the status row and
+    /// states the crate version, so a release cannot ship an unlabelled binary.
+    #[test]
+    fn test_status_row_shows_version_in_bottom_right_corner() {
+        use ratatui::{backend::TestBackend, Terminal};
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let layout = crate::tui::layout::TuiLayout::new(frame.area());
+                layout.render_status(frame, "");
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+
+        let expected = format!("v{}", env!("CARGO_PKG_VERSION"));
+        let bottom: String = (0..80)
+            .map(|x| buffer[(x, 23)].symbol().to_string())
+            .collect();
+
+        assert!(
+            bottom.ends_with(&expected),
+            "bottom row must end with the version: {bottom:?}"
+        );
+        // The label is derived from `CARGO_PKG_VERSION`, i.e. Cargo.toml, so it
+        // tracks a version bump instead of needing a matching edit here.
+        assert!(expected.starts_with('v'), "label is prefixed: {expected:?}");
+
+        // Nothing is painted right of the label, i.e. it is flush right.
+        let label_start = 80 - expected.chars().count() as u16;
+        let painted: String = (label_start..80)
+            .map(|x| buffer[(x, 23)].symbol().to_string())
+            .collect();
+        assert_eq!(painted, expected, "version occupies the last columns");
     }
 
     #[test]
